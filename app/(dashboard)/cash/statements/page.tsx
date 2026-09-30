@@ -5,6 +5,10 @@ import {
   type BankStatementSummary,
 } from "@/components/cash/bank-statement-import";
 import { getActiveOrg } from "@/lib/auth";
+import {
+  loadGolomtConnectionRow,
+  toGolomtConnectionView,
+} from "@/lib/bank/golomt/connection";
 import { buildCashAccountCodeRules } from "@/lib/cash/account-code-validation";
 import { loadCashBalancesFast } from "@/lib/cash/period-balances";
 import type { CashAccountView } from "@/lib/cash/types";
@@ -13,14 +17,16 @@ import {
   bankStatements,
   cashAccounts,
   chartOfAccounts,
+  organizationProfile,
   segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { fmtDateTimeUb } from "@/lib/format/datetime";
+import { roleAtLeast } from "@/lib/permissions";
 
 export default async function BankStatementsPage() {
-  const { orgId } = await getActiveOrg();
+  const { orgId, role } = await getActiveOrg();
 
   const [
     accounts,
@@ -28,6 +34,8 @@ export default async function BankStatementsPage() {
     configs,
     values,
     statements,
+    golomtRow,
+    profile,
   ] = await Promise.all([
     db.query.cashAccounts.findMany({
       where: eq(cashAccounts.organizationId, orgId),
@@ -54,6 +62,11 @@ export default async function BankStatementsPage() {
       where: eq(bankStatements.organizationId, orgId),
       with: { cashAccount: true },
       orderBy: [desc(bankStatements.createdAt)],
+    }),
+    loadGolomtConnectionRow(orgId),
+    db.query.organizationProfile.findFirst({
+      where: eq(organizationProfile.organizationId, orgId),
+      columns: { registerNo: true },
     }),
   ]);
 
@@ -121,6 +134,12 @@ export default async function BankStatementsPage() {
       segmentOptions={segmentOptions}
       defaultSegments={defaultSegments}
       statements={statementViews}
+      golomt={{
+        // Нууц утга client руу ХЭЗЭЭ Ч очихгүй — зөвхөн view.
+        connection: golomtRow ? toGolomtConnectionView(golomtRow) : null,
+        defaultRegisterNo: profile?.registerNo ?? "",
+        canManage: roleAtLeast(role, "admin"),
+      }}
     />
   );
 }

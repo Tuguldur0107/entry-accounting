@@ -41,6 +41,7 @@ import {
   segmentValues,
 } from "@/lib/db/schema";
 import { matchCounterpartyByName } from "@/lib/cash/list-columns";
+import { loadImportedExternalRefs } from "@/lib/cash/statement-external-refs";
 
 
 export type SavePayload = ParsedBankStatement & {
@@ -97,6 +98,21 @@ export async function saveBankStatement(
       ]);
     if (!cashAccount) throw new Error("Идэвхтэй банкны Cash данс олдсонгүй");
     if (duplicate) throw new Error("Энэ хуулга өмнө нь импортлогдсон байна");
+
+    // Банкны API-аас татсан мөр (externalRef) — огнооны муж давхцсан татал
+    // ижил гүйлгээг GL-д ДАХИН бичихгүй.
+    const externalRefs = payload.rows
+      .map((row) => row.externalRef ?? "")
+      .filter(Boolean);
+    if (new Set(externalRefs).size !== externalRefs.length)
+      throw new Error("Хуулгад ижил гүйлгээ давхар орсон байна");
+    if (externalRefs.length > 0) {
+      const imported = await loadImportedExternalRefs(orgId, externalRefs);
+      if (imported.size > 0)
+        throw new Error(
+          `${imported.size} гүйлгээ өмнө нь импортлогдсон байна — хуулгыг банкнаас дахин татна уу`
+        );
+    }
 
     const accountCodeRules = buildCashAccountCodeRules(
       configs,
@@ -742,6 +758,7 @@ export async function saveBankStatement(
         debitAccountNumber: row.debitAccountNumber,
         creditAccountNumber: row.creditAccountNumber,
         rawData: JSON.stringify(row.rawData),
+        externalRef: row.externalRef || null,
         cashDocumentId: row.cashDocumentId,
         voucherId: row.voucherId,
       }));

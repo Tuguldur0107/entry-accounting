@@ -36,6 +36,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { FilterChips } from "@/components/ui/tabs";
+import {
+  GolomtConnectionDialog,
+  GolomtFetchDialog,
+} from "@/components/cash/golomt-dialogs";
+import {
+  isGolomtCashAccount,
+  type GolomtConnectionView,
+} from "@/lib/bank/golomt/constants";
 import type {
   ParsedBankStatement,
   ParsedBankStatementRow,
@@ -65,6 +73,7 @@ import {
 import { AccountSegmentEditor } from "@/lib/grid/editors/AccountSegmentEditor";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { openCashDocPanel } from "@/lib/store/panel-store";
+import { feedback } from "@/lib/ui/feedback";
 import { cn } from "@/lib/utils";
 
 export type BankStatementSummary = {
@@ -86,6 +95,13 @@ interface Props {
   segmentOptions: Record<number, SegOption[]>;
   defaultSegments: Record<number, string>;
   statements: BankStatementSummary[];
+  /** Голомт банкны API (docs/dev/bank-api.md) — null бол товчнууд харагдахгүй. */
+  golomt?: {
+    connection: GolomtConnectionView | null;
+    defaultRegisterNo: string;
+    /** admin+ — холболтын тохиргоог засна. */
+    canManage: boolean;
+  } | null;
 }
 
 type AssignmentSide = "debit" | "credit";
@@ -135,6 +151,7 @@ export function BankStatementImport({
   segmentOptions,
   defaultSegments,
   statements,
+  golomt,
 }: Props) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -158,6 +175,11 @@ export function BankStatementImport({
   const [linesStatement, setLinesStatement] =
     useState<BankStatementSummary | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [golomtConnection, setGolomtConnection] = useState(
+    golomt?.connection ?? null
+  );
+  const [golomtSettingsOpen, setGolomtSettingsOpen] = useState(false);
+  const [golomtFetchOpen, setGolomtFetchOpen] = useState(false);
 
   const cashAccount = accounts.find((account) => account.id === cashAccountId);
   const [triageFilter, setTriageFilter] = useState<
@@ -786,6 +808,90 @@ export function BankStatementImport({
     gridRef.current?.api?.setGridOption("quickFilterText", value);
   }
 
+  // Файлаас (parse) эсвэл Голомтын API-аас ирсэн хуулгыг НЭГ хэлбэрээр
+  // хүснэгтэд ачаална: банкны тал = сонгосон данс, саналын лавлах фонд.
+  function applyParsedStatement(
+    result: ParsedBankStatement,
+    cashAccount: CashAccountView
+  ) {
+    const cashCode = buildSegCode(
+      { ...defaultSegments, 3: cashAccount.glAccountNumber },
+      activeSegIds,
+      defaultSegments
+    );
+    const blankCode = emptyAccountCode(activeSegIds, defaultSegments);
+    const normalizedRows = result.rows.map((row) => ({
+      ...row,
+      exchangeRate:
+        cashAccount.currency === "MNT" ? 1 : row.exchangeRate,
+      baseAmount:
+        cashAccount.currency === "MNT"
+          ? row.income || row.expense
+          : row.baseAmount ??
+            (row.exchangeRate
+              ? Math.round(
+                  (row.income || row.expense) * row.exchangeRate * 100
+                ) / 100
+              : null),
+      debitAccountNumber: row.income > 0 ? cashCode : blankCode,
+      creditAccountNumber: row.expense > 0 ? cashCode : blankCode,
+    }));
+    setParsed(result);
+    setRows(normalizedRows);
+    setSelectedCount(0);
+    // Өмнөх хуулгын chip шүүлт үлдвэл шинэ мөрүүд далдлагдана.
+    setTriageFilter("all");
+    applyQuickFilter("");
+    // Саналын лавлах дата (нээлттэй нэхэмжлэх + түүхэн загвар + П8
+    // дүрмүүд) — фонд ачаална; амжилтгүй бол саналгүйгээр үргэлжилнэ.
+    void fetch("/api/cash/statements/suggestions")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: (ImportContext & { error?: string }) | null) => {
+        if (!data || data.error) return;
+        setMatchContext(data);
+        // «Шууд бөглөх» дүрэм уншигдмагц хэрэгжинэ — хэрэглэгч
+        // хадгалахаас өмнө хянаж засна (§9). Аль хэдийн бөглөгдсөн
+        // (хэрэглэгчийн засварласан) талыг дарж бичихгүй.
+        const autoRules = (data.rules ?? []).filter(
+          (rule) => rule.mode === "auto"
+        );
+        if (autoRules.length === 0) return;
+        const hits = new Map(
+          result.rows.flatMap((row) => {
+            const rule = firstMatchingRule(row, autoRules);
+            return rule ? [[row.id, rule] as const] : [];
+          })
+        );
+        if (hits.size === 0) return;
+        setRows((current) =>
+          current.map((row) => {
+            const rule = hits.get(row.id);
+            if (!rule) return row;
+            const counterField =
+              row.income > 0
+                ? ("creditAccountNumber" as const)
+                : ("debitAccountNumber" as const);
+            if (row[counterField] !== blankCode) return row;
+            const suggestion = toRuleSuggestion(rule);
+            const code = suggestionCode(suggestion);
+            if (!code) return row;
+            return patchRowWithSuggestion(row, suggestion, code);
+          })
+        );
+      })
+      .catch(() => {});
+  }
+
+  function loadGolomtStatement(result: ParsedBankStatement, skipped: number) {
+    if (!cashAccount) return;
+    setError("");
+    setMatchContext(null);
+    applyParsedStatement(result, cashAccount);
+    feedback.saved(
+      `Голомтоос ${result.rows.length} гүйлгээ татлаа${skipped ? ` (${skipped} өмнө импортлогдсон тул алгасав)` : ""} — данс оноогоод хадгална уу`
+    );
+  }
+
   async function parseFile(file: File) {
     if (!cashAccount) {
       setError("Эхлээд банкны мөнгөн хөрөнгийн данс сонгоно уу");
@@ -809,72 +915,7 @@ export function BankStatementImport({
         if (!response.ok || "error" in result)
           throw new Error("error" in result ? result.error : "Parse алдаа");
 
-        const cashCode = buildSegCode(
-          { ...defaultSegments, 3: cashAccount.glAccountNumber },
-          activeSegIds,
-          defaultSegments
-        );
-        const blankCode = emptyAccountCode(activeSegIds, defaultSegments);
-        const normalizedRows = result.rows.map((row) => ({
-          ...row,
-          exchangeRate:
-            cashAccount.currency === "MNT" ? 1 : row.exchangeRate,
-          baseAmount:
-            cashAccount.currency === "MNT"
-              ? row.income || row.expense
-              : row.baseAmount ??
-                (row.exchangeRate
-                  ? Math.round(
-                      (row.income || row.expense) * row.exchangeRate * 100
-                    ) / 100
-                  : null),
-          debitAccountNumber: row.income > 0 ? cashCode : blankCode,
-          creditAccountNumber: row.expense > 0 ? cashCode : blankCode,
-        }));
-        setParsed(result);
-        setRows(normalizedRows);
-        setSelectedCount(0);
-        // Өмнөх хуулгын chip шүүлт үлдвэл шинэ мөрүүд далдлагдана.
-        setTriageFilter("all");
-        applyQuickFilter("");
-        // Саналын лавлах дата (нээлттэй нэхэмжлэх + түүхэн загвар + П8
-        // дүрмүүд) — фонд ачаална; амжилтгүй бол саналгүйгээр үргэлжилнэ.
-        void fetch("/api/cash/statements/suggestions")
-          .then((response) => (response.ok ? response.json() : null))
-          .then((data: (ImportContext & { error?: string }) | null) => {
-            if (!data || data.error) return;
-            setMatchContext(data);
-            // «Шууд бөглөх» дүрэм уншигдмагц хэрэгжинэ — хэрэглэгч
-            // хадгалахаас өмнө хянаж засна (§9). Аль хэдийн бөглөгдсөн
-            // (хэрэглэгчийн засварласан) талыг дарж бичихгүй.
-            const autoRules = (data.rules ?? []).filter(
-              (rule) => rule.mode === "auto"
-            );
-            if (autoRules.length === 0) return;
-            const hits = new Map(
-              result.rows.flatMap((row) => {
-                const rule = firstMatchingRule(row, autoRules);
-                return rule ? [[row.id, rule] as const] : [];
-              })
-            );
-            if (hits.size === 0) return;
-            setRows((current) =>
-              current.map((row) => {
-                const rule = hits.get(row.id);
-                if (!rule) return row;
-                const counterField =
-                  row.income > 0
-                    ? ("creditAccountNumber" as const)
-                    : ("debitAccountNumber" as const);
-                if (row[counterField] !== blankCode) return row;
-                const suggestion = toRuleSuggestion(rule);
-                const code = suggestionCode(suggestion);
-                if (!code) return row;
-                return patchRowWithSuggestion(row, suggestion, code);
-              })
-            );
-          })
-          .catch(() => {});
+        applyParsedStatement(result, cashAccount);
       } catch (caught) {
         setError(
           caught instanceof Error ? caught.message : "Хуулга уншиж чадсангүй"
@@ -1089,7 +1130,8 @@ export function BankStatementImport({
               Дансны хуулга импорт
             </h1>
             <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-              CSV/XLSX хуулгыг шалгаж, DR/CR данс оноосны дараа GL-д бичнэ.
+              CSV/XLSX хуулгыг (эсвэл Голомтоос шууд татаж) шалгаад, DR/CR
+              данс оноосны дараа GL-д бичнэ.
             </p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
@@ -1163,6 +1205,33 @@ export function BankStatementImport({
               <Icon name="upload" />
               Хуулга сонгох
             </Button>
+            {golomtConnection?.isEnabled && (
+              <Button
+                variant="outline"
+                onClick={() => setGolomtFetchOpen(true)}
+                disabled={
+                  !cashAccount || !isGolomtCashAccount(cashAccount) || isPending
+                }
+                title={
+                  cashAccount && !isGolomtCashAccount(cashAccount)
+                    ? "Сонгосон данс Голомтын данс биш (банк, дансны дугаараа шалгана уу)"
+                    : undefined
+                }
+              >
+                <Icon name="bank" />
+                Голомтоос татах
+              </Button>
+            )}
+            {golomt?.canManage && (
+              <Button
+                variant="outline"
+                className="h-8"
+                onClick={() => setGolomtSettingsOpen(true)}
+              >
+                <Icon name="key" size="sm" />
+                Голомт API
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1446,6 +1515,29 @@ export function BankStatementImport({
         draft={ruleDraft}
         onRulesChanged={refreshMatchContext}
       />
+
+      {/* Голомт банкны API — docs/dev/bank-api.md (ЗӨВХӨН унших) */}
+      {golomt?.canManage && golomtSettingsOpen && (
+        <GolomtConnectionDialog
+          open={golomtSettingsOpen}
+          onOpenChange={setGolomtSettingsOpen}
+          connection={golomtConnection}
+          defaultRegisterNo={golomt.defaultRegisterNo}
+          onChanged={(connection) => {
+            setGolomtConnection(connection);
+            router.refresh();
+          }}
+        />
+      )}
+      {golomtFetchOpen && cashAccount && (
+        <GolomtFetchDialog
+          open={golomtFetchOpen}
+          onOpenChange={setGolomtFetchOpen}
+          cashAccountId={cashAccount.id}
+          cashAccountLabel={`${cashAccount.name} · ${cashAccount.accountNumber ?? ""}`}
+          onFetched={loadGolomtStatement}
+        />
+      )}
     </div>
   );
 }

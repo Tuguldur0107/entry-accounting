@@ -21,6 +21,7 @@
 | Сар хаалтын wizard | ✅ | — |
 | Аудитын мөр (audit log) | ✅ | — |
 | Банкны хуулгын автомат тулгалт | ✅ | — |
+| Банкны API — Голомт OBI (хуулга татах, зөвхөн унших) | ✅ Фаз 1 (`lib/bank/golomt/`) | Хаан, ХХБ; автомат өдөр тутмын татлага; гүйлгээ (Фаз 2) |
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
@@ -384,6 +385,17 @@ POS `docs/pos/00-proposal.md` → `01-implementation-contract.md` (функци�
 - `lib/cash/exchange-rates.ts` `@/lib/db`-г import ХИЙХГҮЙ (client bundle)
 - `exchange_rates` нийтийн лавлах (organizationId-гүй, unique INDEX); FX
   тэгшитгэл хэрэглэгчийн сонгосон огноо + ханшийн баримттай хадгалагдана
+
+### 5f. Банкны API (Голомт OBI) — Фаз 1 ХЭРЭГЖСЭН
+
+Дэлгэрэнгүй: `docs/dev/bank-api.md`.
+
+- ЗӨВХӨН унших — гүйлгээ хийх түлхүүр (X-GOLOMT-KEY / TOTP) Entry-д ОРУУЛАХГҮЙ;
+  Фаз 2 нь тусдаа шийдвэр (maker/checker, AI эхлүүлэхгүй)
+- Нууц `bank_api_connections`-д `encryptSecret`-ээр, УТГА нь client/лог/аудит/тестэд
+  ХЭЗЭЭ Ч гарахгүй; хост ЗӨВХӨН `GOLOMT_API_BASE` (хэрэглэгч URL оруулахгүй)
+- Татсан хуулга GL-д ШУУД бичигдэхгүй — файлын импорттой НЭГ `saveBankStatement`
+  урсгал; давхардал `externalRef`-ээр (тусдаа импортын логик ХОРИОТОЙ)
 
 ### 5d–5e. Кредит нэхэмжлэл / дебит нэхэмжлэх, ECL нөөц — ХЭРЭГЖСЭН
 

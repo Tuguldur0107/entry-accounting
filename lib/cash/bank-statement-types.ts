@@ -26,6 +26,13 @@ export type ParsedBankStatementRow = {
    * түр дансны GL; гараар өөрчилбөл цуцлагдана.
    */
   ewalletSettlement?: EwalletSettlementRowInput | null;
+  /**
+   * Банкны API-аас татсан мөрийн давтагдашгүй түлхүүр (ж: Голомтын
+   * `golomt:<данс>:<tranId>:…`, lib/bank/golomt/statement.ts). Хадгалахад
+   * байгууллага дотор давхардал шалгана — огнооны муж давхцсан татал ижил
+   * гүйлгээг ДАХИН бичихгүй. Файлын импортод байхгүй.
+   */
+  externalRef?: string | null;
   rawData: Record<string, string>;
 };
 

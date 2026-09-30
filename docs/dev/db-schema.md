@@ -26,7 +26,13 @@ GL         journal_vouchers, journal_lines, document_counters
                journal_lines.debitFc / creditFc — баримтын ВАЛЮТ (§2b);
                MNT баримтад "MNT" / 1 / 0
 Cash       cash_accounts, cash_documents, bank_statements,
-           bank_statement_lines, cash_fx_revaluations
+           bank_statement_lines, cash_fx_revaluations, bank_api_connections
+             bank_api_connections — банкны API холболт (байгууллага × банк НЭГ
+               мөр; Фаз 1 Голомт, ЗӨВХӨН унших). Нууц нь `*_enc` (encryptSecret),
+               гүйлгээний TOTP түлхүүр хадгалахгүй — docs/dev/bank-api.md
+             bank_statement_lines.externalRef — банкны API-аас татсан мөрийн
+               түлхүүр (`golomt:<данс>:<tranId>:…`); байгууллага дотор давхардал
+               шалгана, файлын импортод null
              cash_documents.counterpartyId — харилцагчийн БҮРТГЭЛИЙН холбоос
                (задаргаа: код/РД + нэр); `counterparty` текст нь нэр (бүртгэлгүй
                харилцагчид ч бичигдэнэ). Холбох дараалал `resolveCashCounterparty`
