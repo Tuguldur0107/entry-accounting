@@ -65,7 +65,7 @@ jobs:
         run: npx eslint .
 
       - name: Нэгж тест (DB шаардахгүй)
-        run: npx tsx --test $(ls tests/*.test.ts | grep -v -e org-isolation -e fa-fx-tool-regressions -e delete-posted-guards -e ai-tools-flow -e procurement-flow -e ai-logging-isolation -e simulation-regressions -e credit-note-flow -e sim2-regressions -e opening-stock-flow -e po-short-close-flow -e arap-ecl-flow -e ewallet-settlement-flow -e payslip-email-flow -e trial-funnel-flow -e pos-city-tax-flow -e public-chat-flow -e qpay-late-payment-flow -e qpay-refund-flow -e qpay-arap-flow -e ar-reminders-flow -e ar-recurring-flow -e ar-statement-flow)
+        run: npx tsx --test $(ls tests/*.test.ts | grep -v -e org-isolation -e fa-fx-tool-regressions -e delete-posted-guards -e cost-entry-reversal -e ai-tools-flow -e procurement-flow -e ai-logging-isolation -e simulation-regressions -e credit-note-flow -e sim2-regressions -e opening-stock-flow -e po-short-close-flow -e arap-ecl-flow -e ewallet-settlement-flow -e payslip-email-flow -e trial-funnel-flow -e pos-city-tax-flow -e public-chat-flow -e qpay-late-payment-flow -e qpay-refund-flow -e qpay-arap-flow -e ar-reminders-flow -e ar-recurring-flow -e ar-statement-flow)
 
       # Railway-ийн deploy ЯГ энэ командаар build хийдэг. tsc нь client/server
       # хилийн алдааг ТАНИХГҮЙ: "use client" component нь server-only модуль
@@ -86,7 +86,7 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/entry_ci
           AUTH_SECRET: ci-only-auth-secret-not-used-in-production
-        run: npx tsx --test --test-concurrency=1 tests/org-isolation.test.ts tests/fa-fx-tool-regressions.test.ts tests/delete-posted-guards.test.ts tests/ai-tools-flow.test.ts tests/procurement-flow.test.ts tests/ai-logging-isolation.test.ts tests/simulation-regressions.test.ts tests/inventory-master-data-flow.test.ts tests/org-purge.test.ts tests/credit-note-flow.test.ts tests/sim2-regressions.test.ts tests/opening-stock-flow.test.ts tests/skills-plan-flow.test.ts tests/po-short-close-flow.test.ts tests/arap-ecl-flow.test.ts tests/ewallet-settlement-flow.test.ts tests/payslip-email-flow.test.ts tests/trial-funnel-flow.test.ts tests/pos-city-tax-flow.test.ts tests/public-chat-flow.test.ts tests/qpay-late-payment-flow.test.ts tests/qpay-refund-flow.test.ts tests/qpay-arap-flow.test.ts tests/ar-reminders-flow.test.ts tests/ar-recurring-flow.test.ts tests/ar-statement-flow.test.ts
+        run: npx tsx --test --test-concurrency=1 tests/org-isolation.test.ts tests/fa-fx-tool-regressions.test.ts tests/delete-posted-guards.test.ts tests/cost-entry-reversal.test.ts tests/ai-tools-flow.test.ts tests/procurement-flow.test.ts tests/ai-logging-isolation.test.ts tests/simulation-regressions.test.ts tests/inventory-master-data-flow.test.ts tests/org-purge.test.ts tests/credit-note-flow.test.ts tests/sim2-regressions.test.ts tests/opening-stock-flow.test.ts tests/skills-plan-flow.test.ts tests/po-short-close-flow.test.ts tests/arap-ecl-flow.test.ts tests/ewallet-settlement-flow.test.ts tests/payslip-email-flow.test.ts tests/trial-funnel-flow.test.ts tests/pos-city-tax-flow.test.ts tests/public-chat-flow.test.ts tests/qpay-late-payment-flow.test.ts tests/qpay-refund-flow.test.ts tests/qpay-arap-flow.test.ts tests/ar-reminders-flow.test.ts tests/ar-recurring-flow.test.ts tests/ar-statement-flow.test.ts
 
       - name: Хамаарлын аудит
         run: npm audit --audit-level=high

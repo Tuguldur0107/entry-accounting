@@ -162,7 +162,11 @@ block.
   draft entries); Excel import «Нээлтийн үлдэгдэл» on Бараа → Хөдөлгөөн
   (`openingStockSpec`).
 - `postCostEntryCore` uses the stored accounts for `opening` entries;
-  `reverseCostEntryCore` mirrors only the reversed entry's lines;
+  `reverseCostEntryCore` mirrors only the reversed entry's lines and marks a
+  shared voucher `reversed` only when its LAST posted entry is reversed (row lock
+  on the voucher); legacy vouchers already `reversed` by an earlier per-entry
+  reversal still let the remaining entries reverse, a GL-side full reversal
+  blocks it (DB test `tests/cost-entry-reversal.test.ts`);
   `postCostEntries` reports per-entry failures (it previously counted every id as
   posted). DB test `tests/opening-stock-flow.test.ts`.
 

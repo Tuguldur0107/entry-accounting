@@ -800,8 +800,14 @@ export async function reverseCostAllocation(input: {
     // Батлагдсан бичилт — эсрэг журналаар (reverseCostEntry өөрийн
     // транзакцтай, period guard-тай). Ноорог — дундажид нөлөөлөөгүй тул
     // шууд устгана (postedLandedCosts зөвхөн posted-ыг уншдаг).
-    for (const entry of entries)
-      if (entry.status === "posted") await reverseCostEntry(entry.id);
+    // Алдааг ЗАЛГИХГҮЙ — эс бөгөөс хуваарилалт устаж капитализаци GL-д
+    // баримтгүй үлдэнэ. Өмнө нь буцсан бичилт дахин оролдоход алгасагдана.
+    for (const entry of entries) {
+      if (entry.status !== "posted") continue;
+      const reversed = await reverseCostEntry(entry.id);
+      if (reversed.error)
+        return { ok: false, code: "validation", message: reversed.error };
+    }
 
     const draftIds = entries
       .filter((entry) => entry.status === "draft")

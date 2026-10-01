@@ -743,6 +743,47 @@ async function reverseCostEntryCore(id: string) {
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
     await assertPeriodOpenInTx(tx, orgId, entry.date);
+    // Журналын мөрийг түгжинэ — нэг багцын бичилтүүдийг зэрэг буцаахад
+    // «сүүлийнх нь» хэн болохыг хоёулаа буруу харахгүй.
+    const [locked] = await tx
+      .select({ status: journalVouchers.status })
+      .from(journalVouchers)
+      .where(eq(journalVouchers.id, voucher.id))
+      .for("update");
+    if (!locked) throw new Error("Холбоотой GL журнал олдсонгүй");
+    if (locked.status !== "posted" && locked.status !== "reversed")
+      throw new Error("Холбоотой GL журнал батлагдаагүй байна");
+    if (locked.status === "reversed") {
+      // Хуучин өгөгдөл: багцын эхний бичилтийн буцаалт журналыг бүхэлд нь
+      // «reversed» болгодог байв. Буцаалт бүр бичилтийнх (reversalVoucherId)
+      // бол ЭНЭ бичилтийн мөр GL-д хэвээр — буцааж болно. Бичилтэд
+      // хамааралгүй буцаалт (GL талын бүтэн буцаалт) байвал давхар хасна.
+      const reversals = await tx
+        .select({ id: journalVouchers.id })
+        .from(journalVouchers)
+        .where(eq(journalVouchers.reversalOfVoucherId, voucher.id));
+      const owned = reversals.length
+        ? await tx
+            .select({ reversalVoucherId: costEntries.reversalVoucherId })
+            .from(costEntries)
+            .where(
+              inArray(
+                costEntries.reversalVoucherId,
+                reversals.map((row) => row.id)
+              )
+            )
+        : [];
+      const ownedIds = new Set(owned.map((row) => row.reversalVoucherId));
+      const hasOwnLines = voucher.lines.some((line) => line.costEntryId === entry.id);
+      if (
+        !hasOwnLines ||
+        reversals.length === 0 ||
+        reversals.some((row) => !ownedIds.has(row.id))
+      )
+        throw new Error(
+          "GL журнал аль хэдийн буцаагдсан байна — бичилтийн төлвийг шалгана уу"
+        );
+    }
     const [claimed] = await tx
       .update(costEntries)
       .set({ status: "reversed" })
@@ -795,23 +836,24 @@ async function reverseCostEntryCore(id: string) {
       }))
     );
 
-    // Воучерийг claim хийж буцаана: GL талаас (unpost) аль хэдийн
-    // буцаагдсан бол ХОЁР ДАХЬ буцаалт бичихгүй — алдаа шидэж транзакц
-    // бүхэлдээ буцна.
-    const [voucherClaimed] = await tx
-      .update(journalVouchers)
-      .set({ status: "reversed" })
+    // Журналыг «reversed» болгох нь ЗӨВХӨН түүний сүүлийн идэвхтэй бичилт
+    // буцахад — багцын (нээлтийн үлдэгдэл) бусад бичилтийн мөр GL-д хэвээр
+    // тул журнал батлагдсан хэвээр үлдэнэ, тэдгээрийг дараа нь тусад нь буцаана.
+    const [remaining] = await tx
+      .select({ id: costEntries.id })
+      .from(costEntries)
       .where(
         and(
-          eq(journalVouchers.id, voucher.id),
-          eq(journalVouchers.status, "posted")
+          eq(costEntries.voucherId, voucher.id),
+          eq(costEntries.status, "posted")
         )
       )
-      .returning({ id: journalVouchers.id });
-    if (!voucherClaimed)
-      throw new Error(
-        "GL журнал аль хэдийн буцаагдсан байна — бичилтийн төлвийг шалгана уу"
-      );
+      .limit(1);
+    if (!remaining && locked.status === "posted")
+      await tx
+        .update(journalVouchers)
+        .set({ status: "reversed" })
+        .where(eq(journalVouchers.id, voucher.id));
 
     await tx
       .update(costEntries)
