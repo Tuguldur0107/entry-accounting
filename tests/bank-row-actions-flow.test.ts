@@ -1,5 +1,6 @@
 // Банкны хуулгын мөрийн бүртгэлийн төрөл (docs/dev/arap.md §5l) — DB урсгал:
-// урьдчилж орсон орлого / урьдчилж төлсөн / өглөг үүсгэж зардалд (НӨАТ-тэй),
+// урьдчилж орсон орлого / урьдчилж төлсөн / авлага үүсгэж борлуулалтад /
+// өглөг үүсгэж зардалд (НӨАТ-тэй),
 // урьдчилгааг нэхэмжлэхтэй суутгах + буцаах, тооцооны акт.
 // DATABASE_URL байхгүй бол алгасна (CI-ийн DB алхамд ажиллана).
 
@@ -28,7 +29,9 @@ import { db } from "../lib/db";
 import {
   arApDocumentLines,
   arApDocuments,
+  arApSettlements,
   arapAdvanceApplications,
+  cashDocuments,
   counterparties,
   journalLines,
   memberships,
@@ -139,6 +142,68 @@ test("import_bank_statement: урьдчилж орсон, урьдчилж тө�
   assert.match(reconcile, /OK Голомт банк: 390,000/);
 });
 
+test("import_bank_statement: авлага үүсгэж борлуулалтад (НӨАТ) — нэхэмжлэх үүсэж тэр даруй хаагдана", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const text = ok(
+    await tool("import_bank_statement", {
+      cashAccount: "Голомт банк",
+      statementRef: `bra-${STAMP}-sale`,
+      rows: [
+        { date: "2026-09-06", description: "Бэлэн борлуулалт", counterparty: "Номин Худалдан авагч", income: 220_000, counterGlAccount: "51100000", rowAction: "create_ar_invoice" },
+      ],
+    })
+  ).resultText;
+  assert.match(text, /1 борлуулалтын нэхэмжлэх үүсэж тэр даруй хаагдсан/);
+
+  // Нэхэмжлэх: батлагдсан, бүтэн хаагдсан; Dr авлага 220,000 / Cr орлого 200,000 + Cr НӨАТ 20,000.
+  const sale = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.description, "Бэлэн борлуулалт")),
+  });
+  assert.ok(sale);
+  assert.equal(sale.documentType, "ar_invoice");
+  assert.equal(sale.status, "paid");
+  assert.equal(Number(sale.paidAmount), 220_000);
+  assert.equal(sale.counterpartyId, await counterpartyId("Номин Худалдан авагч"));
+  const saleLines = await db.query.arApDocumentLines.findMany({ where: eq(arApDocumentLines.documentId, sale.id) });
+  assert.deepEqual(saleLines.map((line) => [main(line.accountNumber), Number(line.amount)]).sort(), [
+    ["31410000", 20_000],
+    ["51100000", 200_000],
+  ]);
+  const invoiceLines = await db.query.journalLines.findMany({ where: eq(journalLines.voucherId, sale.voucherId!) });
+  assert.deepEqual(
+    invoiceLines.map((line) => [main(line.accountNumber), Number(line.debit), Number(line.credit)]).sort(),
+    [[sale.controlAccountNumber, 220_000, 0], ["31410000", 0, 20_000], ["51100000", 0, 200_000]].sort()
+  );
+
+  // Банкны мөр нэхэмжлэхийг хаана: Dr банк / Cr авлага — авлагын үлдэгдэл 0.
+  const settlement = await db.query.arApSettlements.findFirst({
+    where: and(eq(arApSettlements.organizationId, orgId), eq(arApSettlements.documentId, sale.id)),
+  });
+  assert.ok(settlement);
+  const receipt = await db.query.cashDocuments.findFirst({ where: eq(cashDocuments.id, settlement.cashDocumentId!) });
+  assert.equal(receipt?.arApDocumentId, sale.id);
+  const receiptLines = await db.query.journalLines.findMany({ where: eq(journalLines.voucherId, receipt!.voucherId!) });
+  assert.deepEqual(
+    receiptLines.map((line) => [main(line.accountNumber), Number(line.debit), Number(line.credit)]).sort(),
+    [["11000001", 220_000, 0], [sale.controlAccountNumber, 0, 220_000]].sort()
+  );
+
+  // Нийлүүлэгч төрлийн харилцагчид борлуулалт бичигдэхгүй.
+  const wrongParty = await tool("import_bank_statement", {
+    cashAccount: "Голомт банк",
+    statementRef: `bra-${STAMP}-sale-bad`,
+    rows: [{ date: "2026-09-06", counterparty: "Түрээслүүлэгч ХХК", income: 1_000, counterGlAccount: "51100000", rowAction: "create_ar_invoice" }],
+  });
+  assert.match(wrongParty.resultText, /^Алдаа/);
+  // Харьцах тал нь авлага өөрөө байж болохгүй (орлогын данс заавал).
+  const controlCounter = await tool("import_bank_statement", {
+    cashAccount: "Голомт банк",
+    statementRef: `bra-${STAMP}-sale-bad2`,
+    rows: [{ date: "2026-09-06", counterparty: "Номин Худалдан авагч", income: 1_000, counterGlAccount: sale.controlAccountNumber, rowAction: "create_ar_invoice" }],
+  });
+  assert.match(controlCounter.resultText, /орлогын данс байх ёстой/);
+});
+
 test("rowAction-ийн буруу хэрэглээ — харилцагчгүй, буруу чиглэл", { skip: !DB_READY }, async () => {
   await setupOrg();
   const missing = await tool("import_bank_statement", {
@@ -167,7 +232,7 @@ test("apply_advance_to_invoice → нэхэмжлэх хаагдана; буца
     })
   );
   const invoice = await db.query.arApDocuments.findFirst({
-    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.documentType, "ar_invoice")),
+    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.description, "Бараа нийлүүлэлт")),
   });
   assert.ok(invoice);
   assert.equal(invoice.status, "posted");

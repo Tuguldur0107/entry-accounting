@@ -110,11 +110,17 @@ export function resolveAdvanceApplyAmount(input: {
 
 // ── Банкны хуулгын мөрийн бүртгэлийн төрөл (lib/cash/import-statement.ts) ────
 
-export const BANK_ROW_ACTIONS = ["advance_received", "prepaid_paid", "create_ap_bill"] as const;
+export const BANK_ROW_ACTIONS = [
+  "advance_received",
+  "create_ar_invoice",
+  "prepaid_paid",
+  "create_ap_bill",
+] as const;
 export type BankRowAction = (typeof BANK_ROW_ACTIONS)[number];
 
 export const BANK_ROW_ACTION_LABELS: Record<BankRowAction, string> = {
   advance_received: "Урьдчилж орсон орлого",
+  create_ar_invoice: "Авлага үүсгэж борлуулалтад",
   prepaid_paid: "Урьдчилж төлсөн",
   create_ap_bill: "Өглөг үүсгэж зардалд",
 };
@@ -125,7 +131,20 @@ export function isBankRowAction(value: unknown): value is BankRowAction {
 
 /** Үйлдэл аль чиглэлийн мөрөнд хамаарах — орлого / зарлага. */
 export function bankRowActionDirection(action: BankRowAction): "income" | "expense" {
-  return action === "advance_received" ? "income" : "expense";
+  return action === "advance_received" || action === "create_ar_invoice" ? "income" : "expense";
+}
+
+/**
+ * Мөр нэхэмжлэх ҮҮСГЭЖ тэр даруй хаах үйлдэл эсэх — тийм бол нэхэмжлэхийн
+ * төрөл: create_ar_invoice → борлуулалтын нэхэмжлэх (Cr орлого), create_ap_bill →
+ * өглөгийн нэхэмжлэх (Dr зардал). Харьцах тал нь орлого/зардал хэвээр үлдэнэ.
+ */
+export function bankRowActionInvoiceType(
+  action: BankRowAction | null | undefined
+): "ar_invoice" | "ap_bill" | null {
+  if (action === "create_ar_invoice") return "ar_invoice";
+  if (action === "create_ap_bill") return "ap_bill";
+  return null;
 }
 
 /** Урьдчилгааны үйлдлийн тал (өглөг үүсгэх нь урьдчилгаа биш → null). */

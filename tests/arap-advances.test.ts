@@ -8,6 +8,7 @@ import {
   advanceSideOf,
   bankRowActionAdvanceSide,
   bankRowActionDirection,
+  bankRowActionInvoiceType,
   computeAdvanceBalances,
   isBankRowAction,
   resolveAdvanceApplyAmount,
@@ -78,6 +79,14 @@ test("bank row actions: direction, advance side, validation", () => {
   assert.equal(bankRowActionAdvanceSide("advance_received"), "customer");
   assert.equal(bankRowActionAdvanceSide("prepaid_paid"), "supplier");
   assert.equal(bankRowActionAdvanceSide("create_ap_bill"), null);
+  // Борлуулалт: орлогын мөр, урьдчилгаа биш, борлуулалтын нэхэмжлэх үүсгэнэ.
+  assert.equal(isBankRowAction("create_ar_invoice"), true);
+  assert.equal(bankRowActionDirection("create_ar_invoice"), "income");
+  assert.equal(bankRowActionAdvanceSide("create_ar_invoice"), null);
+  assert.equal(bankRowActionInvoiceType("create_ar_invoice"), "ar_invoice");
+  assert.equal(bankRowActionInvoiceType("create_ap_bill"), "ap_bill");
+  assert.equal(bankRowActionInvoiceType("advance_received"), null);
+  assert.equal(bankRowActionInvoiceType(null), null);
 });
 
 test("inclusive VAT split is 10/110 and sums back to the gross", () => {

@@ -2822,7 +2822,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "import_bank_statement",
     description:
-      "Банкны хуулгын мөрүүдийг импортлон мөр бүрд кассын баримт + GL журнал ШУУД бичнэ (вэбийн хуулга импорттой нэг зам). Мөр бүрд: (1) энгийн — counterGlAccount; (2) авлага/өглөг хаах — settleInvoice (нээлттэй нэхэмжлэх); (3) rowAction=advance_received — урьдчилж орсон орлого (орлогын мөр, харьцах тал = урьдчилгааны өр); (4) rowAction=prepaid_paid — урьдчилж төлсөн зардал/урьдчилгаа (зарлагын мөр); (5) rowAction=create_ap_bill — өглөгийн нэхэмжлэх үүсгэж (Dr counterGlAccount = зардал, НӨАТ төлөгч бол 10/110 НӨАТ оролт) энэ мөрөөр тэр даруй хаана. rowAction-тай мөрд counterparty = БҮРТГЭЛТЭЙ харилцагчийн нэр ЗААВАЛ. Урьдчилгааг дараа нь apply_advance_to_invoice-оор нэхэмжлэхтэй суутгана. Ижил мөрүүдийг дахин импортлохоос hash-аар хамгаална. Зөвхөн 'Шууд бичих' горимд, мөр бүр батлах хязгаар дотор ([AMOUNT_LIMIT_EXCEEDED] бол юу ч бичигдэхгүй — том мөрийг вэбээр), батлах эрхтэй (cash:post), хаагдсан тайлант үед бичихгүй; max 500 мөр.",
+      "Банкны хуулгын мөрүүдийг импортлон мөр бүрд кассын баримт + GL журнал ШУУД бичнэ (вэбийн хуулга импорттой нэг зам). Мөр бүрд: (1) энгийн — counterGlAccount; (2) авлага/өглөг хаах — settleInvoice (нээлттэй нэхэмжлэх); (3) rowAction=advance_received — урьдчилж орсон орлого (орлогын мөр, харьцах тал = урьдчилгааны өр); (4) rowAction=prepaid_paid — урьдчилж төлсөн зардал/урьдчилгаа (зарлагын мөр); (5) rowAction=create_ar_invoice — борлуулалт: авлагын нэхэмжлэх үүсгэж (Dr авлага / Cr counterGlAccount = орлого, НӨАТ төлөгч бол 10/110 НӨАТ гаралт) энэ орлогын мөрөөр тэр даруй хаана (Dr банк / Cr авлага); (6) rowAction=create_ap_bill — өглөгийн нэхэмжлэх үүсгэж (Dr counterGlAccount = зардал, НӨАТ төлөгч бол 10/110 НӨАТ оролт) энэ мөрөөр тэр даруй хаана. rowAction-тай мөрд counterparty = БҮРТГЭЛТЭЙ харилцагчийн нэр ЗААВАЛ. Урьдчилгааг дараа нь apply_advance_to_invoice-оор нэхэмжлэхтэй суутгана. Ижил мөрүүдийг дахин импортлохоос hash-аар хамгаална. Зөвхөн 'Шууд бичих' горимд, мөр бүр батлах хязгаар дотор ([AMOUNT_LIMIT_EXCEEDED] бол юу ч бичигдэхгүй — том мөрийг вэбээр), батлах эрхтэй (cash:post), хаагдсан тайлант үед бичихгүй; max 500 мөр.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2851,7 +2851,7 @@ export const AI_TOOLS: AiToolDef[] = [
               counterGlAccount: {
                 type: "string",
                 description:
-                  "Харьцах GL данс (8 оронтой) — орлогод кредитлэгдэх/зарлагад дебетлэгдэх тал. create_ap_bill-д ЗАРДЛЫН данс. ewalletSettlement=true эсвэл advance_received / prepaid_paid бол хэрэггүй (түр данс / урьдчилгааны дансны тохиргооноос автоматаар)",
+                  "Харьцах GL данс (8 оронтой) — орлогод кредитлэгдэх/зарлагад дебетлэгдэх тал. create_ar_invoice-д ОРЛОГЫН данс, create_ap_bill-д ЗАРДЛЫН данс. ewalletSettlement=true эсвэл advance_received / prepaid_paid бол хэрэггүй (түр данс / урьдчилгааны дансны тохиргооноос автоматаар)",
               },
               exchangeRate: { type: "number", description: "Валютын данс бол ханш" },
               settleInvoice: {
@@ -2860,9 +2860,9 @@ export const AI_TOOLS: AiToolDef[] = [
               },
               rowAction: {
                 type: "string",
-                enum: ["advance_received", "prepaid_paid", "create_ap_bill"],
+                enum: ["advance_received", "create_ar_invoice", "prepaid_paid", "create_ap_bill"],
                 description:
-                  "Мөрийн бүртгэлийн төрөл: advance_received (урьдчилж орсон орлого, орлогын мөр), prepaid_paid (урьдчилж төлсөн, зарлагын мөр), create_ap_bill (өглөг үүсгэж зардалд, зарлагын мөр). settleInvoice / ewalletSettlement-тэй зэрэг БОЛОХГҮЙ",
+                  "Мөрийн бүртгэлийн төрөл: advance_received (урьдчилж орсон орлого, орлогын мөр), create_ar_invoice (авлага үүсгэж борлуулалтад, орлогын мөр), prepaid_paid (урьдчилж төлсөн, зарлагын мөр), create_ap_bill (өглөг үүсгэж зардалд, зарлагын мөр). settleInvoice / ewalletSettlement-тэй зэрэг БОЛОХГҮЙ",
               },
               ewalletSettlement: {
                 type: "boolean",
@@ -10297,7 +10297,7 @@ async function runImportBankStatement(
   assertPostMode(mode);
   for (const [index, row] of input.rows.entries()) {
     if (row.rowAction != null && row.rowAction !== "" && !isBankRowAction(row.rowAction))
-      throw codedError("INVALID_INPUT", `rows[${index}].rowAction: advance_received | prepaid_paid | create_ap_bill`);
+      throw codedError("INVALID_INPUT", `rows[${index}].rowAction: advance_received | create_ar_invoice | prepaid_paid | create_ap_bill`);
     const advanceRow = isBankRowAction(row.rowAction) && bankRowActionAdvanceSide(row.rowAction);
     if (!row.ewalletSettlement && !advanceRow && !row.counterGlAccount?.trim())
       throw codedError(
@@ -10514,6 +10514,7 @@ async function runImportBankStatement(
 
   const settled = parsedRows.filter((row) => row.settleInvoiceId).length;
   const ewalletSettled = parsedRows.filter((row) => row.ewalletSettlement);
+  const sales = parsedRows.filter((row) => row.rowAction === "create_ar_invoice").length;
   const bills = parsedRows.filter((row) => row.rowAction === "create_ap_bill").length;
   const advances = parsedRows.filter(
     (row) => row.rowAction === "advance_received" || row.rowAction === "prepaid_paid"
@@ -10524,9 +10525,15 @@ async function runImportBankStatement(
     resultText: [
       `Банкны хуулга импортлогдлоо: ${account.name}, ${result.rowCount} мөр (орлого ${fmt(totalIncome)}₮ / зарлага ${fmt(totalExpense)}₮)`,
       `Мөр бүрд кассын баримт + GL журнал бичигдсэн${settled > 0 ? `; ${settled} мөр нэхэмжлэхтэй холбогдож төлсөн дүн шинэчлэгдсэн` : ""}${ewalletSettled.length ? `; ${ewalletSettled.length} э-хэтэвчийн settlement — түр данс → банк шилжүүлэг нийт ${fmt(ewalletSettled.reduce((sum, row) => sum + row.ewalletSettlement!.grossAmount, 0))}₮, шимтгэл ${fmt(ewalletSettled.reduce((sum, row) => sum + row.ewalletSettlement!.feeAmount, 0))}₮` : ""}.`,
-      ...(bills || advances
+      ...(sales || bills || advances
         ? [
-            `${bills ? `${bills} өглөгийн нэхэмжлэх үүсэж тэр даруй хаагдсан (зардал + НӨАТ төлөгч бол НӨАТ оролт)` : ""}${bills && advances ? "; " : ""}${advances ? `${advances} урьдчилгаа бүртгэгдсэн — apply_advance_to_invoice-оор нэхэмжлэхтэй суутгана` : ""}.`,
+            `${[
+              sales ? `${sales} борлуулалтын нэхэмжлэх үүсэж тэр даруй хаагдсан (орлого + НӨАТ төлөгч бол НӨАТ гаралт)` : "",
+              bills ? `${bills} өглөгийн нэхэмжлэх үүсэж тэр даруй хаагдсан (зардал + НӨАТ төлөгч бол НӨАТ оролт)` : "",
+              advances ? `${advances} урьдчилгаа бүртгэгдсэн — apply_advance_to_invoice-оор нэхэмжлэхтэй суутгана` : "",
+            ]
+              .filter(Boolean)
+              .join("; ")}.`,
           ]
         : []),
       `Statement ID: ${result.id.slice(0, 8)} — вэб: Мөнгөн хөрөнгө → Хуулгууд.`,
