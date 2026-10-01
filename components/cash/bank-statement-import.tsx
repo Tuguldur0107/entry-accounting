@@ -46,6 +46,11 @@ import {
   type GolomtPendingPull,
 } from "@/lib/bank/golomt/constants";
 import { dismissGolomtPull, openGolomtPull } from "@/lib/actions/bank-api";
+import { getAdvanceSettings } from "@/lib/actions/arap-advances";
+import {
+  AdvanceSettingsDialog,
+  type AdvanceSettingsView,
+} from "@/components/cash/advance-settings-dialog";
 import type {
   ParsedBankStatement,
   ParsedBankStatementRow,
@@ -73,6 +78,18 @@ import {
   fmtAccountDisplay,
 } from "@/lib/grid/segments";
 import { AccountSegmentEditor } from "@/lib/grid/editors/AccountSegmentEditor";
+import {
+  SearchSelectCellEditor,
+  type SearchSelectOption,
+} from "@/lib/grid/editors/SearchSelectCellEditor";
+import {
+  BANK_ROW_ACTION_LABELS,
+  bankRowActionAdvanceSide,
+  bankRowActionDirection,
+  BANK_ROW_ACTIONS,
+  isBankRowAction,
+  type AdvanceSide,
+} from "@/lib/arap/advance-math";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { openCashDocPanel } from "@/lib/store/panel-store";
 import { feedback } from "@/lib/ui/feedback";
@@ -118,7 +135,33 @@ type AnySuggestion = RuleSuggestion | EwalletSettlementSuggestion | RowSuggestio
 type ImportContext = MatchContext & {
   rules?: BankRule[];
   ewalletMethods?: EwalletSettlementMethod[];
+  /** Идэвхтэй харилцагчид — мөрийн харилцагч сонгогч (docs/dev/arap.md §5l). */
+  counterparties?: { id: string; name: string; counterpartyType: string }[];
+  /** Урьдчилгааны дансны роль — «Бүртгэл» сонгоход харьцах тал бөглөгдөнө. */
+  advanceSettings?: {
+    customerAdvanceAccountNumber: string;
+    supplierAdvanceAccountNumber: string;
+  };
 };
+
+const COUNTERPARTY_TYPE_HINTS: Record<string, string> = {
+  customer: "Авлага",
+  supplier: "Өглөг",
+  both: "Авлага/Өглөг",
+};
+
+/**
+ * Харьцах талыг ГАРААР өөрчлөхөд: нэхэмжлэх / settlement-ийн холбоос болон
+ * урьдчилгааны бүртгэл цуцлагдана (данс нь урьдчилгааных байхаа больсон).
+ * «Өглөг үүсгэж зардалд» нь харьцах тал = зардал тул хэвээр.
+ */
+function counterSideReset(row: ParsedBankStatementRow): Partial<ParsedBankStatementRow> {
+  return {
+    settleInvoiceId: null,
+    ewalletSettlement: null,
+    rowAction: row.rowAction === "create_ap_bill" ? row.rowAction : null,
+  };
+}
 
 function emptyAccountCode(
   activeSegIds: number[],
@@ -184,6 +227,7 @@ export function BankStatementImport({
   );
   const [golomtSettingsOpen, setGolomtSettingsOpen] = useState(false);
   const [golomtFetchOpen, setGolomtFetchOpen] = useState(false);
+  const [advanceSettings, setAdvanceSettings] = useState<AdvanceSettingsView | null>(null);
 
   const cashAccount = accounts.find((account) => account.id === cashAccountId);
   const [triageFilter, setTriageFilter] = useState<
@@ -206,7 +250,9 @@ export function BankStatementImport({
         (!!row.exchangeRate &&
           row.exchangeRate > 0 &&
           !!row.baseAmount &&
-          row.baseAmount > 0)),
+          row.baseAmount > 0)) &&
+      // Урьдчилгаа / өглөг үүсгэх мөрд харилцагч ЗААВАЛ (save ч шалгана).
+      (!row.rowAction || !!row.counterpartyId),
     [activeSegIds, segmentOptions, cashAccount?.currency]
   );
 
@@ -220,9 +266,111 @@ export function BankStatementImport({
     [rows, rowReady]
   );
 
+  // «Бүртгэл», харилцагч, нэхэмжлэх сонголт (docs/dev/arap.md §5l) — харьцах
+  // талыг бөглөх / цэвэрлэх НЭГ зам. Урьдчилгаа → тохиргооны урьдчилгааны
+  // данс; нэхэмжлэх → түүний хяналтын данс + харилцагч.
+  const applyBookingEdit = useCallback(
+    (
+      rowId: string,
+      field: "counterpartyId" | "rowAction" | "settleInvoiceId",
+      value: unknown
+    ) => {
+      const blankCode = emptyAccountCode(activeSegIds, defaultSegments);
+      const codeOf = (main: string) =>
+        main.split(".").length === 10
+          ? main
+          : buildSegCode({ ...defaultSegments, 3: main }, activeSegIds, defaultSegments);
+      const advanceCode = (side: AdvanceSide) => {
+        const settings = matchContext?.advanceSettings;
+        if (!settings) return null;
+        return codeOf(
+          side === "customer"
+            ? settings.customerAdvanceAccountNumber
+            : settings.supplierAdvanceAccountNumber
+        );
+      };
+      const text = value == null ? "" : String(value);
+      setRows((current) =>
+        current.map((row) => {
+          if (row.id !== rowId) return row;
+          const counterField =
+            row.income > 0 ? ("creditAccountNumber" as const) : ("debitAccountNumber" as const);
+          if (field === "counterpartyId") {
+            const master = text
+              ? matchContext?.counterparties?.find((item) => item.id === text)
+              : undefined;
+            const original =
+              parsed?.rows.find((item) => item.id === rowId)?.counterparty ?? row.counterparty;
+            const linked = row.settleInvoiceId
+              ? matchContext?.openInvoices.find((item) => item.id === row.settleInvoiceId)
+              : undefined;
+            return {
+              ...row,
+              counterpartyId: master?.id ?? null,
+              counterparty: master?.name ?? original,
+              // Өөр харилцагчийн нэхэмжлэх холбоотой үлдэхгүй.
+              ...(linked && master && linked.counterpartyId && linked.counterpartyId !== master.id
+                ? { settleInvoiceId: null, [counterField]: blankCode }
+                : {}),
+            };
+          }
+          if (field === "rowAction") {
+            const action = isBankRowAction(text) ? text : null;
+            const side = action ? bankRowActionAdvanceSide(action) : null;
+            const previousSide = row.rowAction ? bankRowActionAdvanceSide(row.rowAction) : null;
+            const nextCode = side
+              ? advanceCode(side)
+              : previousSide || row.settleInvoiceId || row.ewalletSettlement
+                ? blankCode
+                : row[counterField];
+            return {
+              ...row,
+              rowAction: action,
+              settleInvoiceId: null,
+              ewalletSettlement: null,
+              [counterField]: nextCode ?? row[counterField],
+            };
+          }
+          const invoice = text
+            ? matchContext?.openInvoices.find((item) => item.id === text)
+            : undefined;
+          if (!invoice)
+            return {
+              ...row,
+              settleInvoiceId: null,
+              [counterField]: row.settleInvoiceId ? blankCode : row[counterField],
+            };
+          const master = invoice.counterpartyId
+            ? matchContext?.counterparties?.find((item) => item.id === invoice.counterpartyId)
+            : undefined;
+          return {
+            ...row,
+            settleInvoiceId: invoice.id,
+            rowAction: null,
+            ewalletSettlement: null,
+            [counterField]: invoice.controlAccountNumber
+              ? codeOf(invoice.controlAccountNumber)
+              : row[counterField],
+            counterpartyId: invoice.counterpartyId ?? row.counterpartyId ?? null,
+            counterparty: master?.name ?? invoice.counterpartyName,
+          };
+        })
+      );
+    },
+    [activeSegIds, defaultSegments, matchContext, parsed]
+  );
+
   const handleCellValueChanged = useCallback(
     (event: CellValueChangedEvent<ParsedBankStatementRow>) => {
       const field = event.colDef.field;
+      if (
+        field === "counterpartyId" ||
+        field === "rowAction" ||
+        field === "settleInvoiceId"
+      ) {
+        applyBookingEdit(event.data.id, field, event.newValue);
+        return;
+      }
       if (
         field !== "debitAccountNumber" &&
         field !== "creditAccountNumber" &&
@@ -258,14 +406,49 @@ export function BankStatementImport({
                     (row.income > 0
                       ? "creditAccountNumber"
                       : "debitAccountNumber")
-                      ? { settleInvoiceId: null, ewalletSettlement: null }
+                      ? counterSideReset(row)
                       : {}),
                   }
             : row
         )
       );
     },
-    []
+    [applyBookingEdit]
+  );
+
+  // Мөрийн харилцагч / нэхэмжлэх сонгогчийн жагсаалт (docs/dev/arap.md §5l).
+  const counterpartyOptions = useMemo<SearchSelectOption[]>(
+    () =>
+      (matchContext?.counterparties ?? []).map((item) => ({
+        value: item.id,
+        label: item.name,
+        hint: COUNTERPARTY_TYPE_HINTS[item.counterpartyType] ?? "",
+      })),
+    [matchContext]
+  );
+  const invoiceLabelById = useMemo(
+    () => new Map((matchContext?.openInvoices ?? []).map((item) => [item.id, item.documentNo])),
+    [matchContext]
+  );
+  const invoiceOptionsFor = useCallback(
+    (row: ParsedBankStatementRow | undefined): SearchSelectOption[] => {
+      if (!row) return [];
+      const type = row.income > 0 ? "ar_invoice" : "ap_bill";
+      return (matchContext?.openInvoices ?? [])
+        .filter(
+          (item) =>
+            item.documentType === type &&
+            (item.currency ?? "MNT") === (cashAccount?.currency ?? "MNT") &&
+            (!row.counterpartyId || !item.counterpartyId || item.counterpartyId === row.counterpartyId)
+        )
+        .map((item) => ({
+          value: item.id,
+          label: item.documentNo,
+          code: item.counterpartyName,
+          hint: `үлдэгдэл ${fmtMnt(item.totalAmount - item.paidAmount)}`,
+        }));
+    },
+    [matchContext, cashAccount?.currency]
   );
 
   // Саналууд нь parse хийсэн эх мөрүүдээс (дүн/харилцагч/утга засагдахгүй
@@ -364,10 +547,16 @@ export function BankStatementImport({
               feeAmount: suggestion.feeAmount,
             }
           : null;
+      // Санал харьцах талыг солих тул урьдчилгаа / өглөг үүсгэх бүртгэл цуцлагдана.
       const patched =
         row.income > 0
-          ? { ...row, creditAccountNumber: code, settleInvoiceId, ewalletSettlement }
-          : { ...row, debitAccountNumber: code, settleInvoiceId, ewalletSettlement };
+          ? { ...row, creditAccountNumber: code, settleInvoiceId, ewalletSettlement, rowAction: null }
+          : { ...row, debitAccountNumber: code, settleInvoiceId, ewalletSettlement, rowAction: null };
+      if (suggestion.kind === "invoice") {
+        // Нэхэмжлэхийн харилцагчийг мөрөнд бүртгэлээр нь холбоно.
+        const invoice = matchContext?.openInvoices.find((item) => item.id === suggestion.invoiceId);
+        if (invoice?.counterpartyId) patched.counterpartyId = invoice.counterpartyId;
+      }
       if (suggestion.kind === "rule") {
         if (suggestion.setCounterparty)
           patched.counterparty = suggestion.setCounterparty;
@@ -376,7 +565,7 @@ export function BankStatementImport({
       }
       return patched;
     },
-    []
+    [matchContext]
   );
 
   const applySuggestion = useCallback(
@@ -527,6 +716,19 @@ export function BankStatementImport({
     });
   }, [rows, triageFilter, rowReady, allSuggestions]);
 
+  const validationText = useCallback(
+    (row: ParsedBankStatementRow | undefined) => {
+      if (!row) return "";
+      const accountsReady =
+        isCompleteAccountCode(row.debitAccountNumber, activeSegIds, segmentOptions) &&
+        isCompleteAccountCode(row.creditAccountNumber, activeSegIds, segmentOptions);
+      if (!accountsReady) return "Данс дутуу";
+      if (row.rowAction && !row.counterpartyId) return "Харилцагч дутуу";
+      return "Бэлэн";
+    },
+    [activeSegIds, segmentOptions]
+  );
+
   const columnDefs = useMemo<ColDef<ParsedBankStatementRow>[]>(
     () => [
       {
@@ -548,9 +750,24 @@ export function BankStatementImport({
         flex: 1,
       },
       {
+        // Бүртгэлтэй харилцагч сонгоно — урьдчилгаа / өглөг үүсгэхэд ЗААВАЛ.
         headerName: "Харилцагч",
-        field: "counterparty",
-        minWidth: 150,
+        field: "counterpartyId",
+        colId: "counterparty",
+        minWidth: 170,
+        editable: true,
+        cellEditor: SearchSelectCellEditor,
+        cellEditorPopup: true,
+        cellEditorParams: {
+          options: counterpartyOptions,
+          emptyLabel: "— бүртгэлгүй (хуулгын нэрээр)",
+        },
+        getQuickFilterText: (params) => params.data?.counterparty ?? "",
+        valueFormatter: (params) => params.data?.counterparty ?? "",
+        cellClass: (params) =>
+          params.data?.counterpartyId
+            ? "font-medium text-[var(--ea-text-1)]"
+            : "text-[var(--ea-text-3)]",
       },
       {
         headerName: "Харьцсан данс",
@@ -615,6 +832,52 @@ export function BankStatementImport({
         },
         valueFormatter: (params) =>
           params.value == null ? "" : fmtMnt(Number(params.value)),
+      },
+      {
+        // Мөрийн бүртгэлийн төрөл (docs/dev/arap.md §5l) — чиглэлээрээ шүүгдэнэ.
+        headerName: "Бүртгэл",
+        field: "rowAction",
+        width: 190,
+        editable: (params) => !params.data?.ewalletSettlement,
+        cellEditor: SearchSelectCellEditor,
+        cellEditorPopup: true,
+        cellEditorParams: (params: { data?: ParsedBankStatementRow }) => ({
+          options: BANK_ROW_ACTIONS.filter(
+            (action) =>
+              bankRowActionDirection(action) ===
+              ((params.data?.income ?? 0) > 0 ? "income" : "expense")
+          ).map((action) => ({ value: action, label: BANK_ROW_ACTION_LABELS[action] })),
+          emptyLabel: "Ердийн (харьцах данс / нэхэмжлэх)",
+        }),
+        valueFormatter: (params) => {
+          const row = params.data;
+          if (!row) return "";
+          if (row.rowAction && isBankRowAction(row.rowAction))
+            return BANK_ROW_ACTION_LABELS[row.rowAction];
+          if (row.settleInvoiceId) return row.income > 0 ? "Авлага хаах" : "Өглөг хаах";
+          if (row.ewalletSettlement) return "Э-хэтэвчийн settlement";
+          return "Ердийн";
+        },
+        cellClass: (params) =>
+          params.data?.rowAction || params.data?.settleInvoiceId
+            ? "text-xs font-medium text-[var(--ea-primary)]"
+            : "text-xs text-[var(--ea-text-3)]",
+      },
+      {
+        // Нэхэмжлэхийг гараар сонгож хаах (санал дүнгээр таарахгүй үед ч).
+        headerName: "Нэхэмжлэх",
+        field: "settleInvoiceId",
+        width: 170,
+        editable: (params) => !params.data?.ewalletSettlement,
+        cellEditor: SearchSelectCellEditor,
+        cellEditorPopup: true,
+        cellEditorParams: (params: { data?: ParsedBankStatementRow }) => ({
+          options: invoiceOptionsFor(params.data),
+          emptyLabel: "— холбохгүй",
+        }),
+        valueFormatter: (params) =>
+          params.value ? invoiceLabelById.get(String(params.value)) ?? "Холбогдсон" : "",
+        cellClass: "font-mono text-xs",
       },
       {
         headerName: "DR данс",
@@ -752,44 +1015,22 @@ export function BankStatementImport({
       {
         headerName: "Шалгалт",
         colId: "validation",
-        width: 104,
-        valueGetter: (params) =>
-          isCompleteAccountCode(
-            params.data?.debitAccountNumber ?? "",
-            activeSegIds,
-            segmentOptions
-          ) &&
-          isCompleteAccountCode(
-            params.data?.creditAccountNumber ?? "",
-            activeSegIds,
-            segmentOptions
-          )
-            ? "Бэлэн"
-            : "Данс дутуу",
+        width: 124,
+        valueGetter: (params) => validationText(params.data),
         cellRenderer: (
           params: ICellRendererParams<ParsedBankStatementRow>
         ) => {
-          const valid =
-            isCompleteAccountCode(
-              params.data?.debitAccountNumber ?? "",
-              activeSegIds,
-              segmentOptions
-            ) &&
-            isCompleteAccountCode(
-              params.data?.creditAccountNumber ?? "",
-              activeSegIds,
-              segmentOptions
-            );
+          const text = validationText(params.data);
           return (
             <span
               className={cn(
                 "text-xs font-medium",
-                valid
+                text === "Бэлэн"
                   ? "text-[var(--ea-success)]"
                   : "text-[var(--ea-danger)]"
               )}
             >
-              {valid ? "Бэлэн" : "Данс дутуу"}
+              {text}
             </span>
           );
         },
@@ -799,11 +1040,15 @@ export function BankStatementImport({
       activeSegIds,
       applySuggestion,
       cashAccount?.currency,
+      counterpartyOptions,
       defaultSegments,
+      invoiceLabelById,
+      invoiceOptionsFor,
       segmentOptions,
       suggestionApplied,
       suggestionCode,
       allSuggestions,
+      validationText,
     ]
   );
 
@@ -996,7 +1241,7 @@ export function BankStatementImport({
         return {
           ...row,
           [field]: code,
-          ...(side === counterSide ? { settleInvoiceId: null } : {}),
+          ...(side === counterSide ? counterSideReset(row) : {}),
         };
       })
     );
@@ -1069,7 +1314,7 @@ export function BankStatementImport({
                 debitAccountNumber: copied.debitAccountNumber!,
                 creditAccountNumber: copied.creditAccountNumber!,
                 // Данс өөрчлөгдсөн тул нэхэмжлэхийн холбоос цуцлагдана.
-                settleInvoiceId: null,
+                ...counterSideReset(row),
               }
             : row
         )
@@ -1268,6 +1513,27 @@ export function BankStatementImport({
               >
                 <Icon name="key" size="sm" />
                 Голомт API
+              </Button>
+            )}
+            {golomt?.canManage && (
+              <Button
+                variant="outline"
+                className="h-8"
+                disabled={isPending}
+                title="Урьдчилж орсон орлого / урьдчилж төлсөн зардлын данс"
+                onClick={() =>
+                  startTransition(async () => {
+                    const result = await getAdvanceSettings();
+                    if (result.error || !result.settings) {
+                      setError(result.error ?? "Урьдчилгааны тохиргоог уншиж чадсангүй");
+                      return;
+                    }
+                    setAdvanceSettings(result.settings);
+                  })
+                }
+              >
+                <Icon name="settings" size="sm" />
+                Урьдчилгааны данс
               </Button>
             )}
           </div>
@@ -1604,6 +1870,21 @@ export function BankStatementImport({
             router.refresh();
           }}
           onChecked={setGolomtConnection}
+        />
+      )}
+      {advanceSettings && (
+        <AdvanceSettingsDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setAdvanceSettings(null);
+          }}
+          settings={advanceSettings}
+          activeSegIds={activeSegIds}
+          segmentOptions={segmentOptions}
+          defaultSegments={defaultSegments}
+          onSaved={(settings) =>
+            setMatchContext((current) => (current ? { ...current, advanceSettings: settings } : current))
+          }
         />
       )}
       {golomtFetchOpen && cashAccount && (

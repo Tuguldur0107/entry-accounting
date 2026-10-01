@@ -1700,6 +1700,72 @@ export const arapEclSettings = pgTable(
   (t) => [uniqueIndex("arap_ecl_settings_org_ux").on(t.organizationId)]
 );
 
+// ─── Урьдчилгаа (docs/dev/arap.md §5l) ───────────────────────────────────────
+// Урьдчилж орсон орлого (худалдан авагчийн урьдчилгаа) ба урьдчилж төлсөн
+// зардал / нийлүүлэгчийн урьдчилгаа — харилцагчтай, нэхэмжлэхгүй кассын баримт
+// (counterAccountNumber = эдгээр дансны нэг). Дараа нь нэхэмжлэхтэй суутгана.
+
+/** Байгууллагын урьдчилгааны дансны роль (мөргүй бол default-аар үүснэ). */
+export const arapAdvanceSettings = pgTable(
+  "arap_advance_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    /** Урьдчилж орсон орлого / худалдан авагчийн урьдчилгаа (өр) — default 31300001. */
+    customerAdvanceAccountNumber: text("customer_advance_account_number")
+      .notNull()
+      .default("31300001"),
+    /** Урьдчилж төлсөн зардал / нийлүүлэгчийн урьдчилгаа (хөрөнгө) — default 18000001. */
+    supplierAdvanceAccountNumber: text("supplier_advance_account_number")
+      .notNull()
+      .default("18000001"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("arap_advance_settings_org_ux").on(t.organizationId)]
+);
+
+/**
+ * Урьдчилгааг нэхэмжлэхтэй суутгасан бүртгэл — журнал (Dr урьдчилгаа / Cr
+ * авлага, эсвэл Dr өглөг / Cr урьдчилж төлсөн) + ar_ap_settlements мөр
+ * (cashDocumentId null, voucherId). Харилцагчийн урьдчилгааны үлдэгдэл =
+ * урьдчилгааны кассын баримтууд − эдгээр. Буцаалт reverseArApOffset-оор
+ * (энэ мөр хамт устна).
+ */
+export const arapAdvanceApplications = pgTable(
+  "arap_advance_applications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    counterpartyId: uuid("counterparty_id")
+      .notNull()
+      .references(() => counterparties.id, { onDelete: "cascade" }),
+    /** "customer" (урьдчилж орсон) | "supplier" (урьдчилж төлсөн). */
+    side: text("side").notNull(),
+    /** Суутгасан үеийн урьдчилгааны данс (main). */
+    advanceAccountNumber: text("advance_account_number").notNull(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => arApDocuments.id, { onDelete: "cascade" }),
+    voucherId: uuid("voucher_id")
+      .notNull()
+      .references(() => journalVouchers.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("arap_advance_applications_cp_ix").on(t.organizationId, t.counterpartyId),
+    index("arap_advance_applications_voucher_ix").on(t.voucherId),
+  ]
+);
+
 /** Найдваргүй авлага хасалт — нэхэмжлэхийн нээлттэй үлдэгдлийг хаасан бичилт. */
 export const arapWriteOffs = pgTable(
   "arap_write_offs",

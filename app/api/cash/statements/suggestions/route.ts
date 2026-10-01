@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
+import { loadAdvanceSettings, type AdvanceSettings } from "@/lib/arap/advances";
 import { requireModuleAction } from "@/lib/auth";
 import type { BankRule, BankRuleMode, BankRuleSide } from "@/lib/cash/bank-rules";
 import type { EwalletSettlementMethod } from "@/lib/cash/ewallet-settlement";
@@ -14,6 +15,7 @@ import {
   bankRules,
   bankStatementLines,
   bankStatements,
+  counterparties,
 } from "@/lib/db/schema";
 
 export const runtime = "nodejs";
@@ -26,6 +28,8 @@ const HISTORY_LINE_LIMIT = 5000;
  *   - нээлттэй АР/АП нэхэмжлэхүүд (posted | partially_paid, үлдэгдэлтэй)
  *   - өмнөх баталгаажсан хуулгын мөрүүдээс гарсан харилцагч → данс загварууд
  *   - э-хэтэвчийн (QPay) хэлбэрүүд + түр дансны тулгагдаагүй орлогууд (settlement)
+ *   - идэвхтэй харилцагчид + урьдчилгааны дансны роль (мөрийн бүртгэлийн
+ *     төрөл, docs/dev/arap.md §5l)
  * Бүгд байгууллагаар (organizationId) хамгаалагдсан. Тулгалтын логик нь
  * client талд цэвэр функцээр (lib/cash/statement-matching.ts) ажиллана.
  */
@@ -38,11 +42,13 @@ export async function GET() {
   }
 
   try {
-    const [invoices, historyLines, ruleRows, ewallet] = await Promise.all([
+    const [invoices, historyLines, ruleRows, ewallet, counterpartyRows, advanceSettings] = await Promise.all([
       db.query.arApDocuments.findMany({
         where: and(
           eq(arApDocuments.organizationId, orgId),
-          inArray(arApDocuments.status, ["posted", "partially_paid"])
+          inArray(arApDocuments.status, ["posted", "partially_paid"]),
+          // Кредит нэхэмжлэл / дебит нэхэмжлэх банкаар хаагдахгүй (буруу чиглэл).
+          inArray(arApDocuments.documentType, ["ar_invoice", "ap_bill"])
         ),
         with: { counterparty: { columns: { name: true } } },
         orderBy: [desc(arApDocuments.date)],
@@ -74,6 +80,12 @@ export async function GET() {
         orderBy: [asc(bankRules.priority), asc(bankRules.name)],
       }),
       loadEwalletSettlementContext(orgId),
+      db.query.counterparties.findMany({
+        where: and(eq(counterparties.organizationId, orgId), eq(counterparties.isActive, true)),
+        columns: { id: true, name: true, counterpartyType: true },
+        orderBy: [asc(counterparties.name)],
+      }),
+      loadAdvanceSettings(orgId),
     ]);
 
     const rules: BankRule[] = ruleRows.map((row) => ({
@@ -94,13 +106,21 @@ export async function GET() {
     const context: MatchContext & {
       rules: BankRule[];
       ewalletMethods: EwalletSettlementMethod[];
+      counterparties: { id: string; name: string; counterpartyType: string }[];
+      advanceSettings: AdvanceSettings;
     } = {
       rules,
       ewalletMethods: ewallet.methods,
+      counterparties: counterpartyRows,
+      advanceSettings: {
+        customerAdvanceAccountNumber: advanceSettings.customerAdvanceAccountNumber,
+        supplierAdvanceAccountNumber: advanceSettings.supplierAdvanceAccountNumber,
+      },
       openInvoices: invoices
         .map((invoice) => ({
           id: invoice.id,
           documentNo: invoice.documentNo,
+          counterpartyId: invoice.counterpartyId,
           counterpartyName: invoice.counterparty.name,
           totalAmount: Number(invoice.totalAmount),
           paidAmount: Number(invoice.paidAmount),

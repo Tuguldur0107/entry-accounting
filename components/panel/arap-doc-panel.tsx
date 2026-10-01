@@ -23,6 +23,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePanelPrint } from "@/lib/ui/use-panel-print";
 import { InvoiceSendDialog } from "@/components/arap/invoice-send-dialog";
 import { CreateRecurringDialog } from "@/components/arap/recurring-dialog";
+import { ApplyAdvanceDialog } from "@/components/arap/apply-advance-dialog";
 import { CreditNoteDialog } from "@/components/arap/credit-note-dialog";
 import { WriteOffSection } from "@/components/arap/write-off-section";
 import { ArapEbarimtField } from "@/components/arap/arap-ebarimt-field";
@@ -704,6 +705,7 @@ function ArapDocReadOnly({
   const [recurOpen, setRecurOpen] = useState(false);
   // Кредит нэхэмжлэл / дебит нэхэмжлэх үүсгэх dialog (ENT-029).
   const [creditOpen, setCreditOpen] = useState(false);
+  const [advanceOpen, setAdvanceOpen] = useState(false);
 
   const {
     activeSegIds,
@@ -1517,6 +1519,19 @@ function ArapDocReadOnly({
               : "Мөнгөн хөрөнгөөр хаах"}
           </Button>
         )}
+        {/* Урьдчилгаагаар хаах (docs/dev/arap.md §5l) — зөвхөн MNT нэхэмжлэх. */}
+        {!isCredit &&
+          document.currency === "MNT" &&
+          (document.status === "posted" || document.status === "partially_paid") && (
+            <Button
+              variant="outline"
+              onClick={() => setAdvanceOpen(true)}
+              disabled={isPending}
+              title="Харилцагчийн урьдчилгаанаас суутгаж нэхэмжлэхийн үлдэгдлийг хаах"
+            >
+              Урьдчилгаанаас хаах
+            </Button>
+          )}
         {canRecur && (
           <Button
             variant="outline"
@@ -1568,6 +1583,22 @@ function ArapDocReadOnly({
       </div>
       {confirmDialog}
       {renderSheet(printSheet)}
+      {advanceOpen && (
+        <ApplyAdvanceDialog
+          open={advanceOpen}
+          onOpenChange={setAdvanceOpen}
+          documentId={document.id}
+          documentNo={document.documentNo}
+          documentType={document.documentType}
+          counterpartyId={document.counterpartyId}
+          counterpartyName={document.counterpartyName}
+          invoiceBalance={Math.round((Number(document.totalAmount) - Number(document.paidAmount)) * 100) / 100}
+          onApplied={() => {
+            refreshOpenPanels();
+            router.refresh();
+          }}
+        />
+      )}
       {canCredit && creditOpen && (
         <CreditNoteDialog
           sourceDocumentId={document.id}
