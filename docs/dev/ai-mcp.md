@@ -86,8 +86,12 @@ MCP, REST API хоёулаа НЭГ tool давхаргаар (lib/ai/tools.ts, 
 | Мэдлэгийн сан | list_knowledge_topics (сэдвийн индекс — гарчиг + хэсгийн нэрс, ангиллаар), read_knowledge_section (НЭГ хэсэг, ≤3000 тэмдэгт, ишлэлтэй) — §9e; `surfaces: ["mcp"]` тул REST-д ГАРАХГҮЙ; `requireFeature("knowledge")` (Console-оос байгууллага бүрд), 24ц/200 квот `[KNOWLEDGE_LIMIT]` | аль ч горимд (унших; журнал үүсгэхгүй) |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
-нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь сүүлийн
-500–1000 баримтын цонхонд хайдаг — хуучин баримтыг бүтэн ID-гаар өгнө.
+нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь ЦОНХГҮЙ —
+лавлагааг DB-д шууд шүүнэ (`refCondition`: ID угтвар, дугаар, externalRef);
+жагсаалтын шүүлт (харилцагч, төлөв, огноо, openOnly, аудитын үйлдэл) мөн DB-д.
+«Сүүлийн N бичлэгийг ачаалаад JS-д хайх/шүүх» хэв маяг ШИНЭ кодод ХОРИОТОЙ —
+том байгууллагад хуучин баримт «олдсонгүй» гарч AI түүнийг «байхгүй» гэж
+ойлгоод давхар үүсгэдэг (H3, `tests/ai-ref-lookups.test.ts`).
 
 **Idempotency (externalRef):** create_{journal_voucher,arap_invoice,
 cash_transaction} нь externalRef (eBarimt ДДТД, банкны гүйлгээний ID) авдаг —
