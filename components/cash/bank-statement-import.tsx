@@ -105,6 +105,7 @@ import {
   BANK_ROW_ACTION_LABELS,
   bankRowActionAdvanceSide,
   bankRowActionDirection,
+  bankRowActionInvoiceType,
   BANK_ROW_ACTIONS,
   isBankRowAction,
   type AdvanceSide,
@@ -191,13 +192,14 @@ const COUNTERPARTY_TYPE_HINTS: Record<string, string> = {
 /**
  * Харьцах талыг ГАРААР өөрчлөхөд: нэхэмжлэх / settlement-ийн холбоос болон
  * урьдчилгааны бүртгэл цуцлагдана (данс нь урьдчилгааных байхаа больсон).
- * «Өглөг үүсгэж зардалд» нь харьцах тал = зардал тул хэвээр.
+ * «Авлага үүсгэж борлуулалтад» / «Өглөг үүсгэж зардалд» нь харьцах тал =
+ * орлого / зардал тул хэвээр.
  */
 function counterSideReset(row: ParsedBankStatementRow): Partial<ParsedBankStatementRow> {
   return {
     settleInvoiceId: null,
     ewalletSettlement: null,
-    rowAction: row.rowAction === "create_ap_bill" ? row.rowAction : null,
+    rowAction: bankRowActionInvoiceType(row.rowAction) ? row.rowAction : null,
   };
 }
 

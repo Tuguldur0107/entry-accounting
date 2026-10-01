@@ -46,6 +46,7 @@ import {
   BANK_ROW_ACTION_LABELS,
   bankRowActionAdvanceSide,
   bankRowActionDirection,
+  bankRowActionInvoiceType,
   isBankRowAction,
   splitInclusiveVat,
   type BankRowAction,
@@ -57,6 +58,7 @@ import { loadArApSegmentData } from "@/lib/arap/load-data";
 import { loadVatSettings } from "@/lib/vat/settings";
 import { nextVoucherNo } from "@/lib/gl/voucher-no";
 import { loadImportedExternalRefs } from "@/lib/cash/statement-external-refs";
+import { enqueueArapInvoiceEbarimt } from "@/lib/ebarimt/queue";
 
 
 export type SavePayload = ParsedBankStatement & {
@@ -234,6 +236,7 @@ export async function saveBankStatement(
         counterpartyType: true,
         isActive: true,
         defaultPayableAccountNumber: true,
+        defaultReceivableAccountNumber: true,
       },
     });
     const counterpartyById = new Map(counterpartyList.map((c) => [c.id, c]));
@@ -411,38 +414,45 @@ export async function saveBankStatement(
 
     // ── Мөрийн бүртгэлийн төрөл (docs/dev/arap.md §5l) ────────────────────
     // Урьдчилгаа: харьцах тал = тохиргооны урьдчилгааны данс, харилцагч заавал.
-    // Өглөг үүсгэх: AP нэхэмжлэх (Dr харьцах тал = зардал [+ НӨАТ] / Cr өглөг)
-    // энэ транзакц дотор батлагдаж, мөр нь түүнийг шууд хаана.
-    type BillPlan = {
-      billId: string;
+    // Нэхэмжлэх үүсгэх: энэ транзакц дотор батлагдаж, мөр нь түүнийг шууд хаана —
+    //   create_ar_invoice: Dr авлага / Cr харьцах тал = орлого [+ Cr НӨАТ гаралт]
+    //   create_ap_bill:    Dr харьцах тал = зардал [+ Dr НӨАТ оролт] / Cr өглөг
+    type InvoicePlan = {
+      documentType: "ar_invoice" | "ap_bill";
+      invoiceId: string;
       voucherId: string;
       documentNo: string;
       counterpartyId: string;
       counterpartyName: string;
       controlMain: string;
-      expenseCode: string;
-      /** НӨАТ оролтын данс (main) — НӨАТ төлөгч биш бол null. */
+      /** Орлого (АР) эсвэл зардлын (АП) бүтэн код — мөрийн харьцах тал. */
+      counterCode: string;
+      /** НӨАТ-ын данс (main): АР гаралт, АП оролт — НӨАТ төлөгч биш бол null. */
       vatMain: string | null;
       net: number;
       vat: number;
       baseNet: number;
       baseVat: number;
     };
-    const billByRowId = new Map<string, BillPlan>();
+    const invoiceByRowId = new Map<string, InvoicePlan>();
     const actionRows = rows.filter((row) => row.rowAction);
     if (actionRows.length) {
       const needsAdvance = actionRows.some(
         (row) => isBankRowAction(row.rowAction) && bankRowActionAdvanceSide(row.rowAction)
       );
-      const needsBill = actionRows.some((row) => row.rowAction === "create_ap_bill");
-      // Өглөгийн нэхэмжлэх үүсгэх нь өглөгийн модулийн батлах эрх шаардана —
-      // кассын эрхээр өглөг тойрч бичигдэхгүй.
-      if (needsBill) await requireModuleAction("ap", "post");
+      const invoiceTypes = new Set(
+        actionRows.map((row) => (isBankRowAction(row.rowAction) ? bankRowActionInvoiceType(row.rowAction) : null))
+      );
+      // Нэхэмжлэх үүсгэх нь тухайн дэвтрийн батлах эрх шаардана — кассын
+      // эрхээр авлага/өглөг тойрч бичигдэхгүй.
+      if (invoiceTypes.has("ar_invoice")) await requireModuleAction("ar", "post");
+      if (invoiceTypes.has("ap_bill")) await requireModuleAction("ap", "post");
+      const needsInvoice = invoiceTypes.has("ar_invoice") || invoiceTypes.has("ap_bill");
       const advanceSettings = needsAdvance ? await loadAdvanceSettings(orgId) : null;
-      const vatSettings = needsBill ? await loadVatSettings(orgId, userId) : null;
-      const defaultPayable = needsBill
-        ? (await loadArApSegmentData(orgId)).defaultAccountNumbers.payable
-        : "";
+      const vatSettings = needsInvoice ? await loadVatSettings(orgId, userId) : null;
+      const defaultControl = needsInvoice
+        ? (await loadArApSegmentData(orgId)).defaultAccountNumbers
+        : { receivable: "", payable: "" };
       const enabledMains = new Set(
         glAccounts.filter((account) => account.isEnabled).map((account) => account.number)
       );
@@ -481,37 +491,50 @@ export async function saveBankStatement(
           continue;
         }
 
-        // create_ap_bill
-        const directionError = counterpartyDirectionError("ap_bill", master.counterpartyType, master.name);
+        // create_ar_invoice / create_ap_bill
+        const documentType = bankRowActionInvoiceType(action)!;
+        const isSale = documentType === "ar_invoice";
+        const directionError = counterpartyDirectionError(documentType, master.counterpartyType, master.name);
         if (directionError) throw new Error(`${label}: ${directionError}`);
-        const controlMain = (master.defaultPayableAccountNumber || defaultPayable || "").trim();
+        const controlMain = (
+          (isSale ? master.defaultReceivableAccountNumber : master.defaultPayableAccountNumber) ||
+          (isSale ? defaultControl.receivable : defaultControl.payable) ||
+          ""
+        ).trim();
         if (!controlMain || !enabledMains.has(controlMain))
           throw new Error(
-            `${label}: ${master.name}-ийн өглөгийн хяналтын данс тохируулаагүй эсвэл идэвхгүй — харилцагчийн картаас шалгана уу`
+            `${label}: ${master.name}-ийн ${isSale ? "авлагын" : "өглөгийн"} хяналтын данс тохируулаагүй эсвэл идэвхгүй — харилцагчийн картаас шалгана уу`
           );
         if (counterMain === controlMain || counterMain === cashAccount.glAccountNumber)
-          throw new Error(`${label}: «${actionLabel}»-ийн DR тал зардлын данс байх ёстой (өглөг / банк биш)`);
+          throw new Error(
+            isSale
+              ? `${label}: «${actionLabel}»-ийн CR тал орлогын данс байх ёстой (авлага / банк биш)`
+              : `${label}: «${actionLabel}»-ийн DR тал зардлын данс байх ёстой (өглөг / банк биш)`
+          );
         let net = row.amount;
         let vat = 0;
         let vatMain: string | null = null;
         if (vatSettings?.isVatPayer) {
           const rate = Number(vatSettings.vatRatePercent);
           if (!(rate > 0)) throw new Error("НӨАТ-ийн хувь тохируулаагүй байна");
-          const inputMain = vatSettings.inputVatAccountNumber;
-          if (!enabledMains.has(inputMain))
-            throw new Error(`НӨАТ оролтын данс ${inputMain} идэвхтэй биш байна — НӨАТ-ийн тохиргоог шалгана уу`);
+          const configured = isSale ? vatSettings.outputVatAccountNumber : vatSettings.inputVatAccountNumber;
+          if (!configured || !enabledMains.has(configured))
+            throw new Error(
+              `НӨАТ ${isSale ? "гаралтын" : "оролтын"} данс ${configured ?? "(тохируулаагүй)"} идэвхтэй биш байна — НӨАТ-ийн тохиргоог шалгана уу`
+            );
           ({ net, vat } = splitInclusiveVat(row.amount, rate));
-          vatMain = inputMain;
+          vatMain = configured;
         }
         const baseVat = vat > 0 ? Math.round(vat * row.exchangeRate * 100) / 100 : 0;
-        billByRowId.set(row.id, {
-          billId: randomUUID(),
+        invoiceByRowId.set(row.id, {
+          documentType,
+          invoiceId: randomUUID(),
           voucherId: randomUUID(),
-          documentNo: `${documentNoPrefix("ap_bill")}-${row.transactionDate.replaceAll("-", "")}-${randomUUID().slice(0, 6).toUpperCase()}`,
+          documentNo: `${documentNoPrefix(documentType)}-${row.transactionDate.replaceAll("-", "")}-${randomUUID().slice(0, 6).toUpperCase()}`,
           counterpartyId: master.id,
           counterpartyName: master.name,
           controlMain,
-          expenseCode: row.debitAccountNumber,
+          counterCode: isSale ? row.creditAccountNumber : row.debitAccountNumber,
           vatMain,
           net,
           vat,
@@ -609,90 +632,98 @@ export async function saveBankStatement(
         })
         .returning({ id: bankStatements.id });
 
-      // Өглөгийн нэхэмжлэх (create_ap_bill) — кассын баримт, settlement-ийн
-      // FK-ээс ӨМНӨ. Батлагдсан, энэ мөрөөр тэр даруй бүтэн төлөгдсөн:
-      //   Dr зардал (+ Dr НӨАТ оролт) / Cr өглөг; мөр нь Dr өглөг / Cr банк.
+      // Хуулгаас үүсэх нэхэмжлэх (create_ar_invoice / create_ap_bill) — кассын
+      // баримт, settlement-ийн FK-ээс ӨМНӨ. Батлагдсан, энэ мөрөөр тэр даруй
+      // бүтэн төлөгдсөн:
+      //   АР: Dr авлага / Cr орлого (+ Cr НӨАТ гаралт); мөр нь Dr банк / Cr авлага
+      //   АП: Dr зардал (+ Dr НӨАТ оролт) / Cr өглөг; мөр нь Dr өглөг / Cr банк
       for (const row of rows) {
-        const bill = billByRowId.get(row.id);
-        if (!bill) continue;
-        const billCode = fxCodeBuilder(null);
-        const description = row.description || `${bill.counterpartyName} — банкны гүйлгээ`;
+        const plan = invoiceByRowId.get(row.id);
+        if (!plan) continue;
+        const isSale = plan.documentType === "ar_invoice";
+        const planCode = fxCodeBuilder(null);
+        const description = row.description || `${plan.counterpartyName} — банкны гүйлгээ`;
         await tx.insert(journalVouchers).values({
-          id: bill.voucherId,
+          id: plan.voucherId,
           userId,
           organizationId: orgId,
           date: row.transactionDate,
-          description: `Өглөгийн нэхэмжлэх (банкны хуулга): ${description}`,
-          documentNo: await nextVoucherNo(tx, orgId, "ap", row.transactionDate),
+          description: `${isSale ? "Борлуулалтын нэхэмжлэх" : "Өглөгийн нэхэмжлэх"} (банкны хуулга): ${description}`,
+          documentNo: await nextVoucherNo(tx, orgId, isSale ? "ar" : "ap", row.transactionDate),
           status: "posted",
         });
-        const vatCode = bill.vatMain ? billCode(bill.vatMain) : null;
+        const vatCode = plan.vatMain ? planCode(plan.vatMain) : null;
+        // Орлого/зардал ба НӨАТ нэг талд, хяналтын данс нөгөө талд.
+        const side = (amount: number) =>
+          isSale
+            ? { debit: "0", credit: String(amount) }
+            : { debit: String(amount), credit: "0" };
+        const controlSide = isSale
+          ? { debit: String(row.baseAmount), credit: "0" }
+          : { debit: "0", credit: String(row.baseAmount) };
         await tx.insert(journalLines).values([
           {
-            voucherId: bill.voucherId,
-            accountNumber: bill.expenseCode,
-            debit: String(bill.baseNet),
-            credit: "0",
+            voucherId: plan.voucherId,
+            accountNumber: plan.counterCode,
+            ...side(plan.baseNet),
             description,
             sortOrder: 0,
           },
           ...(vatCode
             ? [
                 {
-                  voucherId: bill.voucherId,
+                  voucherId: plan.voucherId,
                   accountNumber: vatCode,
-                  debit: String(bill.baseVat),
-                  credit: "0",
+                  ...side(plan.baseVat),
                   description: `НӨАТ — ${description}`,
                   sortOrder: 1,
                 },
               ]
             : []),
           {
-            voucherId: bill.voucherId,
-            accountNumber: billCode(bill.controlMain),
-            debit: "0",
-            credit: String(row.baseAmount),
+            voucherId: plan.voucherId,
+            accountNumber: planCode(plan.controlMain),
+            ...controlSide,
             description,
             sortOrder: 2,
           },
         ]);
         await tx.insert(arApDocuments).values({
-          id: bill.billId,
+          id: plan.invoiceId,
           userId,
           organizationId: orgId,
-          documentNo: bill.documentNo,
-          documentType: "ap_bill",
-          counterpartyId: bill.counterpartyId,
+          documentNo: plan.documentNo,
+          documentType: plan.documentType,
+          counterpartyId: plan.counterpartyId,
           date: row.transactionDate,
           dueDate: row.transactionDate,
           currency: cashAccount.currency,
           exchangeRate: String(row.exchangeRate),
-          controlAccountNumber: bill.controlMain,
+          controlAccountNumber: plan.controlMain,
           description,
           totalAmount: String(row.amount),
           paidAmount: String(row.amount),
           baseTotalAmount: String(row.baseAmount),
           basePaidAmount: String(row.baseAmount),
           status: "paid",
-          voucherId: bill.voucherId,
+          voucherId: plan.voucherId,
           postedAt: new Date(),
         });
         await tx.insert(arApDocumentLines).values([
           {
-            documentId: bill.billId,
-            accountNumber: bill.expenseCode,
+            documentId: plan.invoiceId,
+            accountNumber: plan.counterCode,
             description,
-            amount: String(bill.net),
+            amount: String(plan.net),
             sortOrder: 0,
           },
           ...(vatCode
             ? [
                 {
-                  documentId: bill.billId,
+                  documentId: plan.invoiceId,
                   accountNumber: vatCode,
                   description: "НӨАТ",
-                  amount: String(bill.vat),
+                  amount: String(plan.vat),
                   sortOrder: 1,
                 },
               ]
@@ -704,8 +735,8 @@ export async function saveBankStatement(
             organizationId: orgId,
             action: "create_posted",
             entityType: "arap",
-            entityId: bill.billId,
-            summary: `Өглөгийн нэхэмжлэх банкны хуулгаас бичигдэж төлөгдөв — ${bill.documentNo}, ${row.transactionDate}, ${bill.counterpartyName}, дүн ${row.amount.toLocaleString("en-US")} ${cashAccount.currency}${bill.vat ? ` (НӨАТ ${bill.vat.toLocaleString("en-US")})` : ""}`,
+            entityId: plan.invoiceId,
+            summary: `${isSale ? "Борлуулалтын нэхэмжлэх" : "Өглөгийн нэхэмжлэх"} банкны хуулгаас бичигдэж ${isSale ? "хаагдав" : "төлөгдөв"} — ${plan.documentNo}, ${row.transactionDate}, ${plan.counterpartyName}, дүн ${row.amount.toLocaleString("en-US")} ${cashAccount.currency}${plan.vat ? ` (НӨАТ ${plan.vat.toLocaleString("en-US")})` : ""}`,
           },
           tx
         );
@@ -749,18 +780,18 @@ export async function saveBankStatement(
 
       const allJournalLines = postingRows.flatMap((row) => {
         const lineDescription = row.description || row.counterparty;
-        const bill = billByRowId.get(row.id);
-        if (bill) {
-          // Шинэ өглөгийг ижил ханшаар тэр даруй хаана — ханшийн зөрүүгүй.
+        const plan = invoiceByRowId.get(row.id);
+        if (plan) {
+          // Шинэ нэхэмжлэхийг ижил ханшаар тэр даруй хаана — ханшийн зөрүүгүй.
           const buildCode = fxCodeBuilder(
             row.debitAccountNumber.split(".")[7] || row.creditAccountNumber.split(".")[7] || null
           );
           return buildSettlementPostingLines({
             voucherId: row.voucherId,
-            documentType: "ap_bill",
+            documentType: plan.documentType,
             cashAccountId: cashAccount.id,
-            cashAccountNumber: row.creditAccountNumber,
-            controlAccountNumber: buildCode(bill.controlMain),
+            cashAccountNumber: row.income > 0 ? row.debitAccountNumber : row.creditAccountNumber,
+            controlAccountNumber: buildCode(plan.controlMain),
             baseAmount: row.baseAmount,
             historicalBaseAmount: row.baseAmount,
             fxDifference: 0,
@@ -837,7 +868,7 @@ export async function saveBankStatement(
             const ewalletMethod = row.ewalletSettlement
               ? ewalletMethodById.get(row.ewalletSettlement.paymentMethodId)
               : undefined;
-            const bill = billByRowId.get(row.id);
+            const plan = invoiceByRowId.get(row.id);
             return {
             id: row.cashDocumentId,
             userId,
@@ -856,8 +887,8 @@ export async function saveBankStatement(
             toCashAccountId: row.income > 0 ? cashAccount.id : null,
             counterAccountNumber: ewalletMethod
               ? null
-              : bill
-                ? bill.controlMain
+              : plan
+                ? plan.controlMain
                 : row.income > 0
                   ? row.creditMain
                   : row.debitMain,
@@ -878,7 +909,7 @@ export async function saveBankStatement(
             // Нэхэмжлэхтэй холбогдсон мөр — settlement баримт болно.
             // `|| null`: хоосон тэмдэгт settlement шүүлтийг давдаггүйтэй
             // нийцүүлж uuid баганад орохоос сэргийлнэ.
-            arApDocumentId: row.settleInvoiceId || bill?.billId || null,
+            arApDocumentId: row.settleInvoiceId || plan?.invoiceId || null,
             postedAt: new Date(),
             };
           })
@@ -993,11 +1024,11 @@ export async function saveBankStatement(
           );
       }
       const settlementInserts = postingRows
-        .filter((row) => row.settleInvoiceId || billByRowId.has(row.id))
+        .filter((row) => row.settleInvoiceId || invoiceByRowId.has(row.id))
         .map((row) => ({
           userId,
           organizationId: orgId,
-          documentId: (row.settleInvoiceId || billByRowId.get(row.id)?.billId) as string,
+          documentId: (row.settleInvoiceId || invoiceByRowId.get(row.id)?.invoiceId) as string,
           cashDocumentId: row.cashDocumentId,
           settlementDate: row.transactionDate,
           amount: String(row.amount),
@@ -1010,6 +1041,10 @@ export async function saveBankStatement(
         await tx.insert(arApSettlements).values(group);
 
       // Импорт = олон posted бичилт үүсгэдэг ТОМ мутаци — аудитад нэг мөр.
+      const createdSales = [...invoiceByRowId.values()].filter(
+        (plan) => plan.documentType === "ar_invoice"
+      ).length;
+      const createdBills = invoiceByRowId.size - createdSales;
       await logAuditEvent(
         {
           userId,
@@ -1017,7 +1052,7 @@ export async function saveBankStatement(
           action: "import",
           entityType: "cash",
           entityId: statement.id,
-          summary: `Банкны хуулга импортлогдов — ${payload.fileName.slice(0, 80)}, ${rows.length} мөр, орлого ${totalIncome.toLocaleString("en-US")}, зарлага ${totalExpense.toLocaleString("en-US")}${settleRows.length ? `, ${settleRows.length} мөр нэхэмжлэхтэй холбогдов` : ""}${ewalletRows.length ? `, ${ewalletRows.length} э-хэтэвчийн settlement (шилжүүлэг + шимтгэл)` : ""}${billByRowId.size ? `, ${billByRowId.size} өглөгийн нэхэмжлэх үүсэж хаагдав` : ""}${actionRows.length - billByRowId.size > 0 ? `, ${actionRows.length - billByRowId.size} урьдчилгаа` : ""}`,
+          summary: `Банкны хуулга импортлогдов — ${payload.fileName.slice(0, 80)}, ${rows.length} мөр, орлого ${totalIncome.toLocaleString("en-US")}, зарлага ${totalExpense.toLocaleString("en-US")}${settleRows.length ? `, ${settleRows.length} мөр нэхэмжлэхтэй холбогдов` : ""}${ewalletRows.length ? `, ${ewalletRows.length} э-хэтэвчийн settlement (шилжүүлэг + шимтгэл)` : ""}${createdSales ? `, ${createdSales} борлуулалтын нэхэмжлэх үүсэж хаагдав` : ""}${createdBills ? `, ${createdBills} өглөгийн нэхэмжлэх үүсэж хаагдав` : ""}${actionRows.length - invoiceByRowId.size > 0 ? `, ${actionRows.length - invoiceByRowId.size} урьдчилгаа` : ""}`,
         },
         tx
       );
@@ -1045,6 +1080,12 @@ export async function saveBankStatement(
 
       return statement.id;
     });
+
+    // Хуулгаас үүссэн борлуулалтын нэхэмжлэх нь гараар батлагдсантай ИЖИЛ
+    // eBarimt-д явна (commit-ийн ДАРАА, тохиргоо унтраалттай бол юу ч хийхгүй,
+    // ШИДЭХГҮЙ); төлөлтийн баримтыг settlement-ийн сканнер авна.
+    for (const plan of invoiceByRowId.values())
+      if (plan.documentType === "ar_invoice") await enqueueArapInvoiceEbarimt(orgId, plan.invoiceId);
 
     revalidatePath("/cash");
     revalidatePath("/cash/accounts");
