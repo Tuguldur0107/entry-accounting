@@ -162,7 +162,9 @@ function describeFailure(service: string, status: number, body: string): string 
   logBankFailure(
     service,
     status,
-    [message || body.slice(0, 120), codeText].filter(Boolean).join(" · ")
+    [message || (body.trim().startsWith("{") ? body.slice(0, 120) : "(тайлагдаагүй хариу)"), codeText]
+      .filter(Boolean)
+      .join(" · ")
   );
   const step = stepLabel(service);
   const known = KNOWN_BANK_ERRORS.find(
@@ -247,6 +249,21 @@ export class GolomtClient {
     }
   }
 
+  /**
+   * Алдааны (4xx/5xx) хариу ч бизнес хариутай адил Base64 AES-ээр шифрлэгдэж
+   * ирдэг (2026-10-01 UAT: ACCTLST / OPERACCSTAINQ-ийн 400). Шифргүй JSON бол
+   * хэвээр; тайлж чадахгүй бол хоосон — describeFailure ерөнхий мессеж өгнө.
+   */
+  private plainErrorBody(text: string): string {
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.startsWith("{") || trimmed.startsWith("[")) return trimmed;
+    try {
+      return golomtDecrypt(trimmed, this.keys);
+    } catch {
+      return "";
+    }
+  }
+
   private acceptToken(payload: Json) {
     const token = stringField(payload, "token", "Token", "accessToken");
     if (!token) {
@@ -279,7 +296,7 @@ export class GolomtClient {
       body,
     });
     if (status < 200 || status >= 300)
-      throw new GolomtApiError(describeFailure("LGIN", status, text), status);
+      throw new GolomtApiError(describeFailure("LGIN", status, this.plainErrorBody(text)), status);
     this.acceptToken(this.decode(text));
   }
 
@@ -354,7 +371,7 @@ export class GolomtClient {
         body,
       });
       if (status < 200 || status >= 300)
-        throw new GolomtApiError(describeFailure(service, status, text), status);
+        throw new GolomtApiError(describeFailure(service, status, this.plainErrorBody(text)), status);
       const decoded = this.decode(text);
       // 200 хариутай ч банкны бизнес алдаа (status FAILED / errDesc) — чимээгүй
       // хоосон үр дүн болгохгүй.
