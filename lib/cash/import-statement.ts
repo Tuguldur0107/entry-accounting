@@ -60,6 +60,11 @@ import { extractMainAccount } from "@/lib/reports/balances";
 import { nextVoucherNo } from "@/lib/gl/voucher-no";
 import { loadImportedExternalRefs } from "@/lib/cash/statement-external-refs";
 import { enqueueArapInvoiceEbarimt } from "@/lib/ebarimt/queue";
+import {
+  buildStatementPreview,
+  type BankStatementPreview,
+  type PreviewVoucherKind,
+} from "@/lib/cash/statement-preview";
 
 
 export type SavePayload = ParsedBankStatement & {
@@ -73,9 +78,39 @@ function chunks<T>(items: T[], size = 400) {
   return output;
 }
 
+/**
+ * Урьдчилж харах горимд транзакцыг БУЦААХ дохио — үүссэн журнал, нэхэмжлэх,
+ * дугаарын тоолуур, аудит, мэдэгдэл бүгд rollback болно.
+ */
+class StatementPreviewRollback extends Error {
+  constructor(readonly preview: BankStatementPreview) {
+    super("statement preview rollback");
+  }
+}
+
 export async function saveBankStatement(
   payload: SavePayload
 ): Promise<{ id: string; rowCount: number }> {
+  const { id, rowCount } = await runBankStatementImport(payload, false);
+  return { id, rowCount };
+}
+
+/**
+ * Бичилтийг батлахаас ӨМНӨ харах (docs/dev/arap.md §5l): saveBankStatement-ийн
+ * ЯГ ТЭР шалгалт + бичилтийг транзакц дотор ажиллуулж, үүссэн журналын мөрийг
+ * уншаад транзакцыг буцаана — харсан бичилт = батлах бичилт (тусдаа тооцоо
+ * БАЙХГҮЙ). GL, eBarimt, мэдэгдэлд юу ч үлдэхгүй.
+ */
+export async function previewBankStatement(payload: SavePayload): Promise<BankStatementPreview> {
+  const result = await runBankStatementImport(payload, true);
+  if (!result.preview) throw new Error("Урьдчилж харах бичилт үүссэнгүй");
+  return result.preview;
+}
+
+async function runBankStatementImport(
+  payload: SavePayload,
+  dryRun: boolean
+): Promise<{ id: string; rowCount: number; preview?: BankStatementPreview }> {
   // Мөр бүр кассын баримт + GL журналыг БАТАЛНА — модулийн батлах эрх
   // (cash:post). Өмнө нь role-оор (accountant+) шалгадаг тул cash:write
   // override-той гишүүн ч батлах, багцын read-only горимыг ч тойрдог байв
@@ -613,7 +648,7 @@ export async function saveBankStatement(
     const totalIncome = rows.reduce((sum, row) => sum + row.income, 0);
     const totalExpense = rows.reduce((sum, row) => sum + row.expense, 0);
 
-    const statementId = await db.transaction(async (tx) => {
+    const transactionResult = await db.transaction(async (tx) => {
       // Сар хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт (сар бүрд нэг).
       const monthDates = new Map<string, string>();
       for (const row of rows) monthDates.set(row.transactionDate.slice(0, 7), row.transactionDate);
@@ -1083,8 +1118,76 @@ export async function saveBankStatement(
       for (const group of chunks(persistedLines))
         await tx.insert(bankStatementLines).values(group);
 
+      if (dryRun) {
+        // Үүссэн журналыг DB-ээс (trigger, сегмент кодтой нь) уншаад буцаана.
+        const voucherMeta = new Map<
+          string,
+          { rowNumber: number; kind: PreviewVoucherKind; reference: string | null; date: string }
+        >();
+        for (const row of rows) {
+          const plan = invoiceByRowId.get(row.id);
+          if (plan)
+            voucherMeta.set(plan.voucherId, {
+              rowNumber: row.rowNumber,
+              kind: plan.documentType,
+              reference: plan.counterpartyName,
+              date: row.transactionDate,
+            });
+        }
+        for (const row of postingRows) {
+          const plan = invoiceByRowId.get(row.id);
+          const settled = row.settleInvoiceId ? invoiceById.get(row.settleInvoiceId) : undefined;
+          voucherMeta.set(row.voucherId, {
+            rowNumber: row.rowNumber,
+            kind: plan || settled ? "settlement" : row.ewalletSettlement ? "ewallet" : "cash",
+            reference: settled
+              ? settled.documentNo
+              : plan
+                ? `шинэ ${plan.documentType === "ar_invoice" ? "борлуулалтын" : "өглөгийн"} нэхэмжлэх`
+                : null,
+            date: row.transactionDate,
+          });
+        }
+        for (const entry of feeRows)
+          voucherMeta.set(entry.voucherId, {
+            rowNumber: entry.row.rowNumber,
+            kind: "fee",
+            reference: entry.method.methodName,
+            date: entry.row.transactionDate,
+          });
+        const previewLines = [];
+        for (const group of chunks([...voucherMeta.keys()], 2_000))
+          previewLines.push(
+            ...(await tx
+              .select({
+                voucherId: journalLines.voucherId,
+                accountNumber: journalLines.accountNumber,
+                debit: journalLines.debit,
+                credit: journalLines.credit,
+                description: journalLines.description,
+                sortOrder: journalLines.sortOrder,
+              })
+              .from(journalLines)
+              .where(inArray(journalLines.voucherId, group)))
+          );
+        throw new StatementPreviewRollback(
+          buildStatementPreview({
+            rowCount: rows.length,
+            vouchers: [...voucherMeta].map(([id, meta]) => ({ id, ...meta })),
+            lines: previewLines,
+            accountNames: new Map(glAccounts.map((account) => [account.number, account.name])),
+          })
+        );
+      }
+
       return statement.id;
+    }).catch((error: unknown) => {
+      if (error instanceof StatementPreviewRollback) return error;
+      throw error;
     });
+    if (transactionResult instanceof StatementPreviewRollback)
+      return { id: "", rowCount: rows.length, preview: transactionResult.preview };
+    const statementId = transactionResult;
 
     // Хуулгаас үүссэн борлуулалтын нэхэмжлэх нь гараар батлагдсантай ИЖИЛ
     // eBarimt-д явна (commit-ийн ДАРАА, тохиргоо унтраалттай бол юу ч хийхгүй,

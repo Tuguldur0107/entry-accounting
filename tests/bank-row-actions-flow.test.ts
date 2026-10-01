@@ -31,6 +31,7 @@ import {
   arApDocuments,
   arApSettlements,
   arapAdvanceApplications,
+  bankStatements,
   cashDocuments,
   counterparties,
   journalLines,
@@ -228,6 +229,50 @@ test("өглөг үүсгэх: харилцагчийн картын данс б
   assert.ok(bill);
   assert.equal(main(bill.controlAccountNumber), "31000001");
   assert.equal(bill.status, "paid");
+});
+
+test("preview: батлахаас өмнөх бичилт — ноорог горимд ч ажиллаж, ЮУ Ч бичихгүй", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const countOf = async () => ({
+    statements: (await db.query.bankStatements.findMany({ where: eq(bankStatements.organizationId, orgId) })).length,
+    invoices: (await db.query.arApDocuments.findMany({ where: eq(arApDocuments.organizationId, orgId) })).length,
+    cash: (await db.query.cashDocuments.findMany({ where: eq(cashDocuments.organizationId, orgId) })).length,
+  });
+  const before = await countOf();
+  const preview = ok(
+    await tool(
+      "import_bank_statement",
+      {
+        cashAccount: "Голомт банк",
+        statementRef: `bra-${STAMP}-preview`,
+        preview: true,
+        rows: [
+          { date: "2026-09-08", description: "Түрээс", counterparty: "Түрээслүүлэгч ХХК", expense: 220, counterGlAccount: "73100001", rowAction: "create_ap_bill" },
+          { date: "2026-09-08", description: "Хүү", income: 30, counterGlAccount: "51100000" },
+        ],
+      },
+      "draft"
+    )
+  ).resultText;
+  assert.match(preview, /УРЬДЧИЛЖ ХАРАХ — юу ч бичигдээгүй\. 2 мөр → 3 журнал/);
+  assert.match(preview, /тэнцсэн/);
+  assert.match(preview, /Давхар бичилттэй мөр \(1\)/);
+  assert.match(preview, /31000001 .* Дт 220 \/ Кт 220$/m);
+  assert.match(preview, /13620000 .* Дт 20 \/ Кт 0$/m);
+  assert.deepEqual(await countOf(), before);
+  // Урьдчилж харсны дараа жинхэнэ импорт ердийнхөөрөө (дугаарын тоолуур, hash хөндөгдөөгүй).
+  ok(
+    await tool("import_bank_statement", {
+      cashAccount: "Голомт банк",
+      statementRef: `bra-${STAMP}-preview`,
+      rows: [
+        { date: "2026-09-08", description: "Түрээс", counterparty: "Түрээслүүлэгч ХХК", expense: 220, counterGlAccount: "73100001", rowAction: "create_ap_bill" },
+        { date: "2026-09-08", description: "Хүү", income: 30, counterGlAccount: "51100000" },
+      ],
+    })
+  );
+  const after = await countOf();
+  assert.deepEqual([after.statements - before.statements, after.invoices - before.invoices, after.cash - before.cash], [1, 1, 2]);
 });
 
 test("rowAction-ийн буруу хэрэглээ — харилцагчгүй, буруу чиглэл", { skip: !DB_READY }, async () => {

@@ -185,7 +185,12 @@ import {
 // STORE-FIRST: ханшийг ХЭЗЭЭ Ч `fetch`-ээр шууд авахгүй (CLAUDE.md §5b) —
 // `getOfficialRateForDate` нь хадгалсан түүхээс → Монголбанкнаас → ШИДНЭ.
 import { getOfficialRateForDate } from "@/lib/cash/official-rate";
-import { saveBankStatement } from "@/lib/cash/import-statement";
+import { previewBankStatement, saveBankStatement } from "@/lib/cash/import-statement";
+import {
+  PREVIEW_VOUCHER_LABELS,
+  type BankStatementPreview,
+  type PreviewVoucherKind,
+} from "@/lib/cash/statement-preview";
 import {
   suggestEwalletSettlements,
   type EwalletSettlementRowInput,
@@ -2836,6 +2841,11 @@ export const AI_TOOLS: AiToolDef[] = [
         statementRef: {
           type: "string",
           description: "Хуулгын нэр/дугаар (давхардлын шалгалтад орно, сонголтоор)",
+        },
+        preview: {
+          type: "boolean",
+          description:
+            "true бол ЮУ Ч БИЧИХГҮЙ — батлахаас өмнөх бичилтийг (мөр бүрийн журнал, дансны нийт Дт/Кт, тэнцэл) буцаана; ноорог горимд ч ажиллана. Нэхэмжлэх үүсгэж хаах, урьдчилгаа зэрэг давхар бичилтийг хэрэглэгчид эхлээд ингэж үзүүлнэ",
         },
         rows: {
           type: "array",
@@ -10301,12 +10311,41 @@ async function runUpdateCostingAccounts(
   };
 }
 
+/** previewBankStatement-ийн үр дүнг AI-д уншигдахуйц текст болгоно. */
+function formatStatementPreview(preview: BankStatementPreview): string {
+  const line = (entry: { mainAccount: string; accountName: string; debit: number; credit: number }) =>
+    `  ${entry.mainAccount} ${entry.accountName} — Дт ${fmt(entry.debit)} / Кт ${fmt(entry.credit)}`;
+  const kinds = (Object.keys(preview.counts) as PreviewVoucherKind[])
+    .filter((kind) => preview.counts[kind] > 0)
+    .map((kind) => `${PREVIEW_VOUCHER_LABELS[kind]} ${preview.counts[kind]}`);
+  const multi = preview.vouchers.filter(
+    (voucher) => preview.vouchers.filter((other) => other.rowNumber === voucher.rowNumber).length > 1
+  );
+  return [
+    `УРЬДЧИЛЖ ХАРАХ — юу ч бичигдээгүй. ${preview.rowCount} мөр → ${preview.vouchers.length} журнал (${kinds.join(", ")}).`,
+    `Нийт Дт ${fmt(preview.debitTotal)} / Кт ${fmt(preview.creditTotal)} — ${preview.balanced ? "тэнцсэн" : "ТЭНЦЭЭГҮЙ"}.`,
+    "Дансаар:",
+    ...preview.totals.map(line),
+    ...(multi.length
+      ? [
+          `Давхар бичилттэй мөр (${preview.multiVoucherRows}):`,
+          ...multi.slice(0, 30).flatMap((voucher) => [
+            `${voucher.rowNumber}-р мөр · ${PREVIEW_VOUCHER_LABELS[voucher.kind]}${voucher.reference ? ` (${voucher.reference})` : ""}:`,
+            ...voucher.lines.map(line),
+          ]),
+        ]
+      : []),
+    "Батлахын тулд preview-гүйгээр дахин дуудна ('Шууд бичих' горим).",
+  ].join("\n");
+}
+
 async function runImportBankStatement(
   orgId: string,
   input: {
     cashAccount: string;
     bankName?: string;
     statementRef?: string;
+    preview?: boolean;
     rows: {
       date: string;
       description?: string;
@@ -10324,7 +10363,8 @@ async function runImportBankStatement(
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
-  assertPostMode(mode);
+  // Урьдчилж харах нь юу ч бичихгүй (транзакц буцна) — ноорог горимд ч болно.
+  if (!input.preview) assertPostMode(mode);
   for (const [index, row] of input.rows.entries()) {
     if (row.rowAction != null && row.rowAction !== "" && !isBankRowAction(row.rowAction))
       throw codedError("INVALID_INPUT", `rows[${index}].rowAction: advance_received | create_ar_invoice | prepaid_paid | create_ap_bill`);
@@ -10530,7 +10570,7 @@ async function runImportBankStatement(
     .update(JSON.stringify({ cashAccountId: account.id, rows: input.rows }))
     .digest("hex");
 
-  const result = await saveBankStatement({
+  const payload = {
     cashAccountId: account.id,
     fileName:
       input.statementRef?.trim() ||
@@ -10540,7 +10580,9 @@ async function runImportBankStatement(
     periodStart: dates[0],
     periodEnd: dates[dates.length - 1],
     rows: parsedRows,
-  });
+  };
+  if (input.preview) return { resultText: formatStatementPreview(await previewBankStatement(payload)) };
+  const result = await saveBankStatement(payload);
 
   const settled = parsedRows.filter((row) => row.settleInvoiceId).length;
   const ewalletSettled = parsedRows.filter((row) => row.ewalletSettlement);
