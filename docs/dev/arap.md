@@ -273,3 +273,22 @@ components/arap/statement-report-view.tsx, collections-panel.tsx
 AI: get_counterparty_statement
 tests/ar-statement-flow.test.ts (DB)
 ```
+
+### 5k. Батлагдсан баримтын устгалт — product owner шийдвэр (2026-10-01)
+
+Батлагдсан АР/АП нэхэмжлэх ба кассын баримтыг тайлант үе **НЭЭЛТТЭЙ** үед GL
+журналтайгаа (үндсэн + буцаалт + эх) устгаж БОЛНО — гар GL журнал (§2c, зөвхөн
+ноорог) өөр. Нөхцөл (`deleteArApDocumentCore`, `deleteCashDocumentCore`):
+
+- `post` эрх; тайлант үе нээлттэй — `assertPeriodOpen` + транзакц дотор
+  `assertPeriodOpenInTx` (хаалттай уралдахаас)
+- Аудитын мөр ҮЛДЭНЭ (`logAuditEvent` — дугаар, огноо, дүн, өмнөх төлөв)
+- УСТГАХГҮЙ (буцаалтаар л): POS-оос үүссэн (`[POS_SOURCED]`), төлөлттэй /
+  кредит баримттай / батлагдсан бараа хөдөлгөөнтэй / хаагдсан PO-той /
+  хуваарилагдсан зардалтай нэхэмжлэх, батлагдсан кредит/дебит баримт;
+  **eBarimt-д бүртгэгдсэн (`sent`) эсвэл илгээгдэж буй (`claimed`) нэхэмжлэх**
+  (`[EBARIMT_REGISTERED]` — ТЕГ-д баримт үлдэж НӨАТ чимээгүй зөрнө; кредит
+  нэхэмжлэлээр); **QPay-ээр орсон төлбөрийн кассын баримт** (`[QPAY_SETTLEMENT]`
+  — `pos_qpay_intents.cash_document_id`; мөнгө баримтгүй үлдэнэ; харилцагчид
+  буцаасныг тусдаа зарлагаар)
+- Тест `tests/delete-posted-guards.test.ts` (DB)

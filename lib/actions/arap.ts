@@ -50,6 +50,7 @@ import {
   inventoryMovements,
   journalLines,
   journalVouchers,
+  posEbarimtSubmissions,
   purchaseOrderLines,
   purchaseOrders,
 } from "@/lib/db/schema";
@@ -2055,6 +2056,34 @@ export async function reverseArApDocument(id: string): Promise<ActionResult> {
  *     (ноорог хөдөлгөөн хамт устна)
  *   - период нээлттэй байх
  */
+/**
+ * eBarimt-д бүртгэгдсэн (`sent`) эсвэл яг одоо илгээгдэж буй (дарааллын `claimed`)
+ * нэхэмжлэхийг устгахгүй — ТЕГ-д баримт үлдэж Entry-д алга болох тул НӨАТ-ын
+ * тайлан ТЕГ-тэй чимээгүй зөрнө. Буцаах зам — кредит нэхэмжлэл (ил, аудиттай).
+ */
+async function assertNotEbarimtRegistered(
+  handle: Pick<typeof db, "query">,
+  orgId: string,
+  document: { id: string; ebarimtStatus: string | null; documentNo: string | null }
+) {
+  const current = await handle.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.id, document.id), eq(arApDocuments.organizationId, orgId)),
+    columns: { ebarimtStatus: true },
+  });
+  const inFlight = await handle.query.posEbarimtSubmissions.findFirst({
+    where: and(
+      eq(posEbarimtSubmissions.organizationId, orgId),
+      eq(posEbarimtSubmissions.arapDocumentId, document.id),
+      eq(posEbarimtSubmissions.status, "claimed")
+    ),
+    columns: { id: true },
+  });
+  if ((current?.ebarimtStatus ?? document.ebarimtStatus) === "sent" || inFlight)
+    throw new Error(
+      `[EBARIMT_REGISTERED] ${document.documentNo ?? "Энэ нэхэмжлэх"} eBarimt-д (ТЕГ) бүртгэгдсэн${inFlight ? " / илгээгдэж байна" : ""} — устгавал ТЕГ-д баримт үлдэж НӨАТ зөрнө. Кредит нэхэмжлэлээр буцаана уу`
+    );
+}
+
 async function deleteArApDocumentCore(id: string) {
   const { orgId, userId } = await getActiveOrg();
   const document = await db.query.arApDocuments.findFirst({
@@ -2086,6 +2115,10 @@ async function deleteArApDocumentCore(id: string) {
   // (cost_allocations FK restrict) эсвэл lineage тасарч (cost_entries
   // sourceLineId → null) өртөг хөөрөгдөнө — ил монгол мессежээр таслана.
   await assertNoActiveCostAllocations(orgId, id);
+
+  // eBarimt-д (ТЕГ) бүртгэгдсэн / илгээгдэж буй нэхэмжлэхийг устгавал баримт ТЕГ-д
+  // үлдэж Entry-д алга болно — НӨАТ чимээгүй зөрнө (CLAUDE.md §5c). Ноорог ч хамаарна.
+  await assertNotEbarimtRegistered(db, orgId, document);
 
   if (document.status !== "draft") {
     await assertPeriodOpen(orgId, document.date);
@@ -2136,6 +2169,10 @@ async function deleteArApDocumentCore(id: string) {
     ];
 
     await db.transaction(async (tx) => {
+      // Тайлант үе НЭЭЛТТЭЙ үед л устгана — хаалттай уралдахаас хамгаалсан
+      // транзакц-доторх шалгалт; eBarimt-ийн төлвийг ч дахин шалгана.
+      await assertPeriodOpenInTx(tx, orgId, document.date);
+      await assertNotEbarimtRegistered(tx, orgId, document);
       // Үүсгэсэн ноорог хөдөлгөөнүүд хамт устна.
       for (const movement of movements) {
         await tx
