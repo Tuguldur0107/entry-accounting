@@ -305,7 +305,8 @@ test("Дахин бодолт (run_fa_depreciation) буцаагдсан жур�
   );
   await db.update(journalVouchers).set({ status: "reversed" }).where(eq(journalVouchers.id, voucherId));
 
-  const ran = await tool("run_fa_depreciation", { month: "2025-03" });
+  // Батлагдсан бичилттэй сарыг дахин бодох = батлах үйлдэл → «Шууд бичих» горим.
+  const ran = await tool("run_fa_depreciation", { month: "2025-03" }, "post");
   assert.ok(okOrRevalidate(ran.resultText), ran.resultText);
   const reversals = await db.query.journalVouchers.findMany({
     where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.reversalOfVoucherId, voucherId)),

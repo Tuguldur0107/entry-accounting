@@ -9,7 +9,7 @@ import { revalidatePath } from "next/cache";
 
 import { calculateSettlementExchangeEffect } from "@/lib/arap/accounting";
 import { logAuditEvent } from "@/lib/audit";
-import { requireRole } from "@/lib/auth";
+import { requireModuleAction } from "@/lib/auth";
 import {
   buildCashAccountCodeRules,
   validateCashAccountCode,
@@ -23,7 +23,7 @@ import { loadEwalletSettlementContext } from "@/lib/cash/ewallet-settlement-data
 import { buildSettlementPostingLines } from "@/lib/cash/settlement-lines";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
-import { assertPeriodsOpen } from "@/lib/periods/guard";
+import { assertPeriodOpenInTx, assertPeriodsOpen } from "@/lib/periods/guard";
 import { nextVoucherNos } from "@/lib/gl/voucher-no";
 import { db } from "@/lib/db";
 import {
@@ -58,7 +58,11 @@ function chunks<T>(items: T[], size = 400) {
 export async function saveBankStatement(
   payload: SavePayload
 ): Promise<{ id: string; rowCount: number }> {
-  const { orgId, userId } = await requireRole("accountant");
+  // Мөр бүр кассын баримт + GL журналыг БАТАЛНА — модулийн батлах эрх
+  // (cash:post). Өмнө нь role-оор (accountant+) шалгадаг тул cash:write
+  // override-той гишүүн ч батлах, багцын read-only горимыг ч тойрдог байв
+  // (ontology-audit §4.2; requireModuleAction нь entitlement-ийг хамт шалгана).
+  const { orgId, userId } = await requireModuleAction("cash", "post");
     if (!payload.cashAccountId)
       throw new Error("Банкны Cash данс сонгоно уу");
     if (!payload.fileName || !payload.fileHash)
@@ -438,6 +442,10 @@ export async function saveBankStatement(
     const totalExpense = rows.reduce((sum, row) => sum + row.expense, 0);
 
     const statementId = await db.transaction(async (tx) => {
+      // Сар хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт (сар бүрд нэг).
+      const monthDates = new Map<string, string>();
+      for (const row of rows) monthDates.set(row.transactionDate.slice(0, 7), row.transactionDate);
+      for (const date of monthDates.values()) await assertPeriodOpenInTx(tx, orgId, date);
       const [statement] = await tx
         .insert(bankStatements)
         .values({
