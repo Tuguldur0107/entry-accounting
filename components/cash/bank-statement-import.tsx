@@ -64,6 +64,7 @@ import {
   type CounterpartyFormState,
 } from "@/components/arap/arap-workspace";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { InvoicePickerDialog } from "@/components/cash/invoice-picker-dialog";
 import type { EntityKindOption } from "@/lib/arap/counterparty-kind";
 import {
   AdvanceSettingsDialog,
@@ -182,6 +183,9 @@ const PENDING_BOOKING = new WeakMap<ParsedBankStatementRow, string>();
 /** Харилцагч сонгогчийн «+ Шинэ харилцагч» сонголтын утга (бодит ID биш). */
 const NEW_COUNTERPARTY = "__new_counterparty__";
 
+/** «Бүртгэл» сонгогчийн «Нэхэмжлэх сонгох…» — InvoicePickerDialog нээнэ. */
+const PICK_INVOICE = "__pick_invoice__";
+
 const COUNTERPARTY_TYPE_HINTS: Record<string, string> = {
   customer: "Авлага",
   supplier: "Өглөг",
@@ -294,6 +298,8 @@ export function BankStatementImport({
   const [golomtSettingsOpen, setGolomtSettingsOpen] = useState(false);
   const [golomtFetchOpen, setGolomtFetchOpen] = useState(false);
   const [advanceSettings, setAdvanceSettings] = useState<AdvanceSettingsView | null>(null);
+  // Нэхэмжлэх сонгох цонх — мөрийн ID.
+  const [invoicePicker, setInvoicePicker] = useState<string | null>(null);
 
   const cashAccount = accounts.find((account) => account.id === cashAccountId);
   // Мөр бэлэн эсэх: данс бүрэн + (валюттай бол) ханш/MNT дүн.
@@ -481,6 +487,12 @@ export function BankStatementImport({
       if (colId === "booking") {
         const value = String(event.newValue ?? "");
         PENDING_BOOKING.delete(event.data);
+        if (value === PICK_INVOICE) {
+          // Мөрийн утга хөндөгдөөгүй — нүдийг хуучнаар нь дахин зурж цонх нээнэ.
+          event.api.refreshCells({ rowNodes: [event.node], columns: ["booking"], force: true });
+          setInvoicePicker(event.data.id);
+          return;
+        }
         if (value.startsWith("invoice:"))
           applyBookingEdit(event.data.id, "settleInvoiceId", value.slice("invoice:".length));
         else
@@ -581,47 +593,56 @@ export function BankStatementImport({
     () => new Map((matchContext?.openInvoices ?? []).map((item) => [item.id, item.documentNo])),
     [matchContext]
   );
-  const invoiceOptionsFor = useCallback(
-    (row: ParsedBankStatementRow | undefined): SearchSelectOption[] => {
+  // Мөрийн чиглэл (АР/АП) ба валютад тохирох нээлттэй нэхэмжлэхүүд —
+  // харилцагчаар шүүхгүй (нэхэмжлэх сонгох цонх өөрөө «Энэ харилцагч»-аар шүүнэ).
+  const invoicesForRow = useCallback(
+    (row: ParsedBankStatementRow | undefined) => {
       if (!row) return [];
       const type = row.income > 0 ? "ar_invoice" : "ap_bill";
-      return (matchContext?.openInvoices ?? [])
-        .filter(
-          (item) =>
-            item.documentType === type &&
-            (item.currency ?? "MNT") === (cashAccount?.currency ?? "MNT") &&
-            (!row.counterpartyId || !item.counterpartyId || item.counterpartyId === row.counterpartyId)
-        )
-        // Дугаар · харилцагч нь гарчиг (урт бол зүсэгдэнэ), үлдэгдэл баруун талд —
-        // SearchSelect-ийн code/hint шахагдахгүй тул гарчгийг устгахгүйн тулд.
-        .map((item) => ({
-          value: item.id,
-          label: `${item.documentNo} · ${item.counterpartyName}`,
-          hint: fmtMnt(item.totalAmount - item.paidAmount),
-        }));
+      return (matchContext?.openInvoices ?? []).filter(
+        (item) =>
+          item.documentType === type &&
+          (item.currency ?? "MNT") === (cashAccount?.currency ?? "MNT")
+      );
     },
     [matchContext, cashAccount?.currency]
   );
-  // «Бүртгэл» сонгогч: мөрийн чиглэлд тохирох төрлүүд + хаах боломжтой нээлттэй
-  // нэхэмжлэхүүд (сонгосон харилцагчаар шүүгдэнэ).
+  // «Бүртгэл» сонгогч: мөрийн чиглэлд тохирох төрлүүд + «Нэхэмжлэх сонгож
+  // хаах…» (том цонх) + мөрийн дүнтэй ЯГ таарсан нэхэмжлэх (≤3, шууд сонголт).
   const bookingOptionsFor = useCallback(
     (row: ParsedBankStatementRow | undefined): SearchSelectOption[] => {
       if (!row) return [];
       const direction = row.income > 0 ? "income" : "expense";
+      const amount = row.income || row.expense;
+      const invoices = invoicesForRow(row);
+      const exact = invoices
+        .filter(
+          (item) =>
+            (!row.counterpartyId || !item.counterpartyId || item.counterpartyId === row.counterpartyId) &&
+            Math.abs(item.totalAmount - item.paidAmount - amount) <= 0.005
+        )
+        .slice(0, 3);
       return [
         ...BANK_ROW_ACTIONS.filter((action) => bankRowActionDirection(action) === direction).map(
           (action) => ({ value: `action:${action}`, label: BANK_ROW_ACTION_LABELS[action] })
         ),
-        // Нэхэмжлэх хаах: «Хаах · AR-… · харилцагч» + үлдэгдэл; сонгосны дараа
-        // нүдэнд «Авлага хаах · AR-…».
-        ...invoiceOptionsFor(row).map((option) => ({
-          ...option,
-          value: `invoice:${option.value}`,
-          label: `Хаах · ${option.label}`,
+        ...(invoices.length > 0
+          ? [
+              {
+                value: PICK_INVOICE,
+                label: `${direction === "income" ? "Авлага" : "Өглөг"} хаах — нэхэмжлэх сонгох…`,
+                hint: String(invoices.length),
+              },
+            ]
+          : []),
+        ...exact.map((item) => ({
+          value: `invoice:${item.id}`,
+          label: `Хаах · ${item.documentNo} · ${item.counterpartyName}`,
+          hint: fmtMnt(item.totalAmount - item.paidAmount),
         })),
       ];
     },
-    [invoiceOptionsFor]
+    [invoicesForRow]
   );
 
   // Саналууд нь parse хийсэн эх мөрүүдээс (дүн/харилцагч/утга засагдахгүй
@@ -2186,6 +2207,29 @@ export function BankStatementImport({
         />
       )}
       {confirmDialog}
+      {(() => {
+        const pickerRow = invoicePicker ? rows.find((row) => row.id === invoicePicker) : undefined;
+        if (!pickerRow) return null;
+        // Нэг нэхэмжлэхийг хэд хэдэн мөрөөр хааж болно — бусад мөрийн дүнг
+        // үлдэгдлээс хасч харуулна (хадгалахад сервер дахин шалгана).
+        const linkedElsewhere = new Map<string, number>();
+        for (const row of rows) {
+          if (row.id === pickerRow.id || !row.settleInvoiceId) continue;
+          linkedElsewhere.set(
+            row.settleInvoiceId,
+            (linkedElsewhere.get(row.settleInvoiceId) ?? 0) + (row.income || row.expense)
+          );
+        }
+        return (
+          <InvoicePickerDialog
+            row={pickerRow}
+            invoices={invoicesForRow(pickerRow)}
+            linkedElsewhere={linkedElsewhere}
+            onSelect={(invoiceId) => applyBookingEdit(pickerRow.id, "settleInvoiceId", invoiceId)}
+            onClose={() => setInvoicePicker(null)}
+          />
+        );
+      })()}
       {advanceSettings && (
         <AdvanceSettingsDialog
           open
