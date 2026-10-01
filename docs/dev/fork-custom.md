@@ -32,7 +32,11 @@
   `scripts/run-custom-predeploy.mjs`-ээр ажиллуулна (байхгүй бол алгасна,
   алдаа → deploy зогсоно). Fork `package.json`-д ГАР ХҮРЭХГҮЙ — 2026-09-25
   smartgps-ийн sync conflict-д `db:predeploy` мөр устаж build унасан.
-  `tests/fork-sync-contract.test.ts` дараалал + conflict тэмдэг үлдэгдлийг барина
+  `tests/fork-sync-contract.test.ts` дараалал + conflict тэмдэг үлдэгдлийг барина.
+  ⚠️ push-ийн ДАРАА core журналын DB хамгаалалтыг тавина (`scripts/apply-ledger-invariants.mjs`,
+  `docs/dev/gl.md` §2c) — 2 дахь deploy-оос эхлэн `custom/predeploy.mjs` хамгаалалттай DB
+  дээр ажиллана: батлагдсан журналын мөрийг UPDATE/DELETE хийвэл DB татгалзаж deploy
+  ЗОГСОНО. Fork-ийн өгөгдлийн засвар буцаалтын журналаар
 - **Theme:** `app/globals.css` нь `ui-kit/tokens.css`-ийн ДАРАА
   `custom/theme.css` import хийнэ
 - **REST API v1:** `lib/api/v1.ts` — `GET /api/v1/tools`, `POST

@@ -8,7 +8,7 @@
 1. Entry-д ~45 бизнесийн объект, 20+ төлвийн толь бий. Гэвч **нэг ч төлөв DB-д хамгаалагдаагүй** (бүгд `text`, `pgEnum`/`CHECK` байхгүй). Төлвийн шилжилтийн цорын ганц цэвэр загвар нь `lib/qpay/intent.ts`.
 2. Шилжилтүүдийн **post/reverse нь сайн** хамгаалагдсан: транзакц доторх `UPDATE … WHERE status=<from>` claim болон `assertPeriodOpenInTx`. **Update/delete зам хамгаалалтгүй**: status predicate байхгүй тул зэрэгцээ `post`-ийг дарж бичих боломжтой.
 3. **Батлагдсан АР/АП болон кассын баримтыг GL журналтай нь бүхэлд нь УСТГАХ зам** нээлттэй. MCP-ийн `delete_*` tool-оор ч ажилладаг. Энэ нь «батлагдсан журнал зөвхөн буцаалтаар» гэсэн гол дүрмийг зөрчиж байна.
-4. Журналын баланс болон батлагдсан мөрийг хамгаалах DB trigger-ууд (`lib/db/migrations/manual/2026-08-19-ledger-invariants.sql`) **deploy-оор тавигддаггүй**. `db:predeploy`-оор бүтсэн DB-д эдгээр байхгүй гэдгийг локал DB дээр шалгаж нотолсон. Нийт 46 журнал бичих замаас 43 нь `assertBalanced`-ийг дууддаггүй.
+4. ✅ **Засагдсан 2026-10-01.** Журналын баланс болон батлагдсан мөрийг хамгаалах DB trigger-ууд **deploy-оор тавигддаггүй байсан** (гараар). P0 хэмжилтээр SmartGPS DB-д нэг ч хамгаалалт байгаагүй, SaaS-д trigger байсан ч Дт/Кт CHECK-ийг `drizzle-kit push` deploy бүрд устгадаг байсан. Одоо `scripts/apply-ledger-invariants.mjs` push-ийн дараа deploy бүрд тавина (§7.4). Нийт 46 журнал бичих замаас 43 нь `assertBalanced`-ийг дууддаггүй — DB trigger тэднийг хамгаална.
 5. Нэг дүрмийг олон газар давтан бичсэн байна. Жишээ нь эх баримтын түгжээг 5 газар, «өнөөдөр»-ийн огноог 10+ газар (заримд нь UTC-ээр) тус тусад нь хэрэгжүүлсэн. 12 журнал дугааргүй үлддэг. `beforeJournalPost` fork hook зөвхөн GL-ийн гар журналд ажилладаг.
 6. MCP-ийн 155 tool-оос AI-д шууд эрсдэлтэй 8 алдаа олдсон. Жишээ нь `run_fx_revaluation` бүтэлгүйтсэн ч «амжилттай» гэж хариулдаг, журналын tool-ууд зөвхөн сүүлийн 500 журналаас хайдаг. Мөн мөнгө хөдөлгөдөг 7 tool `externalRef`-гүй тул дахин оролдоход давхар бичилт үүснэ.
 7. **Санал:** `lib/ontology/` registry болон нэг `transition()` engine бүтээж, ажиглах горимоос хатуу мөрдөх горим руу модуль тус бүрээр шилжинэ. DB `CHECK`-ийг `NOT VALID` → өгөгдөл цэвэрлэх → `VALIDATE` дарааллаар нэмнэ. SmartGPS-ийн өгөгдлийг хөндөхгүй.
@@ -289,7 +289,7 @@ Severity: **C** = өгөгдөл/дэвтэр эвдэрнэ, **H** = мөнгө
 | # | Sev | Сценари (AI юу хийвэл) | Үр дагавар | Байршил |
 |---|---|---|---|---|
 | C1 | **C → шийдвэрлэгдсэн 2026-10-01** | ✅ Product owner: нээлттэй үед батлагдсан баримтыг устгаж БОЛНО (аудитын мөр үлдэнэ) — eBarimt-д бүртгэгдсэн, QPay төлбөрийн баримтыг устгах цоорхой хаагдсан, үеийн шалгалт транзакц дотор (`docs/dev/arap.md` §5k). Анхны тодорхойлолт: AI «алдаатай нэхэмжлэхийг засъя» гээд `delete_arap_document` дуудаж, дахин `create`. Кассын баримтад мөн адил. | Батлагдсан баримт болон журнал нь **ул мөргүй устна**. Хаалттай биш өмнөх сард ч ажилладаг бөгөөд үеийн тайлан өөрчлөгдөнө. Зөвхөн аудитын бичлэг үлдэнэ. | arap.ts:2090-2174, cash.ts:1552-1646, T:7218, T:5001 |
-| C2 | **C** | Ямар нэг модулийн алдаа эсвэл fork-ийн custom код тэнцээгүй журнал бичнэ | DB хамгаалалт (trigger) тавигдаагүй бол **тэнцээгүй дэвтэр**. 43 замд `assertBalanced` байхгүй. | ledger-invariants.sql (deploy-гүй), §3 R1 |
+| C2 | **C → засагдсан 2026-10-01** | ✅ DB trigger + `journal_lines_dr_xor_cr` deploy бүрд тавигдана (`scripts/apply-ledger-invariants.mjs`, §7.4); CI-ийн DB тестүүд хамгаалалттай ажиллана. Анх: модуль эсвэл fork-ийн custom код тэнцээгүй журнал бичиж болох байсан. | `scripts/lib/ledger-invariants.mjs`, `tests/ledger-invariants.test.ts` |
 | C3 | **C → засагдсан 2026-10-01** | ✅ `reverse_fa_depreciation` — журнал бүхэлдээ нэг tx-д буцаж, бичилтүүд хамт `reversed` (`reverseDepreciationVouchersInTx`). `reverse_cost_entry` — зөвхөн өөрийн мөрийг сторно хийж, журнал СҮҮЛИЙН идэвхтэй бичилт буцахад л `reversed`; хуучин «reversed» журналын үлдсэн бичилт буцна, GL-ээс бүтэн буцаасан журналд татгалзана; `reverseCostAllocation` алдааг залгихгүй. Тест `tests/fa-fx-tool-regressions.test.ts`, `tests/cost-entry-reversal.test.ts` | Анх: GL журнал буцаагдсан ч дэд дэвтэр `posted`, эсвэл нэг мөрийг буцаахад бүх журнал `reversed` → дараагийн бичилт гацна. | fa.ts, costing.ts `reverseCostEntryCore`, cost-allocation.ts |
 | C4 | **C** | AI `update_journal_voucher` ба `post_journal_voucher`-ийг зэрэг дуудна (MCP клиент tool-уудыг параллель дуудах боломжтой) | Батлагдсан журналыг ноорог/шинэ мөрөөр дарж бичнэ | gl.ts:1361-1377, arap.ts:2403, cash.ts:2412 |
 | H1 | H | `run_fx_revaluation` → алдаа гарна → AI «амжилттай» гэж хэрэглэгчид хэлнэ → сар хаана | Ханшийн тэгшитгэлгүй хаалт хийгдэж, тайлан буруу гарна | T:9141 |
@@ -577,7 +577,7 @@ export async function transition<O extends ObjectDef>(
 - `insert(journalVouchers)` нь зөвхөн `lib/gl/post-journal.ts` (шинэ, нэгдсэн posting функц) болон `KNOWN` жагсаалтад зөвшөөрөгдөнө. R1 ба R4-ийг хаах зам.
 - MCP tool бүрийн `name` нь ontology-ийн `tool.name`, `aliases`-ийн аль нэгэнд эсвэл `READ_ONLY_TOOLS`-д байна.
 
-**DB түвшин (§7 P4):** `CHECK (status IN …)`-ийг ontology-оос үүсгэнэ. Шилжилтийн trigger хэрэггүй: app түвшний conditional write хангалттай. Зөвхөн дэвтрийн invariant-ууд (ledger-invariants.sql) DB-д үлдэнэ.
+**DB түвшин (§7 P4):** `CHECK (status IN …)`-ийг ontology-оос үүсгэнэ. Шилжилтийн trigger хэрэггүй: app түвшний conditional write хангалттай. Зөвхөн дэвтрийн invariant-ууд (`scripts/lib/ledger-invariants.mjs`) DB-д үлдэнэ.
 
 ### 6.6 `describe_ontology` MCP tool
 
@@ -728,12 +728,19 @@ where (status = 'paid' and paid_amount < total_amount - 0.01)
    or (status = 'posted' and paid_amount > 0.01)
    or (status = 'partially_paid' and (paid_amount <= 0.01 or paid_amount >= total_amount - 0.01));
 
--- V10 Дансны жагсаалтад байхгүй данс руу бичсэн мөр
-select 'V10', v.organization_id, v.id, v.document_no, l.account_number
-from journal_lines l join journal_vouchers v on v.id = l.voucher_id
-where v.status in ('posted','reversed')
-  and not exists (select 1 from chart_of_accounts a
-                  where a.organization_id = v.organization_id and a.number = l.account_number);
+-- V10 Дансны жагсаалтад байхгүй данс руу бичсэн мөр.
+-- ⚠️ journal_lines.account_number нь 10 хэсэгтэй СЕГМЕНТИЙН код (үндсэн данс =
+-- 3-р хэсэг, lib/reports/balances.ts extractMainAccount); 8 оронтой
+-- chart_of_accounts.number-тэй ШУУД харьцуулбал бараг бүх мөр хуурамч зөрчил
+-- болно (2026-10-01 P0: засахаас өмнө ~18,800, засварын дараа 0).
+select 'V10', m.organization_id, m.voucher_id, m.document_no, m.main
+from (select v.organization_id, v.id as voucher_id, v.document_no,
+             case when array_length(string_to_array(l.account_number, '.'), 1) = 10
+                  then split_part(l.account_number, '.', 3) else l.account_number end as main
+      from journal_lines l join journal_vouchers v on v.id = l.voucher_id
+      where v.status in ('posted','reversed')) m
+where not exists (select 1 from chart_of_accounts a
+                  where a.organization_id = m.organization_id and a.number = m.main);
 
 -- V11 Буцаагдсан журнал, буцаалтын хос нь алга
 select 'V11', v.organization_id, v.id, v.document_no, v.date
@@ -750,6 +757,34 @@ from ar_ap_settlements where cash_document_id is null and voucher_id is null;
 - `select status, count(*) from <table> group by 1`
 - `delete_*` tool-ийн түүх: `select count(*) from audit_events where action='delete' and entity_type in ('arap','cash')`
 
+### 7.2a P0 хэмжилт — production (2026-10-01)
+
+Railway-ийн түр Function-оор, `begin read only` транзакцад ажиллуулсан (өгөгдөл
+хөндөөгүй, function нь дараа нь устгагдсан). F1 = элэгдлийн бичилт `posted`
+боловч журнал нь `reversed`; F2 = нэг журналд олон буцаалт (нээлтийн багцын
+бичилт бүрийн буцаалтыг тооцохгүй).
+
+| Шалгалт | SaaS (43 байгууллага, 5,799 журнал) | SmartGPS (3 байгууллага, 2,288 журнал) |
+|---|---|---|
+| V01–V03, V05–V09, V12, F1, F2 | 0 | 0 |
+| V04 толь бичигт байхгүй төлөв | 0 | 1 — `payroll_runs.status = 'calculated'` (fork-ийн «цалин v2»-оос үлдсэн) |
+| V10 (засварласан асуулга) | 0 | 0 |
+| V11 холбоосгүй буцаалт | 4 — нэг байгууллагын туршилтын «test0» журнал, түүний буцаалтын гинж (2026-05…07), GL цэвэр 0, зөвхөн `reversal_of_voucher_id` холбоос дутуу | 0 |
+| Журналын trigger (T1) | 3/3 (гараар тавьсан) | **0/3** |
+| `journal_lines_dr_xor_cr` | **алга** (push устгадаг) | **алга** |
+
+Дүгнэлт: дэвтэрт мөнгөн зөрүү алга; DB хамгаалалт deploy-оор тавигддаггүй байсан
+нь цорын ганц бүтцийн цоорхой → §7.4.
+
+### 7.4 Журналын DB хамгаалалт deploy-оор (2026-10-01)
+
+`db:predeploy`: `apply-pending-ddl` → custom → `drizzle-kit push` →
+**`apply-ledger-invariants`** → backfill … Эх `scripts/lib/ledger-invariants.mjs`.
+V01/V02-оор урьдчилан шалгаж зөрчилтэй бол тухайн хамгаалалтыг алгасна (чанга лог,
+`/api/health` → `ledger.ok = false`); trigger-ийг дутуу үед л үүсгэнэ; CHECK-ийг
+`NOT VALID` → `VALIDATE`; `lock_timeout` 15с — түгжээнд гацвал дараагийн deploy
+дахин оролдоно. SmartGPS-д fork-ийн upstream sync-ээр хүрнэ.
+
 ### 7.3 Үе шатууд
 
 | Шат | Юу | DB өөрчлөлт | SmartGPS-д эрсдэл | Гарц |
@@ -759,7 +794,7 @@ from ar_ap_settlements where cash_document_id is null and voucher_id is null;
 | **P2 Registry (ажиглах)** | `lib/ontology/*`, `describe_ontology`, drift тест, `lib/status.ts`-ийг ontology-оос уншдаг болгох, engine ажиглах горимд | Байхгүй. Зөрчил `audit_events`-д бичигдэнэ. | Байхгүй: блоклохгүй | 2 долоо хоногийн зөрчлийн лог |
 | **P3 Мөрдөх (модулиар)** | GL → АР/АП → Касс → Бараа → FA → Costing → Procurement → POS. Модуль бүрийг `ONTOLOGY_ENFORCE=gl,ar,…` flag-аар асаана. | Байхгүй | Дунд: regression. **Модуль бүр SmartGPS-ийн өгөгдлийн хуулбар (staging) дээр тестлэгдэнэ.** | Модуль бүр тусдаа release |
 | **P4 Өгөгдөл цэвэрлэх** | V01–V12 бүрийг ангиллаар засна. V03-ийг `scripts/backfill-voucher-numbers.mjs`-ээр. V06, V09-ийг баримтаар эсвэл derived утгаар. V01, V02-ийг залруулах журналаар (**нягтлан бодогч шийднэ**). | Мета UPDATE (аудиттай) | Дунд: хүний шийдвэр шаардлагатай | V01–V12 = 0 |
-| **P5 DB constraint** | (a) `CHECK (status IN …) NOT VALID` ontology-оос, `apply-pending-ddl.mjs`-ээр idempotent → `VALIDATE CONSTRAINT` (V04=0 үед). (b) `ledger-invariants.sql`-ийг `apply-pending-ddl`-д оруулна, V01=V02=0 биш бол **алгасч, чанга лог**. (c) `/api/health`-д invariant төлөв. | Нэмэх л | Бага: `NOT VALID` нь одоо байгаа мөрийг шалгахгүй | DB түвшний хамгаалалт |
+| **P5 DB constraint** | (a) `CHECK (status IN …) NOT VALID` ontology-оос, `apply-pending-ddl.mjs`-ээр idempotent → `VALIDATE CONSTRAINT` (V04=0 үед). (b) ✅ хийгдсэн — `scripts/apply-ledger-invariants.mjs` (push-ийн ДАРАА; push нь CHECK-ийг устгадаг), V01=V02=0 биш бол **алгасч, чанга лог**. (c) ✅ `/api/health` → `ledger`. | Нэмэх л | Бага: `NOT VALID` нь одоо байгаа мөрийг шалгахгүй | DB түвшний хамгаалалт |
 | **P6 Tool нэршил** | Canonical нэр + хуучин нэрийг `aliases`-аар **2 release** хадгална. Description-ийг ontology-оос. | Байхгүй | Бага: fork-ийн prompt хуучин нэр хэрэглэж болно | Нэгдсэн гадаргуу |
 
 **Fork-д хүргэх:**

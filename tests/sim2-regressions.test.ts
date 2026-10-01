@@ -6,7 +6,7 @@ import "./helpers/load-env";
 import { createRequire } from "node:module";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 const requireCjs = createRequire(import.meta.url);
 try {
@@ -382,8 +382,13 @@ test("SIM2-006: валютын нээлт ханштай бичигдэж бат
   const { account, voucher } = await openingVoucherOf("Голомт USD");
   assert.equal(Number(account.openingRate), 3420.46, "нээлтийн ханш дансанд хадгалагдсан");
   await postOpeningViaWebForm(voucher.id);
-  // Хуучин хувилбараар засагдсан журнал шиг — мөрийн тэмдгийг арилгана
-  await db.update(journalLines).set({ cashAccountId: null }).where(eq(journalLines.voucherId, voucher.id));
+  // Хуучин хувилбараар засагдсан журнал шиг — мөрийн тэмдгийг арилгана.
+  // Батлагдсан мөрийг ea_journal_lines_protect хамгаалдаг тул ЗӨВХӨН энэ
+  // fixture-ийн транзакцад trigger-ийг унтраана (replica горим, superuser).
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`set local session_replication_role = replica`);
+    await tx.update(journalLines).set({ cashAccountId: null }).where(eq(journalLines.voucherId, voucher.id));
+  });
   await db.update(cashAccounts).set({ openingRate: null }).where(eq(cashAccounts.id, account.id));
 
   const text = ok(await tool("reconcile_modules", { from: "2024-12-01", to: "2024-12-31" })).resultText;
