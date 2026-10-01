@@ -119,22 +119,65 @@ function stringField(record: Json, ...keys: string[]): string {
  * Банкны алдааны хариунаас ойлгомжтой мессеж. Голомтын ерөнхий
  * «Please contact bank administrator…» мессежийг статусаар нь тайлбарлана.
  */
+/**
+ * Банкны мэдэгдэж буй алдааны кодыг ойлгомжтой монгол тайлбар болгоно.
+ * Код нь `subErrors[].code` эсвэл `message`-д ирдэг (2026-10-01 UAT-д
+ * зохиомол нэрээр нэвтэрч шалгав: бүртгэлгүй нэр → MERDET0001).
+ */
+const KNOWN_BANK_ERRORS: { match: RegExp; text: string }[] = [
+  {
+    match: /MERDET0001|merchant\.details\.not\.present/i,
+    text: "Нэвтрэх нэр банкинд бүртгэлгүй — «Голомт API» тохиргооны нэвтрэх нэрийг банкнаас ирсэн баримтаас хуулж, сонгосон орчин (UAT / үндсэн) зөв эсэхийг шалгана уу",
+  },
+];
+
+function bankErrorDetails(parsed: Json): { codes: string[]; fieldMessages: string[] } {
+  const subErrors = Array.isArray(parsed.subErrors) ? parsed.subErrors : [];
+  const codes: string[] = [];
+  const fieldMessages: string[] = [];
+  for (const item of subErrors) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Json;
+    const code = stringField(record, "code", "type");
+    if (code) codes.push(code);
+    // Талбарын шалгалтын монгол мессеж (ж: «Нэвтрэх нууц үг оруулна уу») —
+    // `{…}` загвар болон англи ерөнхий текстийг алгасна.
+    const message = stringField(record, "message");
+    if (message && /[А-Яа-яӨөҮүЁё]/.test(message)) fieldMessages.push(message);
+  }
+  return { codes, fieldMessages };
+}
+
 function describeFailure(service: string, status: number, body: string): string {
   let message = "";
+  let details: { codes: string[]; fieldMessages: string[] } = { codes: [], fieldMessages: [] };
   try {
     const parsed = JSON.parse(body) as Json;
     message = stringField(parsed, "errDesc", "message", "error");
+    details = bankErrorDetails(parsed);
   } catch {
     // шифрлэгдсэн эсвэл хоосон
   }
-  logBankFailure(service, status, message || body.slice(0, 120));
+  const codeText = details.codes.join(", ");
+  logBankFailure(
+    service,
+    status,
+    [message || body.slice(0, 120), codeText].filter(Boolean).join(" · ")
+  );
   const step = stepLabel(service);
-  if (!message || /contact bank administrator/i.test(message)) {
+  const known = KNOWN_BANK_ERRORS.find(
+    (entry) => entry.match.test(message) || details.codes.some((code) => entry.match.test(code))
+  );
+  if (known)
+    return `Голомт банк (${step}): ${known.text}${codeText ? ` [${codeText}]` : ""}`;
+  if (details.fieldMessages.length)
+    return `Голомт банк (${step}, HTTP ${status}): ${[...new Set(details.fieldMessages)].join("; ")}`;
+  if (!message || /contact bank administrator/i.test(message) || message === "Bad Request") {
     if (status === 401 || status === 403)
       return `Голомт банк ${step} алхамд хандалтыг зөвшөөрсөнгүй (HTTP ${status}) — нэвтрэх нэр, нууц үг, түлхүүрээ шалгана уу`;
-    return `Голомт банкны сервис ${step} алхамд алдаа буцаалаа (HTTP ${status}) — дахин оролдох эсвэл банкны менежертэй холбогдоно уу`;
+    return `Голомт банкны сервис ${step} алхамд алдаа буцаалаа (HTTP ${status}${codeText ? `, ${codeText}` : ""}) — дахин оролдох эсвэл банкны менежертэй холбогдоно уу`;
   }
-  return `Голомт банк (${step}, HTTP ${status}): ${message}`;
+  return `Голомт банк (${step}, HTTP ${status}): ${message}${codeText ? ` [${codeText}]` : ""}`;
 }
 
 export class GolomtClient {

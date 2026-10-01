@@ -368,11 +368,11 @@ test("bank error messages name the failing step and keep the bank's code", async
   const bank = fakeBank((request) =>
     request.url.endsWith("/v1/auth/login")
       ? { body: JSON.stringify({ token: "T1" }) }
-      : { status: 400, body: JSON.stringify({ status: 400, message: "merchant.details.not.present" }) }
+      : { status: 400, body: JSON.stringify({ status: 400, message: "statement.period.invalid" }) }
   );
   await assert.rejects(
     new GolomtClient(CREDENTIALS, bank.fetchImpl).fetchStatement("1105000001", "2026-09-01", "2026-09-30"),
-    /Голомт банк \(хуулга татах, HTTP 400\): merchant\.details\.not\.present/
+    /Голомт банк \(хуулга татах, HTTP 400\): statement\.period\.invalid/
   );
   const failed = fakeBank((request) =>
     request.url.endsWith("/v1/auth/login")
@@ -403,4 +403,34 @@ test("a consent reply in `url` form is parsed and retried; a repeated one surfac
     request.url.endsWith("/v1/auth/login") ? { body: JSON.stringify({ token: "T1" }) } : { body: encrypted(consent) }
   );
   await assert.rejects(new GolomtClient(CREDENTIALS, always.fetchImpl).listAccounts(), /зөвшөөрлийн холбоос: https:\/\/openapi-uat/);
+});
+
+test("known bank codes become plain Mongolian: unknown username (MERDET0001) and field validation", async () => {
+  // 2026-10-01 UAT-ийн бодит хариуны хэлбэр (зохиомол нэрээр нэвтрэхэд).
+  const unknownUser = fakeBank(() => ({
+    status: 400,
+    body: JSON.stringify({
+      status: "BAD_REQUEST",
+      message: "merchant.details.not.present",
+      debugMessage: "merchant.details.not.present",
+      subErrors: [{ type: "MERDET0001", desc: "merchant.details.not.present", code: "MERDET0001" }],
+    }),
+  }));
+  await assert.rejects(
+    new GolomtClient(CREDENTIALS, unknownUser.fetchImpl).login(),
+    /Голомт банк \(нэвтрэх\): Нэвтрэх нэр банкинд бүртгэлгүй.*\[MERDET0001\]$/
+  );
+
+  const validation = fakeBank(() => ({
+    status: 400,
+    body: JSON.stringify({
+      status: "BAD_REQUEST",
+      message: "Bad Request",
+      subErrors: [{ object: "Size", field: "password", rejectedValue: "abc", message: "Нэвтрэх нууц үг оруулна уу" }],
+    }),
+  }));
+  await assert.rejects(
+    new GolomtClient(CREDENTIALS, validation.fetchImpl).login(),
+    /Голомт банк \(нэвтрэх, HTTP 400\): Нэвтрэх нууц үг оруулна уу/
+  );
 });
