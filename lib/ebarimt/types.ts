@@ -30,12 +30,24 @@ export interface EbarimtSubReceipt {
   totalAmount: number;
   totalVAT: number;
   totalCityTax: number;
+  /**
+   * НЭХЭМЖЛЭХ (`*_INVOICE`) бол ЗААВАЛ — мерчантад ТЕГ-д бүртгэлтэй дансны аль
+   * нэг (албан спек 3.0.1 «…bankAccountNo талбарт заавал бөглөж өгөх ёстой»;
+   * жагсаалт `GET /rest/bankAccounts?tin=`). Төлбөрийн баримтад байхгүй.
+   */
+  bankAccountNo?: string;
+  /** Тухайн дансны IBAN (v3.1.72-оос; шилжилтийн үед заавал биш). */
+  iBan?: string;
   items: EbarimtItem[];
 }
 
 export interface EbarimtPayment {
   code: string;
-  /** PAID = төлөгдсөн; PAY = нэхэмжлэхийн дараа төлөгдөх хэсэг (зээл). */
+  /**
+   * PAID = төлөгдсөн. PAY = «Баримтын мэдээлэл солилцох сервис»-ээр (гуравдагч
+   * систем) гүйцэтгэх төлбөр — «төлөгдөөгүй» гэсэн утга БИШ (албан спек 3.0.1);
+   * POS-ийн «Зээлээр» (`credit`) одоогоор үүгээр явдаг.
+   */
   status: EbarimtPaymentStatus;
   paidAmount: number;
   /** Гуравдагч системийн лавлагаа (картын слип, QPay гүйлгээ). */
@@ -67,6 +79,13 @@ export interface EbarimtReceiptRequest {
    * засварт ӨМНӨХ (сүүлийн) ДДТД-г өгч гинжлэнэ. DELETE нь зөвхөн БҮТЭН буцаалт.
    */
   inactiveId?: string;
+  /**
+   * НЭХЭМЖЛЭХИЙН ТӨЛӨЛТ — төлж буй нэхэмжлэхийн ДДТД (албан спек §5 «Нэхэмжлэхийн
+   * төлбөр»): төлбөрийн баримт (`*_RECEIPT`, PAID) НӨАТ-ын тайланд ДАВХАР
+   * тусгагдахгүй, харин сугалаа/НӨАТ-ын буцаан олголтод хамрагдана. ТЕГ-ийн
+   * задаргаанд `prParentRno`-оор харагдана.
+   */
+  invoiceId?: string;
   receipts: EbarimtSubReceipt[];
   payments: EbarimtPayment[];
 }
@@ -161,6 +180,25 @@ export interface EbarimtSaleInput {
   payments: EbarimtSalePaymentInput[];
   /** Борлуулалтын төлөх дүн (бүтэн); хэсэгчилсэн буцаалтын дараа Σ мөр бага байна. */
   total: number;
+  /**
+   * Өгсөн бол НЭХЭМЖЛЭХ (`B2B/B2C_INVOICE`) — төрөл төлбөрөөс биш үүгээр
+   * тодорхойлогдож, дэд баримт бүрд дансны дугаар бичигдэнэ (АР нэхэмжлэх).
+   */
+  invoice?: EbarimtInvoiceBank | null;
+}
+
+/** Нэхэмжлэхийн банкны данс — мерчантад ТЕГ-д бүртгэлтэй (`/rest/bankAccounts`). */
+export interface EbarimtInvoiceBank {
+  bankAccountNo: string;
+  iBan: string | null;
+}
+
+/** `GET /rest/bankAccounts?tin=` мөр (албан спек §10). */
+export interface PosApiBankAccount {
+  bankAccountNo: string;
+  bankAccountName: string | null;
+  bankName: string | null;
+  iBan: string | null;
 }
 
 export interface EbarimtStatusSummary {
@@ -187,7 +225,7 @@ export interface EbarimtSubmissionView {
   id: string;
   saleId: string;
   documentNo: string;
-  kind: "send" | "cancel";
+  kind: "send" | "cancel" | "payment";
   status: "pending" | "sent" | "failed" | "cancelled";
   attempts: number;
   lastError: string | null;
@@ -211,4 +249,18 @@ export interface EbarimtSaleResult {
   ebarimtDate: string | null;
   ebarimtType: string | null;
   ebarimtStatus: EbarimtStatus | null;
+}
+
+/** АР нэхэмжлэхийн төлөлт бүрийн eBarimt (`invoiceId`-тай төлбөрийн баримт) — панель. */
+export interface ArapPaymentEbarimtRow {
+  submissionId: string;
+  status: string;
+  amount: number | null;
+  settlementDate: string | null;
+  /** ТЕГ-ийн төлбөрийн баримтын ДДТД (амжилттай бол). */
+  ddtd: string | null;
+  sentAt: string | null;
+  lastError: string | null;
+  /** ТЕГ-д бүртгэгдсэн ч Entry-д төлөлт устгагдсан (касс буцаасан) — гараар засна. */
+  orphaned: boolean;
 }

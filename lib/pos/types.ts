@@ -395,7 +395,11 @@ export interface PosSettingsView {
   ebarimtMode: "server" | "browser";
   /** АР нэхэмжлэх → eBarimt нэхэмжлэх (docs/pos/05 Шат 2) — анхнаасаа унтраалттай. */
   ebarimtArapEnabled: boolean;
+  /** Нэхэмжлэхийн төлбөрийн АЛБАН код (CASH / PAYMENT_CARD / BANK_TRANSFER / BANK_TRANSFER_QPAY). */
   ebarimtArapPaymentCode: string;
+  /** Нэхэмжлэхийн `bankAccountNo` — мерчантад ТЕГ-д бүртгэлтэй данс (заавал). */
+  ebarimtArapBankAccountNo: string;
+  ebarimtArapIban: string;
   ebarimtArapClassificationCode: string;
   /** Орлогын үндсэн данс (8 орон) → ангиллын код (7 орон). */
   ebarimtArapAccountCodes: Record<string, string>;

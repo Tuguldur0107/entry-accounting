@@ -244,6 +244,8 @@ export function toPosSettingsView(row: PosSettings): PosSettingsView {
     ebarimtMode: row.ebarimtMode === "browser" ? "browser" : "server",
     ebarimtArapEnabled: row.ebarimtArapEnabled,
     ebarimtArapPaymentCode: row.ebarimtArapPaymentCode,
+    ebarimtArapBankAccountNo: row.ebarimtArapBankAccountNo,
+    ebarimtArapIban: row.ebarimtArapIban,
     ebarimtArapClassificationCode: row.ebarimtArapClassificationCode,
     ebarimtArapAccountCodes: row.ebarimtArapAccountCodes ?? {},
     qpayEnabled: row.qpayEnabled,

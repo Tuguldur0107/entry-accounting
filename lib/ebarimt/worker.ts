@@ -11,7 +11,7 @@ import { arApDocuments, posEbarimtSubmissions, posSales, posSettings } from "@/l
 
 import { posApiDeleteReceipt, posApiPutReceipt, posApiSendData } from "./client";
 import { EBARIMT_ALERT_AFTER_ATTEMPTS, EBARIMT_ERRORS, EBARIMT_MAX_ATTEMPTS } from "./constants";
-import { claimDueSubmissions, markFailed, markSent, prepareSubmission, targetOf, type EbarimtTarget, type PreparedSubmission } from "./queue";
+import { claimDueSubmissions, enqueueArapInvoicePayments, markFailed, markSent, prepareSubmission, targetOf, type EbarimtTarget, type PreparedSubmission } from "./queue";
 import { EbarimtError, receiptResponseOutcome } from "./receipt";
 import type { EbarimtReceiptResponse, EbarimtSaleResult } from "./types";
 
@@ -258,6 +258,8 @@ export async function processPendingEbarimt(limit = 50): Promise<EbarimtWorkerRe
   if (running) return result;
   running = true;
   try {
+    // ТЕГ-д бүртгэлтэй нэхэмжлэхийн шинэ төлөлтүүд (docs/pos/05 Шат 3) — шидэхгүй.
+    await enqueueArapInvoicePayments(limit);
     const due = await claimDueSubmissions(limit);
     for (const { submission, settings } of due) {
       result.claimed += 1;

@@ -1,10 +1,12 @@
 # eBarimt НЭХЭМЖЛЭХ ба түүний ТӨЛӨЛТ — төлөвлөгөө (2026-09-27)
 
-> **Төлөв (2026-09-27):** Шат 1–2 ✅ ХЭРЭГЖСЭН, тохиргоо анхнаасаа **УНТРААЛТТАЙ**
-> (POS тохиргоо → eBarimt → «АР нэхэмжлэх»). Payload нь Entry-ийн баталгаатай
-> бүтэц (`buildEbarimtReceipt`) + тохиргооны төлбөрийн код — Q1–Q2-ын хариу (Шат 0)
-> ирэхээс өмнө PosAPI нэхэмжлэхийн урсгалыг ТААМАГЛАХГҮЙн тулд байгууллага өөрөө
-> асаана. Шат 3 (төлөлт) — зөвхөн панельд ил тэмдэглэгээ (3a), илгээлт Q1-ийн дараа.
+> **Төлөв (2026-10-01):** Шат 1–3 ✅ ХЭРЭГЖСЭН, тохиргоо анхнаасаа **УНТРААЛТТАЙ**
+> (POS тохиргоо → eBarimt → «АР нэхэмжлэх»). Q1–Q4 албан эх сурвалжаар (POS API
+> 3.0.1 PDF + developer портал, 2026-10-01) хаагдсан — §3. Нэхэмжлэх = ил
+> `*_INVOICE` + мерчантын бүртгэлтэй данс `bankAccountNo`; төлөлт бүр = `invoiceId`-тай
+> `*_RECEIPT` (PAID). ITC (утсаар, 2026-09-30): нэхэмжлэх + төлөлт хоёулаа эрхтэй,
+> хязгааргүй. **Эхний бодит илгээлт — жижиг нэхэмжлэх дээр product owner-ийн
+> зөвшөөрлөөр**, ТЕГ-ийн системд (e-invoice) зөв харагдаж буйг шалгасны дараа л бүрэн.
 > Шат 0-ийн гүйцэтгэл: `docs/deployment/mongolia-network-runbook.md`.
 > Холбоотой: `03-ebarimt-integration-plan.md` T3, `docs/integrations/01-ebarimt-posapi-verification.md`
 > P1-4 / §4 (staging), `docs/integrations/00-itc-developer-portal.md` §4.1 (TPI `prParentRno`).
@@ -53,9 +55,13 @@
 | # | Асуулт | Юунд нөлөөлөх |
 |---|---|---|
 | **Q1** | Нэхэмжлэх төлөгдөхөд PosAPI-д юу илгээх вэ — `inactiveId`-тай дахин илгээх үү (RECEIPT эсвэл INVOICE төрлөөр), өөр талбар уу? `prParentRno` юунаас бүрдэх вэ? | Бүх урсгал |
+| | ✅ ХАРИУ: ШИНЭ `B2B/B2C_RECEIPT`, толгойд `invoiceId` = нэхэмжлэхийн ДДТД, `payments` PAID. НӨАТ-ын тайланд давхар орохгүй, сугалаа/НӨАТ-ын буцаан олголтод хамрагдана; TPI задаргаанд `prParentRno` = нэхэмжлэхийн ДДТД. Олон нэхэмжлэхийг нэг баримтаар төлөхөд `receipts[].invoiceId`. Эх: POS API 3.0.1 §5 «Нэхэмжлэхийн төлбөр», developer портал (өөрчлөлтийн бүртгэл) | |
 | **Q2** | Төлөгдөөгүй хэсгийн `payments[].code` / `status` (`INVOICE`/`PAY` хүчинтэй юу, эсвэл өөр) | POS «Зээлээр» + АР нэхэмжлэх |
+| | ✅ ХАРИУ: `INVOICE` код БАЙХГҮЙ (албан код: CASH, PAYMENT_CARD, BANK_TRANSFER, BANK_TRANSFER_QPAY). `PAY` = «Баримтын мэдээлэл солилцох сервис»-ээр гүйцэтгэх төлбөр — «төлөгдөөгүй» БИШ. Портал дахь B2B/B2C_INVOICE жишээ нь `{CASH, PAID, бүтэн дүн}` — Entry нэхэмжлэхэд тохиргооны албан кодыг PAID бүтэн дүнгээр явуулна. Нэхэмжлэхэд `receipts[].bankAccountNo` ЗААВАЛ (+`iBan` v3.1.72-оос), жагсаалт `GET /rest/bankAccounts?tin=` (§10). POS «Зээлээр» (`credit` → PAY) хөндөгдөөгүй — тусдаа шийдвэр | |
 | **Q3** | Хэсэгчилсэн төлөлт — PAID/PAY хуваасан төлбөртэй засвар уу, тусдаа баримт уу | Хэсэгчилсэн төлөлт |
+| | ✅ ХАРИУ: төлөлт бүр тусдаа `invoiceId`-тай баримт (Q1) — нэхэмжлэхийг засахгүй | |
 | **Q4** | `B2C_INVOICE`-д / түүний төлөлтөд сугалаа олгох уу | Хэвлэх баримт |
+| | ✅ ХАРИУ: төлөлтийн баримт сугалаанд хамрагдана (§5). АР-ын төлөлтийн сугалаа/QR-ийг Entry хэвлэхгүй, ХАДГАЛАХГҮЙ (хариуны `stripReceiptSecrets`) — иргэн Ebarimt апп-аар | |
 | **Q5** | Нэхэмжлэх (төлөгдсөн / төлөгдөөгүй) цуцлах, кредит нэхэмжлэл → DELETE уу, `inactiveId` засвар уу | Буцаалт (`docs/dev/arap.md` кредит нэхэмжлэл) |
 | **Q6** | Төлөлтийн баримт аль тайлант сард (`reportMonth`) — нэхэмжлэхийн сар уу, төлсөн сар уу | НӨАТ тайлан |
 | Q7 | B2B нэхэмжлэхийг худалдан авагч e-invoice-д батлах шаардлагатай юу, хугацаа | UI төлөв |
@@ -103,22 +109,25 @@
 
 ## 5. Шат 1–4 (Шат 0-ийн дараа)
 
-### Хэрэгжсэн байдал (Шат 1–2, 3a)
+### Хэрэгжсэн байдал (Шат 1–3)
 
 | Хэсэг | Код |
 |---|---|
 | АР-ын eBarimt талбар | `ar_ap_documents.ebarimtId/Status/Date/Type` |
 | Ерөнхий дараалал | `pos_ebarimt_submissions.saleId` NULL болж, `arapDocumentId` нэмэгдэв (яг нэг нь); `pos_ebarimt_submissions_arap_active_ux`. Queue/worker `EbarimtTarget`-аар (POS эсвэл АР) — `markSent/markFailed` төлөвийг эх дээр бичнэ. Browser горимд зөвхөн POS |
-| Тохиргоо | `pos_settings.ebarimtArapEnabled` (default false), `ebarimtArapPaymentCode` (Q2), `ebarimtArapClassificationCode` (анхдагч), `ebarimtArapAccountCodes` (үндсэн данс → код). Асаах нөхцөл: eBarimt идэвхтэй, server горим, төлбөрийн код. UI `components/pos/ebarimt-arap-settings.tsx` |
+| Тохиргоо | `pos_settings.ebarimtArapEnabled` (default false), `ebarimtArapPaymentCode` (албан код, Q2), `ebarimtArapBankAccountNo` + `ebarimtArapIban` (нэхэмжлэхийн данс — «PosAPI-аас бүртгэлтэй данс татах» `listEbarimtBankAccounts` → `/rest/bankAccounts?tin=`), `ebarimtArapClassificationCode` (анхдагч), `ebarimtArapAccountCodes` (үндсэн данс → код). Асаах нөхцөл: eBarimt идэвхтэй, server горим, албан төлбөрийн код, данс. UI `components/pos/ebarimt-arap-settings.tsx` |
 | Хөрвүүлэлт (ЦЭВЭР) | `lib/ebarimt/arap-receipt.ts` — НӨАТ-ын мөрийг standard мөрүүдэд хувиар; ангилал бараа → данс → анхдагч; зөвхөн MNT; хасах мөр, ТТД-гүй байгууллага, НӨАТ-ын зөрчил → ил алдаа; `billIdSuffix` = UUID-аас «8» + 7 орон. Тест `tests/ebarimt-arap-receipt.test.ts` |
 | DB ачаалагч | `lib/ebarimt/arap-load.ts` (харилцагч `baseKindOf` + `effectiveTin`, НӨАТ тохиргоо) |
 | Дуудах цэг | `createArApDocument(postNow)` + `postArApDocumentCore` — commit-ийн ДАРАА `enqueueArapInvoiceEbarimt` (шидэхгүй), POS-оос үүссэн АР (`sourceType=pos`) ХАСАГДАНА |
 | Дахин илгээх | `resendArapEbarimt` (ar:post) — панелийн `components/arap/arap-ebarimt-field.tsx` |
 | Мэдэгдэл | `arap.ebarimt_failed` (3 удаа амжилтгүй, ar:post гишүүдэд) |
-| DB тест | `tests/ebarimt-arap-flow.test.ts` — хуурамч PosAPI: унтраалттай бол явахгүй, B2B_INVOICE/PAY, ТТД-гүй → failed + шалтгаан → дахин илгээх → sent |
+| Төлөлт (Шат 3) | СКАННЕР `enqueueArapInvoicePayments` (worker-ийн тик бүрд): ТЕГ-д `sent` *_INVOICE-ийн КАССЫН баримттай (батлагдсан) settlement бүр → `kind "payment"` submission (`arapSettlementId`, `pos_ebarimt_submissions_settlement_ux` — settlement бүрд нэг; нэхэмжлэхэд нэг удаад нэг идэвхтэй). Payload `lib/ebarimt/invoice-payment.ts` (ЦЭВЭР): ТЕГ-д ИЛГЭЭСЭН нэхэмжлэхийн мөрүүдийг төлсөн дүнгийн хувиар, `invoiceId`, төрөл *_RECEIPT, код касс → CASH / банк → BANK_TRANSFER / QPay линк → BANK_TRANSFER_QPAY, `billIdSuffix` «7» + 7 орон. `markSent`/`markFailed` нэхэмжлэхийн ДДТД/төлөвийг ХӨНДӨХГҮЙ. Кассын баримт буцаавал илгээгдээгүй нь `cancelled`, илгээгдсэн нь панельд «ТЕГ-д бүртгэгдсэн ч Entry-д буцаагдсан» (orphaned). Панель: төлөлт бүрийн ДДТД / алдаа / «Дахин илгээх» (`resendArapPaymentEbarimt`) |
+| DB тест | `tests/ebarimt-arap-flow.test.ts` — хуурамч PosAPI: унтраалттай бол явахгүй, B2B_INVOICE (данс + IBAN, BANK_TRANSFER/PAID), банк + кассын төлөлт → 2 B2B_RECEIPT (`invoiceId`, BANK_TRANSFER / CASH), касс буцаахад orphaned, ТТД-гүй → failed + шалтгаан → дахин илгээх → sent. Цэвэр: `tests/ebarimt-invoice-payment.test.ts`, `tests/ebarimt-arap-receipt.test.ts` |
 
-Хязгаарлалт (Q-ийн хариу ирэх хүртэл): кредит нэхэмжлэл / буцаалт eBarimt-д
-явахгүй (Q5), төлөлт мэдэгдэхгүй (Q1), валютын нэхэмжлэх ил алдаа, AI/MCP
+Хязгаарлалт: кредит нэхэмжлэл / нэхэмжлэхийн буцаалт eBarimt-д явахгүй (Q5 —
+`inactiveId` засвар, дараагийн шат), харилцан суутгал / ECL хасалт төлөлт гэж
+мэдэгдэхгүй (Q8, кассгүй), ТЕГ-д очсон төлөлтийг Entry-д буцаахад ТЕГ-д автоматаар
+засахгүй (ил тэмдэглэгээ, гараар), валютын нэхэмжлэх ил алдаа, AI/MCP
 `resend_ebarimt` зөвхөн POS.
 
 ### Шат 1 — өгөгдлийн суурь (1 PR)

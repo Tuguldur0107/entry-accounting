@@ -11,7 +11,8 @@
 //     computeSaleTotals-той ЯГ ижил; unitPrice = lineTotal / qty (2 орон).
 //  4. payments[] = хэлбэрийн ebarimtCode; Σ paidAmount = totalAmount. Зээлээр
 //     (`credit`) төлбөр → тэр хэсэг `PAY` статус, баримт `B2C/B2B_INVOICE`
-//     (receiptTypeOf; сугалаа олгогдохгүй). Хэсэгчилсэн
+//     (receiptTypeOf; сугалаа олгогдохгүй). АР нэхэмжлэх (`sale.invoice`) — төрөл
+//     ИЛ нэхэмжлэх, дэд баримт бүрд `bankAccountNo` (+`iBan`) ЗААВАЛ. Хэсэгчилсэн
 //     буцаалтын дараа (Σ мөр < бүтэн төлбөр) төлбөрүүдийг ХУВЬ ТЭНЦҮҮЛЭН
 //     хуваарилж, бөөрөнхийллийн зөрүүг хамгийн том төлбөр шингээнэ.
 //  5. Ямар нэг зүйл дутуу (ангилал, татварын код, төлбөрийн код, Σ зөрүү) →
@@ -161,16 +162,18 @@ function paymentStatusOf(payment: EbarimtSaleInput["payments"][number]): Ebarimt
 }
 
 /**
- * Баримтын төрөл: зээлээр (дараа төлөх) хэсэгтэй бол НЭХЭМЖЛЭХ
- * (`B2C_INVOICE` / `B2B_INVOICE`), үгүй бол RECEIPT; байгууллагын ТТД-тэй бол B2B.
+ * Баримтын төрөл: `invoice` (АР нэхэмжлэх — ил) эсвэл зээлээр (POS «Зээлээр»,
+ * PAY) хэсэгтэй бол НЭХЭМЖЛЭХ (`B2C_INVOICE` / `B2B_INVOICE`), үгүй бол RECEIPT;
+ * байгууллагын ТТД-тэй бол B2B.
  */
 export function receiptTypeOf(
   payments: EbarimtSaleInput["payments"],
-  customerTin: string | null
+  customerTin: string | null,
+  forceInvoice = false
 ): EbarimtReceiptType {
-  const invoice = payments.some(
-    (payment) => payment.baseAmount > 0.005 && paymentStatusOf(payment) === EBARIMT_PAYMENT_STATUS_PAY
-  );
+  const invoice =
+    forceInvoice ||
+    payments.some((payment) => payment.baseAmount > 0.005 && paymentStatusOf(payment) === EBARIMT_PAYMENT_STATUS_PAY);
   if (customerTin) return invoice ? "B2B_INVOICE" : "B2B_RECEIPT";
   return invoice ? "B2C_INVOICE" : "B2C_RECEIPT";
 }
@@ -214,6 +217,18 @@ export function allocatePayments(
     else merged.set(key, { ...payment });
   }
   return [...merged.values()].filter((payment) => payment.paidAmount > 0.005);
+}
+
+/** Банкны дансны дугаар — зөвхөн цифр (зай/зураасыг хасна), 6–20 орон. */
+export function normalizeBankAccountNo(value: string | null | undefined): string | null {
+  const digits = (value ?? "").replace(/[\s-]/g, "");
+  return /^\d{6,20}$/.test(digits) ? digits : null;
+}
+
+/** IBAN — зай хасаж, том үсгээр; «MN» + цифр эсвэл зөвхөн цифр (албан жишээ), 12–34 тэмдэгт. */
+export function normalizeIban(value: string | null | undefined): string | null {
+  const compact = (value ?? "").replace(/\s/g, "").toUpperCase();
+  return /^(MN)?\d{10,32}$/.test(compact) ? compact : null;
 }
 
 const DOCUMENT_NO_RE = /^([A-Za-z]*)-?(\d{2})(\d{2})-(\d+)$/;
@@ -298,6 +313,23 @@ export function buildEbarimtReceipt(
   if (consumerNo && !CONSUMER_NO_RE.test(consumerNo))
     throw new EbarimtError(EBARIMT_ERRORS.settings, "Иргэний eBarimt дугаар 8 оронтой байна");
 
+  // НЭХЭМЖЛЭХ: дэд баримт бүрд мерчантын бүртгэлтэй данс ЗААВАЛ (спек 3.0.1).
+  if (sale.invoice) {
+    const bankAccountNo = normalizeBankAccountNo(sale.invoice.bankAccountNo);
+    if (!bankAccountNo)
+      throw new EbarimtError(
+        EBARIMT_ERRORS.settings,
+        "Нэхэмжлэхийн банкны дансны дугаар (6–20 орон) тохируулаагүй — POS тохиргоо → eBarimt → АР нэхэмжлэх (ТЕГ-д бүртгэлтэй данс)"
+      );
+    const iBan = sale.invoice.iBan?.trim() ? normalizeIban(sale.invoice.iBan) : null;
+    if (sale.invoice.iBan?.trim() && !iBan)
+      throw new EbarimtError(EBARIMT_ERRORS.settings, `IBAN «${sale.invoice.iBan}» буруу хэлбэртэй (MN + цифр)`);
+    for (const receipt of receipts) {
+      receipt.bankAccountNo = bankAccountNo;
+      if (iBan) receipt.iBan = iBan;
+    }
+  }
+
   const inactiveId = options.inactiveId?.trim() || null;
   const request: EbarimtReceiptRequest = {
     totalAmount,
@@ -311,7 +343,7 @@ export function buildEbarimtReceipt(
     districtCode: settings.districtCode.trim(),
     merchantTin,
     posNo: settings.posNo.trim(),
-    type: receiptTypeOf(sale.payments, customerTin),
+    type: receiptTypeOf(sale.payments, customerTin, !!sale.invoice),
     receipts,
     payments: allocatePayments(sale.payments, totalAmount),
   };

@@ -7,7 +7,7 @@
 // болон борлуулалтын мэдээлэл илгээх 3 өдрийн хугацаа дуусаж буйг анхааруулах»
 // гэж шаарддаг — эх нь ЭНЭ хариу (lib/notifications/attention.ts дүрэм).
 
-import type { PosApiHealth, PosApiInfo } from "./types";
+import type { PosApiBankAccount, PosApiHealth, PosApiInfo } from "./types";
 
 function text(value: unknown): string | null {
   if (typeof value === "string") return value.trim() || null;
@@ -81,4 +81,27 @@ export function isPosApiVersionOutdated(version: string | null | undefined, min 
     if (a !== b) return a < b;
   }
   return false;
+}
+
+/**
+ * `GET /rest/bankAccounts?tin=` (албан спек §10) → мерчантын ТЕГ-д бүртгэлтэй
+ * данс. Массив биш / дансны дугааргүй мөрийг алгасна; давхардлыг нэгтгэнэ.
+ */
+export function parsePosApiBankAccounts(body: unknown): PosApiBankAccount[] {
+  const list = Array.isArray(body) ? body : [];
+  const seen = new Set<string>();
+  const accounts: PosApiBankAccount[] = [];
+  for (const entry of list) {
+    const row = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+    const bankAccountNo = text(row.bankAccountNo);
+    if (!bankAccountNo || seen.has(bankAccountNo)) continue;
+    seen.add(bankAccountNo);
+    accounts.push({
+      bankAccountNo,
+      bankAccountName: text(row.bankAccountName),
+      bankName: text(row.bankName),
+      iBan: text(row.iBan) ?? text(row.iban),
+    });
+  }
+  return accounts;
 }

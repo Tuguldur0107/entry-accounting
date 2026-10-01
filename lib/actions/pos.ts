@@ -84,8 +84,14 @@ import type { EbarimtSaleResult } from "@/lib/ebarimt/types";
 import { processPendingEbarimt, sendSubmissionNow } from "@/lib/ebarimt/worker";
 import { lookupTaxpayerByTin, lookupTinByRegNo } from "@/lib/ebarimt/lookup";
 import { ORG_REGISTER_RE } from "@/lib/pos/ebarimt-buyer";
-import { ebarimtSettingsProblems, initialSaleEbarimtStatus } from "@/lib/ebarimt/receipt";
-import { CONSUMER_NO_RE, DISTRICT_CODE_RE, EBARIMT_INLINE_SEND_TIMEOUT_MS, MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
+import { ebarimtSettingsProblems, initialSaleEbarimtStatus, normalizeBankAccountNo, normalizeIban } from "@/lib/ebarimt/receipt";
+import {
+  CONSUMER_NO_RE,
+  DISTRICT_CODE_RE,
+  EBARIMT_INLINE_SEND_TIMEOUT_MS,
+  MERCHANT_TIN_RE,
+  isKnownEbarimtPaymentCode,
+} from "@/lib/ebarimt/constants";
 import {
   DISCOUNT_RULE_TYPES,
   DISCOUNT_SCOPES,
@@ -305,8 +311,21 @@ export async function updatePosSettings(
     // ── АР нэхэмжлэх → eBarimt (docs/pos/05 Шат 2) ──
     if (data.ebarimtArapPaymentCode != null) {
       const code = data.ebarimtArapPaymentCode.trim().toUpperCase();
-      if (code && !/^[A-Z][A-Z0-9_]{1,39}$/.test(code)) throw new Error("АР нэхэмжлэхийн төлбөрийн код: латин том үсэг, тоо, «_» (жишээ INVOICE)");
+      if (code && !isKnownEbarimtPaymentCode(code))
+        throw new Error("АР нэхэмжлэхийн төлбөрийн код албан жагсаалтаас: CASH, PAYMENT_CARD, BANK_TRANSFER, BANK_TRANSFER_QPAY");
       patch.ebarimtArapPaymentCode = code;
+    }
+    if (data.ebarimtArapBankAccountNo != null) {
+      const raw = data.ebarimtArapBankAccountNo.trim();
+      const accountNo = normalizeBankAccountNo(raw);
+      if (raw && !accountNo) throw new Error("Нэхэмжлэхийн банкны дансны дугаар 6–20 оронтой тоо байна");
+      patch.ebarimtArapBankAccountNo = accountNo ?? "";
+    }
+    if (data.ebarimtArapIban != null) {
+      const raw = data.ebarimtArapIban.trim();
+      const iban = normalizeIban(raw);
+      if (raw && !iban) throw new Error("IBAN буруу хэлбэртэй (MN + цифр)");
+      patch.ebarimtArapIban = iban ?? "";
     }
     if (data.ebarimtArapClassificationCode != null) {
       const code = data.ebarimtArapClassificationCode.trim();
@@ -331,8 +350,10 @@ export async function updatePosSettings(
         const merged = { ...current, ...patch };
         if (!merged.ebarimtEnabled) throw new Error("Эхлээд eBarimt-ийг идэвхжүүлнэ үү");
         if (merged.ebarimtMode !== "server") throw new Error("АР нэхэмжлэх зөвхөн «Сервер» горимд илгээгдэнэ");
-        if (!merged.ebarimtArapPaymentCode.trim())
-          throw new Error("АР нэхэмжлэхийн төлөгдөөгүй дүнгийн eBarimt төлбөрийн код оруулна уу (docs/pos/05 Q2)");
+        if (!isKnownEbarimtPaymentCode(merged.ebarimtArapPaymentCode))
+          throw new Error("АР нэхэмжлэхийн eBarimt төлбөрийн код сонгоно уу (ихэвчлэн BANK_TRANSFER)");
+        if (!normalizeBankAccountNo(merged.ebarimtArapBankAccountNo))
+          throw new Error("Нэхэмжлэхийн банкны данс (ТЕГ-д бүртгэлтэй) оруулна уу — нэхэмжлэхэд заавал (PosAPI 3.0.1)");
       }
       patch.ebarimtArapEnabled = !!data.ebarimtArapEnabled;
     }

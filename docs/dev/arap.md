@@ -135,7 +135,13 @@ tests/qpay-arap-flow.test.ts (DB), tests/qr-matrix.test.ts
   (`createArApDocument(postNow)` + `postArApDocumentCore`) — шидэхгүй, батлалтыг зогсоохгүй
 - `ar_ap_documents.ebarimt*` — төлөв/ДДТД; панель `components/arap/arap-ebarimt-field.tsx`,
   «Дахин илгээх» `resendArapEbarimt` (ar:post)
-- Кредит нэхэмжлэл, буцаалт, төлөлт eBarimt-д ИЛГЭЭГДЭХГҮЙ — docs/pos/05 Q1/Q5-ын хариу хүртэл
+- Нэхэмжлэх = ил `B2B/B2C_INVOICE` + мерчантын ТЕГ-д бүртгэлтэй данс (`receipts[].bankAccountNo`
+  ЗААВАЛ, `iBan`), төлбөр тохиргооны АЛБАН код PAID (албан спек 3.0.1; `PAY`/«INVOICE» ХЭРЭГЛЭХГҮЙ)
+- **Төлөлт** (кассын баримттай settlement — касс, банк, хуулга, QPay линк) → `invoiceId`-тай
+  `*_RECEIPT` (`lib/ebarimt/invoice-payment.ts`, ЦЭВЭР): сканнер `enqueueArapInvoicePayments`
+  (worker), settlement бүрд НЭГ, нэхэмжлэхийн ДДТД/төлөвийг хөндөхгүй; буцаасан төлөлт панельд ил.
+  Харилцан суутгал, ECL хасалт, кредит нэхэмжлэл ОРОХГҮЙ (кассгүй)
+- Кредит нэхэмжлэл, нэхэмжлэхийн буцаалт eBarimt-д ИЛГЭЭГДЭХГҮЙ — docs/pos/05 Q5
 
 
 ### 5g. Төлбөрийн автомат сануулга — ХЭРЭГЖСЭН (2026-09-28)

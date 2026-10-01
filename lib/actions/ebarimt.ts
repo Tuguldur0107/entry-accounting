@@ -16,7 +16,7 @@ import { organizationProfile, posEbarimtSubmissions, posSales } from "@/lib/db/s
 import { POS_MODULE_KEY } from "@/lib/pos/constants";
 import { ensurePosSettings } from "@/lib/pos/load-data";
 import { todayInUlaanbaatar } from "@/lib/periods/selection";
-import { posApiInfo, posApiSendData } from "@/lib/ebarimt/client";
+import { posApiBankAccounts, posApiInfo, posApiSendData } from "@/lib/ebarimt/client";
 import { EBARIMT_ERRORS, EBARIMT_INLINE_SEND_TIMEOUT_MS } from "@/lib/ebarimt/constants";
 import {
   lookupTaxpayerByTin,
@@ -37,6 +37,7 @@ import {
 import { applyPosApiResponse, processPendingEbarimt, sendSubmissionNow } from "@/lib/ebarimt/worker";
 import type { EbarimtReadiness } from "@/lib/ebarimt/readiness";
 import type {
+  PosApiBankAccount,
   EbarimtReceiptResponse,
   EbarimtStatusSummary,
   EbarimtSubmissionView,
@@ -97,6 +98,25 @@ export async function testEbarimtConnection(): Promise<
     return { info };
   } catch (caught) {
     return actionError("testEbarimtConnection", caught, "PosAPI-тай холбогдсонгүй");
+  }
+}
+
+/**
+ * Мерчантын ТЕГ-д бүртгэлтэй банкны данс (PosAPI `/rest/bankAccounts?tin=`) —
+ * «АР нэхэмжлэх»-ийн данс сонгоход. Server горимд л (серверээс PosAPI-д хүрнэ).
+ */
+export async function listEbarimtBankAccounts(): Promise<ActionResult<{ accounts: PosApiBankAccount[] }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "post");
+    const settings = await ensurePosSettings(orgId, userId);
+    if (settings.ebarimtMode !== "server") throw new Error("Данс татах нь «Сервер» горимд л — кассын PC-ийн PosAPI-аас гараар хуулна уу");
+    if (!MERCHANT_TIN_RE.test(settings.ebarimtMerchantTin.trim())) throw new Error("Эхлээд мерчантын ТТД-г тохируулна уу");
+    const accounts = await posApiBankAccounts(settings.ebarimtPosApiUrl, settings.ebarimtMerchantTin);
+    if (accounts.length === 0)
+      throw new Error("PosAPI-д бүртгэлтэй данс алга — Цахим татварын системд дансаа бүртгээд, PosAPI-аас баримт илгээж (sendData) шинэчилнэ үү");
+    return { accounts };
+  } catch (caught) {
+    return actionError("listEbarimtBankAccounts", caught, "Банкны данс татагдсангүй");
   }
 }
 

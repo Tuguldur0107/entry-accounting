@@ -7,7 +7,7 @@
 // буцаалтын засварын дараа ҮЛДСЭН дүн) — илгээлтийн түүхээс нөхөж бодохгүй.
 // Буцаалтын засвар дуусаагүй бол `posSales.ebarimtCorrection` → «Анхаарах».
 
-import { and, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { arApDocuments, posEbarimtSubmissions, posSales } from "@/lib/db/schema";
@@ -61,7 +61,8 @@ async function latestSubmissions(orgId: string, column: TargetColumn, ids: strin
       customerTin: request("customerTin"),
     })
     .from(posEbarimtSubmissions)
-    .where(and(eq(posEbarimtSubmissions.organizationId, orgId), inArray(column, ids)))
+    // Төлөлтийн баримт (kind=payment) нь нэхэмжлэхийн өөрийн илгээлт БИШ — хасна.
+    .where(and(eq(posEbarimtSubmissions.organizationId, orgId), inArray(column, ids), ne(posEbarimtSubmissions.kind, "payment")))
     .orderBy(column, desc(posEbarimtSubmissions.createdAt), desc(posEbarimtSubmissions.id));
   for (const row of rows) {
     if (!row.targetId) continue;

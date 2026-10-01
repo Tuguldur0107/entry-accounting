@@ -5,9 +5,16 @@
 
 import { EBARIMT_ERRORS, POSAPI_PATHS, POSAPI_RECEIPT_TIMEOUT_MS, POSAPI_TIMEOUT_MS } from "./constants";
 import { EbarimtError } from "./receipt";
-import { parsePosApiInfo } from "./posapi-info";
+import { parsePosApiBankAccounts, parsePosApiInfo } from "./posapi-info";
 import { gatewayHeaders } from "./gateway-auth";
-import type { EbarimtDeleteRequest, EbarimtReceiptRequest, EbarimtReceiptResponse, PosApiHealth, PosApiInfo } from "./types";
+import type {
+  EbarimtDeleteRequest,
+  EbarimtReceiptRequest,
+  EbarimtReceiptResponse,
+  PosApiBankAccount,
+  PosApiHealth,
+  PosApiInfo,
+} from "./types";
 
 function baseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
@@ -92,6 +99,16 @@ export async function posApiDeleteReceipt(posApiUrl: string, request: EbarimtDel
 export async function posApiInfo(posApiUrl: string): Promise<PosApiInfo> {
   const { body } = await call<PosApiInfo>(`${baseUrl(posApiUrl)}${POSAPI_PATHS.info}`, { method: "GET" }, 5_000);
   return body ?? {};
+}
+
+/** Мерчантын ТЕГ-д бүртгэлтэй банкны данс (`/rest/bankAccounts?tin=`) — нэхэмжлэхийн данс сонгоход. */
+export async function posApiBankAccounts(posApiUrl: string, tin: string): Promise<PosApiBankAccount[]> {
+  const { body } = await call<unknown>(
+    `${baseUrl(posApiUrl)}${POSAPI_PATHS.bankAccounts}?tin=${encodeURIComponent(tin.trim())}`,
+    { method: "GET" },
+    10_000
+  );
+  return parsePosApiBankAccounts(body);
 }
 
 export async function posApiSendData(posApiUrl: string): Promise<PosApiInfo> {

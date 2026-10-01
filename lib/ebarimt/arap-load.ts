@@ -100,6 +100,8 @@ export async function loadArapInvoiceForEbarimt(
       isVatPayer: vat.isVatPayer,
       outputVatAccount: vat.outputVatAccountNumber ?? null,
       paymentCode: settingsRow.ebarimtArapPaymentCode,
+      bankAccountNo: settingsRow.ebarimtArapBankAccountNo,
+      iBan: settingsRow.ebarimtArapIban || null,
       defaultClassificationCode: settingsRow.ebarimtArapClassificationCode,
       accountClassificationCodes: settingsRow.ebarimtArapAccountCodes ?? {},
     }

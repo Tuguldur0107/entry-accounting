@@ -200,7 +200,9 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
 - **АР нэхэмжлэх** (docs/pos/05, анхнаасаа унтраалттай) мөн энэ дараалал/worker-ээр:
   submission-д `arapDocumentId` (saleId NULL), queue/worker `EbarimtTarget`-аар төлөвийг
   эх дээр бичнэ; хөрвүүлэлт `lib/ebarimt/arap-receipt.ts` (ЦЭВЭР), ачаалагч `arap-load.ts`;
-  browser горимд зөвхөн POS
+  browser горимд зөвхөн POS; нэхэмжлэхийн ТӨЛӨЛТ — `kind "payment"` (`arapSettlementId`,
+  `invoiceId`-тай *_RECEIPT, `invoice-payment.ts`), сканнер `enqueueArapInvoicePayments` worker-ийн
+  тик бүрд; payment-ийн `markSent/markFailed` эх нэхэмжлэхийг ХӨНДӨХГҮЙ (docs/dev/arap.md §5g)
 - **Идемпотент:** `pos_ebarimt_submissions` дээр (saleId, kind) partial unique
   (`pending`/`claimed`); аль хэдийн `sent` борлуулалт PosAPI-г дахин дуудахгүй;
   worker `pending → claimed` атомик шилжилтээр нэг мөрийг хоёр instance зэрэг

@@ -9,14 +9,18 @@
 //  - Ангиллын код: барааных (ачаалагч бүлгээс өвлүүлнэ) → мөрийн орлогын дансны
 //    код (тохиргоо) → анхдагч код (тохиргоо) → байхгүй бол [EBARIMT_UNMAPPED_ITEM]
 //    (ЗОХИОХГҮЙ — receipt.ts toItem).
-//  - Төлөгдөөгүй дүнгийн төлбөрийн код — тохиргооноос (кассын «Зээлээр»-тэй
-//    ижил `credit` → `PAY` төлөв, receiptTypeOf → INVOICE). Q2 хариулагдтал
-//    албан баталгаагүй — тохиргоо анхнаасаа УНТРААЛТТАЙ.
+//  - Төрөл ИЛ НЭХЭМЖЛЭХ (`invoice` → receiptTypeOf), дэд баримт бүрд мерчантын
+//    ТЕГ-д бүртгэлтэй банкны данс `bankAccountNo` (+`iBan`) ЗААВАЛ (албан спек
+//    3.0.1). `payments` = тохиргооны АЛБАН код (CASH / PAYMENT_CARD / BANK_TRANSFER /
+//    BANK_TRANSFER_QPAY), `PAID`, бүтэн дүн — developer порталын B2B/B2C_INVOICE
+//    жишээтэй ижил. `PAY` нь «гуравдагч системээр гүйцэтгэх» төлбөр — «төлөгдөөгүй»
+//    гэсэн утга БИШ тул ХЭРЭГЛЭХГҮЙ. Төлөлт бүр тусдаа `invoiceId`-тай төлбөрийн
+//    баримт (invoice-payment.ts). Тохиргоо анхнаасаа УНТРААЛТТАЙ.
 //  - Зөвхөн MNT нэхэмжлэх (валютынхыг ил алдаа — зохиохгүй).
 //  - Хасах дүнтэй мөр (хөнгөлөлт) eBarimt-ийн мөр болж чадахгүй — ил алдаа.
 //  - Байгууллага → ТТД заавал (B2B); хувь хүн → B2C (ТТД-гүй).
 
-import { EBARIMT_ERRORS, MERCHANT_TIN_RE } from "./constants";
+import { EBARIMT_ERRORS, MERCHANT_TIN_RE, isKnownEbarimtPaymentCode } from "./constants";
 import { EbarimtError } from "./receipt";
 import type { EbarimtSaleInput, EbarimtSaleLineInput } from "./types";
 import type { VatMode } from "@/lib/pos/constants";
@@ -60,8 +64,11 @@ export interface ArapEbarimtConfig {
   isVatPayer: boolean;
   /** Гаралтын НӨАТ-ын үндсэн данс (vat_settings) — эдгээр мөр НӨАТ гэж танигдана. */
   outputVatAccount: string | null;
-  /** Төлөгдөөгүй дүнгийн eBarimt төлбөрийн код (тохиргоо). */
+  /** Нэхэмжлэхийн төлбөрийн АЛБАН код (тохиргоо — ихэвчлэн BANK_TRANSFER). */
   paymentCode: string | null;
+  /** Мерчантын ТЕГ-д бүртгэлтэй банкны данс (тохиргоо, `/rest/bankAccounts`). */
+  bankAccountNo: string | null;
+  iBan: string | null;
   /** Бараагүй мөрийн анхдагч ангиллын код (7 орон). */
   defaultClassificationCode: string | null;
   /** Үндсэн данс (S3) → ангиллын код. */
@@ -105,10 +112,10 @@ export function arapInvoiceToEbarimtInput(doc: ArapEbarimtDocument, config: Arap
     );
 
   const paymentCode = config.paymentCode?.trim().toUpperCase() || "";
-  if (!paymentCode)
+  if (!isKnownEbarimtPaymentCode(paymentCode))
     throw new EbarimtError(
       EBARIMT_ERRORS.unmappedPayment,
-      "АР нэхэмжлэхийн eBarimt төлбөрийн код тохируулаагүй (POS тохиргоо → eBarimt → АР нэхэмжлэх)"
+      `АР нэхэмжлэхийн eBarimt төлбөрийн код ${paymentCode ? `«${paymentCode}» албан жагсаалтад алга` : "тохируулаагүй"} — CASH / PAYMENT_CARD / BANK_TRANSFER / BANK_TRANSFER_QPAY (POS тохиргоо → eBarimt → АР нэхэмжлэх)`
     );
 
   let customerTin: string | null = null;
@@ -196,7 +203,9 @@ export function arapInvoiceToEbarimtInput(doc: ArapEbarimtDocument, config: Arap
     consumerNo: null,
     total,
     lines,
-    // Бүтэн дүн төлөгдөөгүй (нэхэмжлэх) — `credit` → PAY төлөв, төрөл INVOICE.
-    payments: [{ kind: "credit", methodName: "Нэхэмжлэх", ebarimtCode: paymentCode, baseAmount: total, reference: null }],
+    // Төрөл ИЛ нэхэмжлэх + данс; төлбөр албан жишээний дагуу PAID бүтэн дүнгээр
+    // (`credit`/PAY БИШ — тэр нь гуравдагч системийн төлбөр).
+    invoice: { bankAccountNo: config.bankAccountNo ?? "", iBan: config.iBan ?? null },
+    payments: [{ kind: "transfer", methodName: "Нэхэмжлэх", ebarimtCode: paymentCode, baseAmount: total, reference: null }],
   };
 }

@@ -354,8 +354,11 @@ POS `docs/pos/00-proposal.md` → `01-implementation-contract.md` (функци�
   ТЕГ-ийн дүн ≠ Entry-ийн үлдсэн дүн (`posEbarimtCorrection`) ХЭЗЭЭ Ч чимээгүй үлдэхгүй — «Анхаарах»-д ил
 - АР нэхэмжлэх → eBarimt нэхэмжлэх (`docs/pos/05`): тохиргоо анхнаасаа УНТРААЛТТАЙ,
   батлалтын commit-ийн ДАРАА `enqueueArapInvoiceEbarimt` (шидэхгүй); нэг дараалал
-  (`EbarimtTarget` — POS эсвэл АР); кредит нэхэмжлэл / төлөлт Q1/Q5-ын хариугүйгээр
-  ИЛГЭЭХГҮЙ; ТЕГ/ITC-д хүрэх ажлууд `docs/deployment/mongolia-network-runbook.md`
+  (`EbarimtTarget` — POS эсвэл АР); нэхэмжлэхэд мерчантын бүртгэлтэй данс
+  (`bankAccountNo`) ЗААВАЛ, төлбөр АЛБАН код PAID (`PAY`/«INVOICE» ХЭРЭГЛЭХГҮЙ — спек 3.0.1);
+  кассын төлөлт бүр → `invoiceId`-тай *_RECEIPT (`kind "payment"`, сканнер, settlement бүрд
+  НЭГ, эх нэхэмжлэхийн ДДТД хөндөгдөхгүй); кредит нэхэмжлэл Q5-ын хариугүйгээр ИЛГЭЭХГҮЙ;
+  ТЕГ/ITC-д хүрэх ажлууд `docs/deployment/mongolia-network-runbook.md`
 
 **QPay Quick QR**
 - Entry QPay-тэй ШУУД харьцахгүй — `qpay-dashboard` REST-ээр; QPay-г polling ХИЙХГҮЙ
