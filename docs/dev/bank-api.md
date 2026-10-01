@@ -49,6 +49,7 @@
 | Шифр | AES-CBC/PKCS7, түлхүүр = session key-ийн UTF-8 байт (16/24/32), IV = IV key (16) |
 | Хариу | Base64 шифртэй JSON; алдаа, нэвтрэх, `/v1/utility` шифргүй JSON (`{status, message, debugMessage}`) |
 | OAuth | Эхний хүсэлтэд `client_id/state/scope` ГУРВУУЛАА хоосон (SPEC §5 алхам 2 — тохиргооны Client ID-г илгээхгүй: 2026-10-01 UAT-д client_id-тай эхний хүсэлт `merchant.details.not.present` буцаасан). Банк grant (`clientId, state, scope, redirectUri` эсвэл `url: …?response_type=code&client_id=…`) буцаавал түүгээр НЭГ удаа дахин илгээнэ; дахиад grant бол зөвшөөрлийн холбоостой ил алдаа |
+| Алдааны код | `subErrors[].code` — `MERDET0001` (`merchant.details.not.present`) = нэвтрэх нэр банкинд бүртгэлгүй (2026-10-01 UAT-д зохиомол нэрээр батлав); талбарын шалгалтын монгол мессеж (ж: «Нэвтрэх нууц үг оруулна уу») шууд харагдана (`KNOWN_BANK_ERRORS`, client.ts) |
 | Алдаа | Мессеж алхмыг нэрлэнэ (нэвтрэх / дансны жагсаалт / хуулга татах) + HTTP статус + банкны код; 200 хариутай `status: FAILED` / `errDesc` ч алдаа. Серверийн логт `[golomt] <service> …` (нууц, токен, өгөгдөлгүй) |
 | Хуулга | `OPERACCSTAINQ` `{accountId, registerNo, startDate, endDate, page, size:100}` → `statements[]{tranId, drOrCr, tranAmount, tranDesc, tranPostedDate, tranCrnCode, exchRate}`, `totalPages` |
 
