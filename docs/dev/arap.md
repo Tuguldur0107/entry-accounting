@@ -330,6 +330,17 @@ Product owner шийдвэр (2026-10-01): хуулгын мөрөөс авла�
   борлуулалт бүртгээд тэр мөчид нь банкны мөрөөр хаана — авлагын дэвтэр, актад
   харилцагчийн борлуулалт харагдана. eBarimt: гараар батлагдсан АР нэхэмжлэхтэй
   ИЖИЛ `enqueueArapInvoiceEbarimt` (commit-ийн ДАРАА, тохиргоо унтраалттай бол no-op).
+- **Харьцах дансны санал** (`lib/cash/bank-row-preview.ts` ЦЭВЭР, тесттэй): нэхэмжлэх
+  үүсгэх «Бүртгэл» сонгоход (эсвэл харилцагч сонгоход / ноорог сэргээхэд) харьцах тал
+  ХООСОН бол — тухайн харилцагчийн хамгийн сүүлийн нэхэмжлэхийн орлого / зардлын данс,
+  эс бөгөөс (зөвхөн АР) байгууллагын нэхэмжлэхүүдэд хамгийн их хэрэглэсэн орлогын данс.
+  Түүхгүй бол хоосон («Данс дутуу») — данс ЗОХИОХГҮЙ; гараар сонгосон дансыг хөндөхгүй.
+  Эх нь `/api/cash/statements/suggestions`-ийн `invoiceAccountHints`.
+- **Мөрийн бичилт хүснэгтийн ДООР** (`components/cash/bank-row-preview-strip.tsx`):
+  курсортой (дарсан / гараар шилжсэн) мөрийн журнал — `/api/cash/statements/preview`-д
+  ЗӨВХӨН тэр мөрийг илгээнэ (previewBankStatement, rollback; 350 мс debounce). Клиент
+  талд бичилт БОДОХГҮЙ — харсан = батлахад бичигдэх. Мөр бэлэн биш (данс / харилцагч
+  дутуу) бол серверт асуухгүй, шалтгааныг харуулна.
 - **НӨАТ** (`create_ar_invoice` / `create_ap_bill`): байгууллага НӨАТ төлөгч бол ҮРГЭЛЖ
   дотроос 10/110 (`vat_settings.vatRatePercent`, `outputVatAccountNumber` /
   `inputVatAccountNumber` — хатуу дугааргүй).
@@ -385,6 +396,8 @@ Product owner шийдвэр (2026-10-01): хуулгын мөрөөс авла�
 ```
 lib/arap/advance-math.ts     ЦЭВЭР (client-safe): тал, тэмдэг, үлдэгдэл, суутгах дүн,
                              хуулгын мөрийн төрөл, НӨАТ 10/110
+lib/cash/bank-row-preview.ts ЦЭВЭР (client-safe): нэхэмжлэх үүсгэх мөрийн харьцах дансны санал
+components/cash/bank-row-preview-strip.tsx  мөрийн бичилт хүснэгтийн доор (серверийн preview)
 lib/arap/advances.ts         DB: тохиргоо, үлдэгдэл, суутгалын журналууд
 lib/actions/arap-advances.ts getAdvanceSettings, saveAdvanceSettings, listAdvanceBalances,
                              applyAdvanceToInvoice

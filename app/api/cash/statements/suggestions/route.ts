@@ -4,6 +4,7 @@ import { loadAdvanceSettings, type AdvanceSettings } from "@/lib/arap/advances";
 import { requireModuleAction } from "@/lib/auth";
 import type { BankRule, BankRuleMode, BankRuleSide } from "@/lib/cash/bank-rules";
 import type { EwalletSettlementMethod } from "@/lib/cash/ewallet-settlement";
+import { buildInvoiceAccountHints, type InvoiceAccountHints } from "@/lib/cash/bank-row-preview";
 import { loadEwalletSettlementContext } from "@/lib/cash/ewallet-settlement-data";
 import {
   buildHistoricalPatterns,
@@ -11,17 +12,20 @@ import {
 } from "@/lib/cash/statement-matching";
 import { db } from "@/lib/db";
 import {
+  arApDocumentLines,
   arApDocuments,
   bankRules,
   bankStatementLines,
   bankStatements,
   counterparties,
 } from "@/lib/db/schema";
+import { loadVatSettings } from "@/lib/vat/settings";
 
 export const runtime = "nodejs";
 
 const OPEN_INVOICE_LIMIT = 500;
 const HISTORY_LINE_LIMIT = 5000;
+const INVOICE_LINE_HISTORY_LIMIT = 3000;
 
 /**
  * Хуулгын импортын саналын лавлах дата:
@@ -30,19 +34,31 @@ const HISTORY_LINE_LIMIT = 5000;
  *   - э-хэтэвчийн (QPay) хэлбэрүүд + түр дансны тулгагдаагүй орлогууд (settlement)
  *   - идэвхтэй харилцагчид + урьдчилгааны дансны роль (мөрийн бүртгэлийн
  *     төрөл, docs/dev/arap.md §5l)
+ *   - нэхэмжлэх үүсгэх мөрийн харьцах дансны санал (өмнөх нэхэмжлэхээс,
+ *     lib/cash/bank-row-preview.ts)
  * Бүгд байгууллагаар (organizationId) хамгаалагдсан. Тулгалтын логик нь
  * client талд цэвэр функцээр (lib/cash/statement-matching.ts) ажиллана.
  */
 export async function GET() {
   let orgId: string;
+  let userId: string;
   try {
-    ({ orgId } = await requireModuleAction("cash", "read"));
+    ({ orgId, userId } = await requireModuleAction("cash", "read"));
   } catch {
     return Response.json({ error: "Нэвтрэх эсвэл унших эрх шаардлагатай" }, { status: 401 });
   }
 
   try {
-    const [invoices, historyLines, ruleRows, ewallet, counterpartyRows, advanceSettings] = await Promise.all([
+    const [
+      invoices,
+      historyLines,
+      ruleRows,
+      ewallet,
+      counterpartyRows,
+      advanceSettings,
+      invoiceLines,
+      vatSettings,
+    ] = await Promise.all([
       db.query.arApDocuments.findMany({
         where: and(
           eq(arApDocuments.organizationId, orgId),
@@ -86,6 +102,27 @@ export async function GET() {
         orderBy: [asc(counterparties.name)],
       }),
       loadAdvanceSettings(orgId),
+      // Нэхэмжлэх үүсгэх мөрийн харьцах дансны санал — харилцагчийн сүүлийн
+      // нэхэмжлэх, байгууллагын хамгийн их хэрэглэсэн орлогын данс (данс ЗОХИОХГҮЙ).
+      db
+        .select({
+          counterpartyId: arApDocuments.counterpartyId,
+          documentType: arApDocuments.documentType,
+          accountNumber: arApDocumentLines.accountNumber,
+        })
+        .from(arApDocumentLines)
+        .innerJoin(arApDocuments, eq(arApDocumentLines.documentId, arApDocuments.id))
+        .where(
+          and(
+            eq(arApDocuments.organizationId, orgId),
+            inArray(arApDocuments.documentType, ["ar_invoice", "ap_bill"]),
+            inArray(arApDocuments.status, ["posted", "partially_paid", "paid"])
+          )
+        )
+        .orderBy(desc(arApDocuments.date), desc(arApDocuments.createdAt), asc(arApDocumentLines.sortOrder))
+        .limit(INVOICE_LINE_HISTORY_LIMIT),
+      // НӨАТ-ын мөрийг дансны саналаас хасахад.
+      loadVatSettings(orgId, userId),
     ]);
 
     const rules: BankRule[] = ruleRows.map((row) => ({
@@ -108,10 +145,15 @@ export async function GET() {
       ewalletMethods: EwalletSettlementMethod[];
       counterparties: { id: string; name: string; counterpartyType: string }[];
       advanceSettings: AdvanceSettings;
+      invoiceAccountHints: InvoiceAccountHints;
     } = {
       rules,
       ewalletMethods: ewallet.methods,
       counterparties: counterpartyRows,
+      invoiceAccountHints: buildInvoiceAccountHints(
+        invoiceLines.filter((line): line is typeof line & { counterpartyId: string } => !!line.counterpartyId),
+        [vatSettings.outputVatAccountNumber, vatSettings.inputVatAccountNumber]
+      ),
       advanceSettings: {
         customerAdvanceAccountNumber: advanceSettings.customerAdvanceAccountNumber,
         supplierAdvanceAccountNumber: advanceSettings.supplierAdvanceAccountNumber,

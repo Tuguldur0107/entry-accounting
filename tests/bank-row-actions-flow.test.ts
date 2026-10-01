@@ -189,6 +189,11 @@ test("import_bank_statement: авлага үүсгэж борлуулалтад 
     [["11000001", 220_000, 0], [sale.controlAccountNumber, 0, 220_000]].sort()
   );
 
+  // Харьцах дансны санал (suggestions endpoint) = энэ харилцагчийн сүүлийн орлогын данс.
+  const { GET } = await import("../app/api/cash/statements/suggestions/route");
+  const contextData = await asOrg(async () => (await GET()).json());
+  assert.equal(contextData.invoiceAccountHints.ar[await counterpartyId("Номин Худалдан авагч")], "51100000");
+
   // Нийлүүлэгч төрлийн харилцагчид борлуулалт бичигдэхгүй.
   const wrongParty = await tool("import_bank_statement", {
     cashAccount: "Голомт банк",

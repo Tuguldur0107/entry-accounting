@@ -65,6 +65,13 @@ import {
 } from "@/components/arap/arap-workspace";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { InvoicePickerDialog } from "@/components/cash/invoice-picker-dialog";
+import { BankRowPreviewStrip } from "@/components/cash/bank-row-preview-strip";
+import {
+  fillInvoiceCounterAccounts,
+  mainAccountOfCode,
+  suggestInvoiceCounterAccount,
+  type InvoiceAccountHints,
+} from "@/lib/cash/bank-row-preview";
 import { StatementPreviewDialog } from "@/components/cash/statement-preview-dialog";
 import type { BankStatementPreview } from "@/lib/cash/statement-preview";
 import type { EntityKindOption } from "@/lib/arap/counterparty-kind";
@@ -168,6 +175,8 @@ type ImportContext = MatchContext & {
   ewalletMethods?: EwalletSettlementMethod[];
   /** Идэвхтэй харилцагчид — мөрийн харилцагч сонгогч (docs/dev/arap.md §5l). */
   counterparties?: { id: string; name: string; counterpartyType: string }[];
+  /** Нэхэмжлэх үүсгэх мөрийн харьцах дансны санал (өмнөх нэхэмжлэхээс). */
+  invoiceAccountHints?: InvoiceAccountHints;
   /** Урьдчилгааны дансны роль — «Бүртгэл» сонгоход харьцах тал бөглөгдөнө. */
   advanceSettings?: {
     customerAdvanceAccountNumber: string;
@@ -282,6 +291,12 @@ export function BankStatementImport({
   const [rows, setRows] = useState<ParsedBankStatementRow[]>(initialDraft?.rows ?? []);
   const [quickFilter, setQuickFilter] = useState("");
   const [selectedCount, setSelectedCount] = useState(0);
+  // Хүснэгтийн доорх бичилтийн хэсэг — курсортой (дарсан / гараар шилжсэн) мөр.
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const activeRow = useMemo(
+    () => (activeRowId ? rows.find((row) => row.id === activeRowId) ?? null : null),
+    [activeRowId, rows]
+  );
   const [error, setError] = useState("");
   const [assignmentSide, setAssignmentSide] =
     useState<AssignmentSide>("debit");
@@ -364,6 +379,22 @@ export function BankStatementImport({
             : settings.supplierAdvanceAccountNumber
         );
       };
+      // «Авлага үүсгэж борлуулалтад» / «Өглөг үүсгэж зардалд»: харьцах тал
+      // хоосон бол өмнөх нэхэмжлэхээс санал болгосон орлого / зардлын данс
+      // (lib/cash/bank-row-preview.ts — данс ЗОХИОХГҮЙ, түүхгүй бол хоосон).
+      const invoiceCounterCode = (
+        documentType: "ar_invoice" | "ap_bill" | null,
+        counterpartyId: string | null | undefined,
+        current: string
+      ) => {
+        if (!documentType || mainAccountOfCode(current)) return current;
+        const main = suggestInvoiceCounterAccount(
+          matchContext?.invoiceAccountHints,
+          documentType,
+          counterpartyId
+        );
+        return main ? codeOf(main) : current;
+      };
       const text = value == null ? "" : String(value);
       setRows((current) =>
         current.map((row) => {
@@ -379,10 +410,16 @@ export function BankStatementImport({
             const linked = row.settleInvoiceId
               ? matchContext?.openInvoices.find((item) => item.id === row.settleInvoiceId)
               : undefined;
+            const filled = invoiceCounterCode(
+              bankRowActionInvoiceType(row.rowAction),
+              master?.id ?? null,
+              row[counterField]
+            );
             return {
               ...row,
               counterpartyId: master?.id ?? null,
               counterparty: master?.name ?? original,
+              [counterField]: filled,
               // Өөр харилцагчийн нэхэмжлэх холбоотой үлдэхгүй.
               ...(linked && master && linked.counterpartyId && linked.counterpartyId !== master.id
                 ? { settleInvoiceId: null, [counterField]: blankCode }
@@ -393,11 +430,12 @@ export function BankStatementImport({
             const action = isBankRowAction(text) ? text : null;
             const side = action ? bankRowActionAdvanceSide(action) : null;
             const previousSide = row.rowAction ? bankRowActionAdvanceSide(row.rowAction) : null;
+            const keptCode = previousSide || row.settleInvoiceId || row.ewalletSettlement
+              ? blankCode
+              : row[counterField];
             const nextCode = side
               ? advanceCode(side)
-              : previousSide || row.settleInvoiceId || row.ewalletSettlement
-                ? blankCode
-                : row[counterField];
+              : invoiceCounterCode(bankRowActionInvoiceType(action), row.counterpartyId, keptCode);
             return {
               ...row,
               rowAction: action,
@@ -434,6 +472,20 @@ export function BankStatementImport({
     },
     [activeSegIds, defaultSegments, matchContext, parsed]
   );
+
+  // Саналын лавлах ирмэгц «Бүртгэл» нь нэхэмжлэх үүсгэх боловч харьцах тал
+  // хоосон мөрүүдийг бөглөнө (сэргээсэн ноорог г.м.). Fetch-ийн callback-аас
+  // дуудагддаг тул ref-ээр хамгийн сүүлийн сегментийн тохиргоог авна.
+  const applyInvoiceHintsRef = useRef<(hints: InvoiceAccountHints | undefined) => void>(() => {});
+  useEffect(() => {
+    applyInvoiceHintsRef.current = (hints) =>
+      setRows((current) =>
+        fillInvoiceCounterAccounts(current, hints, (main) =>
+          buildSegCode({ ...defaultSegments, 3: main }, activeSegIds, defaultSegments)
+        )
+      );
+  }, [activeSegIds, defaultSegments]);
+
 
   // «+ Шинэ харилцагч» — нэр, харьцсан данс хуулгын мөрөөс; орлого → авлага,
   // зарлага → өглөгийн харилцагч. Хадгалмагц тухайн мөрөнд шууд холбоно.
@@ -858,7 +910,9 @@ export function BankStatementImport({
     void fetch("/api/cash/statements/suggestions")
       .then((response) => (response.ok ? response.json() : null))
       .then((data: (ImportContext & { error?: string }) | null) => {
-        if (data && !data.error) setMatchContext(data);
+        if (!data || data.error) return;
+        setMatchContext(data);
+        applyInvoiceHintsRef.current(data.invoiceAccountHints);
       })
       .catch(() => {});
   }, []);
@@ -1271,6 +1325,7 @@ export function BankStatementImport({
     setParsed(result);
     setRows(normalizedRows);
     setSelectedCount(0);
+    setActiveRowId(null);
     // Шинэ хуулга ачаалмагц «Хянах» таб руу (өмнө нь түүх нээгдсэн байж болно).
     setView("review");
     // Өмнөх хуулгын chip шүүлт үлдвэл шинэ мөрүүд далдлагдана.
@@ -1282,6 +1337,7 @@ export function BankStatementImport({
       .then((data: (ImportContext & { error?: string }) | null) => {
         if (!data || data.error) return;
         setMatchContext(data);
+        applyInvoiceHintsRef.current(data.invoiceAccountHints);
         // «Шууд бөглөх» дүрэм уншигдмагц хэрэгжинэ — хэрэглэгч
         // хадгалахаас өмнө хянаж засна (§9). Аль хэдийн бөглөгдсөн
         // (хэрэглэгчийн засварласан) талыг дарж бичихгүй.
@@ -1522,7 +1578,9 @@ export function BankStatementImport({
     void fetch("/api/cash/statements/suggestions")
       .then((response) => (response.ok ? response.json() : null))
       .then((data: (ImportContext & { error?: string }) | null) => {
-        if (data && !data.error) setMatchContext(data);
+        if (!data || data.error) return;
+        setMatchContext(data);
+        applyInvoiceHintsRef.current(data.invoiceAccountHints);
       })
       .catch(() => {});
     feedback.saved(
@@ -1558,6 +1616,7 @@ export function BankStatementImport({
     setParsed(null);
     setRows([]);
     setSelectedCount(0);
+    setActiveRowId(null);
     discardDraft();
   }
 
@@ -1612,6 +1671,7 @@ export function BankStatementImport({
         setParsed(null);
         setRows([]);
         setSelectedCount(0);
+        setActiveRowId(null);
         discardDraft();
         router.refresh();
       } catch (caught) {
@@ -2011,10 +2071,39 @@ export function BankStatementImport({
               setSelectedCount(event.api.getSelectedRows().length)
             }
             onCellValueChanged={handleCellValueChanged}
+            onCellFocused={(event) => {
+              if (event.rowIndex == null || event.rowPinned) return;
+              const id = event.api.getDisplayedRowAtIndex(event.rowIndex)?.data?.id;
+              if (id) setActiveRowId(id);
+            }}
             singleClickEdit
             stopEditingWhenCellsLoseFocus
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           />
+
+          {activeRow && (
+            <BankRowPreviewStrip
+              row={activeRow}
+              statement={{
+                fileName: parsed.fileName,
+                fileHash: parsed.fileHash,
+                bankName: parsed.bankName,
+                periodStart: parsed.periodStart,
+                periodEnd: parsed.periodEnd,
+              }}
+              cashAccountId={cashAccount?.id ?? ""}
+              missing={
+                !cashAccount
+                  ? "Банкны данс сонгоогүй"
+                  : rowReady(activeRow)
+                    ? null
+                    : validationText(activeRow) === "Бэлэн"
+                      ? "Ханш / ₮ дүн дутуу"
+                      : `${validationText(activeRow)} — бөглөхөд бичилт харагдана`
+              }
+              onClose={() => setActiveRowId(null)}
+            />
+          )}
 
           {/* Тогтмол доод мөр — хүснэгт өндрийг дүүргэх тул үргэлж харагдана. */}
           <div className="flex shrink-0 flex-col gap-3 border-t border-[var(--ea-border)] pt-3 sm:flex-row sm:items-center sm:justify-between">
