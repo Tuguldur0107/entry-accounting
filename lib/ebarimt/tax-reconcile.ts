@@ -228,8 +228,25 @@ export const EBARIMT_TAX_SYNC_MAX_DAYS = 31;
 export const EBARIMT_TAX_RESYNC_DAYS = 3;
 /** Анхны татлага хамгийн эртдээ хэдэн хоногийн өмнөөс (нээлттэй нэхэмжлэхийн огноогоор). */
 export const EBARIMT_TAX_MAX_LOOKBACK_DAYS = 400;
-/** Өдрийн татлага УБ-ын энэ цагаас (PosAPI 23:30-ийн sendData-ийн дараа). */
-export const EBARIMT_TAX_SYNC_HOUR_UB = 6;
+/**
+ * `getSalesTotalData`-ийг бодит орчинд ЗӨВХӨН шөнийн 01:00–07:00 (УБ) цагт дуудна
+ * (албан хуудас: «Хэрэглэгч сервисийг зөвхөн шөнийн цагаар буюу 01:00–07:00 цагийн
+ * хооронд дуудан ашиглах боломжтой»; туршилтын орчинд хязгааргүй). PosAPI-ийн 23:30-ийн
+ * sendData-ийн дараа тул өдрийн татлагад тохиромжтой.
+ */
+export const TPI_SALES_WINDOW_UB = { fromHour: 1, toHour: 7 } as const;
+
+/** УБ-ын цаг (0–23). */
+export function ulaanbaatarHour(now: Date = new Date()): number {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ulaanbaatar", hour: "2-digit", hourCycle: "h23" }).format(now));
+  return Number.isFinite(hour) ? hour % 24 : 0;
+}
+
+/** TPI-ийн борлуулалтын сервисийг одоо дуудаж болох уу — туршилтын орчинд үргэлж. */
+export function isTpiSalesWindowOpen(environment: "staging" | "production", hourUb: number): boolean {
+  if (environment === "staging") return true;
+  return hourUb >= TPI_SALES_WINDOW_UB.fromHour && hourUb < TPI_SALES_WINDOW_UB.toHour;
+}
 /** Сүүлийн амжилттай татлагаас хойш энэ цагаас удвал «Анхаарах». */
 export const EBARIMT_TAX_SYNC_STALE_HOURS = 48;
 
@@ -267,12 +284,14 @@ export interface EbarimtTaxCheckRow extends TaxInvoiceCheckResult {
 
 /**
  * Хуваарьт татлага одоо хийх үү (ticker 10 мин тутам асууна) — ЦЭВЭР:
+ *  - бодит орчинд ЗӨВХӨН 01:00–07:00 УБ (TPI-ийн албан хязгаар) — бусад үед үгүй
  *  - хэзээ ч татаагүй → тийм
  *  - сүүлийнх алдаатай бол 1 цаг хүлээнэ (ТЕГ-ийг ачаалахгүй)
  *  - нөхөлт дуусаагүй (өчигдрөөс хоцорсон) → 10 мин тутам үргэлжилнэ
- *  - эс бөгөөс өдөрт нэг, УБ 06:00-аас хойш
+ *  - эс бөгөөс өдөрт нэг
  */
 export function isTaxSyncDue(input: {
+  environment: "staging" | "production";
   lastSyncAt: Date | null;
   lastSyncDateUb: string | null;
   lastSyncError: string | null;
@@ -281,12 +300,13 @@ export function isTaxSyncDue(input: {
   todayUb: string;
   hourUb: number;
 }): boolean {
+  if (!isTpiSalesWindowOpen(input.environment, input.hourUb)) return false;
   if (!input.lastSyncAt) return true;
   const minutes = (input.now.getTime() - input.lastSyncAt.getTime()) / 60_000;
   if (input.lastSyncError && minutes < 60) return false;
   const behind = !input.syncedThrough || input.syncedThrough < shiftDays(input.todayUb, -1);
   if (behind) return minutes >= 10;
-  return input.lastSyncDateUb !== input.todayUb && input.hourUb >= EBARIMT_TAX_SYNC_HOUR_UB;
+  return input.lastSyncDateUb !== input.todayUb;
 }
 
 /** Татах өдрүүд: өмнөх татлагын сүүлийн 3 өдрөөс (эсвэл эхлэлээс) өнөөдөр хүртэл, ≤ maxDays. */

@@ -15,31 +15,68 @@ import { TPI_SALES_STATUS } from "../lib/itc/constants";
 // eBarimt TPI-ийн ЦЭВЭР хэсэг: хүсэлтийн шалгалт, хариуны parser (танигдахгүй
 // мөр алгасаж ТООЛНО — дүн зохиохгүй), ДДТД-ийн тулгалт.
 
-test("salesTotalDataBody — жил/сар/өдөр/status шалгалт", () => {
-  assert.deepEqual(salesTotalDataBody({ year: 2026 }), { year: 2026, status: 0 });
+test("salesTotalDataBody — албан хуудас: year/month/day STRING, status/startCount/endCount number, сар заавал", () => {
   assert.deepEqual(salesTotalDataBody({ year: 2026, month: 9, day: 25, status: TPI_SALES_STATUS.b2b, startCount: 0, endCount: 500 }), {
-    year: 2026,
+    year: "2026",
+    month: "9",
+    day: "25",
     status: 1,
-    month: 9,
-    day: 25,
     startCount: 0,
     endCount: 500,
   });
-  assert.throws(() => salesTotalDataBody({ year: 1999 }), /Жил/);
+  // startCount/endCount заавал — өгөөгүй бол эхний хуудас
+  assert.deepEqual(salesTotalDataBody({ year: 2026, month: 10 }), { year: "2026", month: "10", status: 0, startCount: 0, endCount: 500 });
+  assert.throws(() => salesTotalDataBody({ year: 2026 }), /Сар заавал/);
+  assert.throws(() => salesTotalDataBody({ year: 1999, month: 1 }), /Жил/);
   assert.throws(() => salesTotalDataBody({ year: 2026, month: 13 }), /Сар/);
   assert.throws(() => salesTotalDataBody({ year: 2026, day: 5 }), /сар заавал/);
-  assert.throws(() => salesTotalDataBody({ year: 2026, status: 9 as never }), /status/);
+  assert.throws(() => salesTotalDataBody({ year: 2026, month: 1, status: 9 as never }), /status/);
 });
 
-test("saleListErpBody — албан талбарын нэр Pin/subPin/StartDate/EndDate, ТТД ба огнооны шалгалт", () => {
+test("saleListErpBody — албан хуудас: pin (регистр), subPin, startDate, endDate жижиг үсгээр", () => {
   assert.deepEqual(
-    saleListErpBody({ pin: " 37900846788 ", subPins: ["61200064714", " "], startDate: "2026-09-01", endDate: "2026-09-30" }),
-    { Pin: "37900846788", subPin: ["61200064714"], StartDate: "2026-09-01", EndDate: "2026-09-30" }
+    saleListErpBody({ pin: " 5574387 ", subPins: ["2693518", " "], startDate: "2026-09-01", endDate: "2026-09-30" }),
+    { pin: "5574387", subPin: ["2693518"], startDate: "2026-09-01 00:00:00", endDate: "2026-09-30 23:59:59" }
   );
-  assert.throws(() => saleListErpBody({ pin: "2693518", startDate: "2026-09-01", endDate: "2026-09-30" }), /Pin/);
-  assert.throws(() => saleListErpBody({ pin: "37900846788", startDate: "2026-10-01", endDate: "2026-09-30" }), /Эхлэх огноо/);
-  assert.throws(() => saleListErpBody({ pin: "37900846788", startDate: "20260901", endDate: "2026-09-30" }), /YYYY-MM-DD/);
-  assert.throws(() => saleListErpBody({ pin: "37900846788", subPins: ["abc"], startDate: "2026-09-01", endDate: "2026-09-30" }), /subPin/);
+  // staging-ийн тест регистр 8 орон
+  assert.equal(saleListErpBody({ pin: "99119911", startDate: "2026-09-01", endDate: "2026-09-01" }).pin, "99119911");
+  assert.throws(() => saleListErpBody({ pin: "37900846788", startDate: "2026-09-01", endDate: "2026-09-30" }), /регистр/);
+  assert.throws(() => saleListErpBody({ pin: "5574387", startDate: "2026-10-01", endDate: "2026-09-30" }), /Эхлэх огноо/);
+  assert.throws(() => saleListErpBody({ pin: "5574387", startDate: "20260901", endDate: "2026-09-30" }), /YYYY-MM-DD/);
+  assert.throws(() => saleListErpBody({ pin: "5574387", subPins: ["abc"], startDate: "2026-09-01", endDate: "2026-09-30" }), /subPin/);
+});
+
+test("parseSalesTotalData — албан хариу: data.content[], citytax (жижиг үсэг), pageModel.totalElements", () => {
+  const result = parseSalesTotalData({
+    msg: "Амжилттай",
+    status: 200,
+    code: null,
+    data: {
+      content: [
+        {
+          posSid: "32***73",
+          posRno: "000005435500000907000001014141",
+          posRdate: "2023-09-07 22:50:46",
+          posRamt: 3000,
+          citytax: 20,
+          posVamt: 272.727273,
+          netAmt: 2727.272727,
+          fromType: "ebarimt",
+          csmrRegNo: "20***25",
+          csmrName: "МОНГ**** *** **К",
+          posNo: "001",
+          operatorName: "TEST OPERATOR 1",
+          districtCode: "Архангай",
+          prParentRno: "000005435500000901000001000001",
+        },
+      ],
+      pageModel: { totalElements: 10 },
+    },
+  });
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].cityTax, 20);
+  assert.equal(result.rows[0].parentDdtd, "000005435500000901000001000001");
+  assert.equal(result.totalElements, 10);
 });
 
 test("parseSalesTotalData — албан талбарууд, дүн стринг ч танина, ДДТД-гүй мөр алгасаж тоолно", () => {
@@ -81,7 +118,7 @@ test("parseSalesTotalData — албан талбарууд, дүн стринг
   });
   // Массив шууд ирсэн ч уншина; хоосон → мөргүй
   assert.equal(parseSalesTotalData([{ posRno: "1", posRamt: 1 }]).rows.length, 1);
-  assert.deepEqual(parseSalesTotalData({}), { rows: [], skipped: 0 });
+  assert.deepEqual(parseSalesTotalData({}), { rows: [], skipped: 0, totalElements: null });
 });
 
 test("parseSaleListErp — receiptBuyModelList, receiptType 2025-09-01-ээс сонголтоор", () => {
@@ -99,6 +136,54 @@ test("parseSaleListErp — receiptBuyModelList, receiptType 2025-09-01-ээс с
   assert.equal(result.rows[1].receiptType, null);
   assert.equal(result.rows[1].cityTax, 0);
   assert.equal(result.rows[0].sellerName, "Хаан банк");
+});
+
+test("parseSaleListErp — албан хариу: data[] → receiptBuyModelList[], amountCitytax, date, далдлагдсан борлуулагч", () => {
+  const result = parseSaleListErp({
+    msg: "Амжилттай",
+    status: 200,
+    code: null,
+    data: [
+      {
+        startDate: "2024-01-01 00:00:00",
+        endDate: "2024-04-30 23:59:59",
+        regNo: "99119911",
+        receiptBuyModelList: [
+          {
+            prPosRno: "000005743087000240101000001411087",
+            name: "ГУР*****МБА",
+            regNo: "57***85",
+            buyerRegNo: "57***87",
+            date: "2024-01-01 03:34:36",
+            amountVat: 252.272727,
+            amountCitytax: 25,
+            amountTotal: 2775,
+            amountNet: 2522.727273,
+            fromType: "INVOICE",
+            receiptType: "ТӨЛБӨРИЙН БАРИМТ",
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(result.skipped, 0, "wrapper объектыг мөр гэж үзэхгүй");
+  assert.equal(result.rows.length, 1);
+  assert.deepEqual(
+    { ...result.rows[0] },
+    {
+      ddtd: "000005743087000240101000001411087",
+      date: "2024-01-01 03:34:36",
+      sellerRegNo: "57***85",
+      sellerName: "ГУР*****МБА",
+      buyerRegNo: "57***87",
+      vat: 252.272727,
+      cityTax: 25,
+      total: 2775,
+      net: 2522.727273,
+      fromType: "INVOICE",
+      receiptType: "ТӨЛБӨРИЙН БАРИМТ",
+    }
+  );
 });
 
 test("assertTpiStatus — ТЕГ-ийн алдааны хариу шиднэ (мөр байхгүй ч чимээгүй өнгөрөхгүй)", () => {
