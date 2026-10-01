@@ -35,6 +35,8 @@ export type MatchableRow = {
 export type OpenInvoiceRef = {
   id: string;
   documentNo: string;
+  /** Харилцагчийн бүртгэл — мөрөнд сонгосон харилцагчаар нэхэмжлэх шүүхэд. */
+  counterpartyId?: string;
   counterpartyName: string;
   totalAmount: number;
   paidAmount: number;

@@ -298,3 +298,66 @@ tests/ar-statement-flow.test.ts (DB)
   — `pos_qpay_intents.cash_document_id`; мөнгө баримтгүй үлдэнэ; харилцагчид
   буцаасныг тусдаа зарлагаар)
 - Тест `tests/delete-posted-guards.test.ts` (DB)
+
+### 5l. Банкны хуулгын мөрөөс бүртгэх, урьдчилгаа — ХЭРЭГЖСЭН (2026-10-01)
+
+Product owner шийдвэр (2026-10-01): хуулгын мөрөөс авлага/өглөг хаах, өглөг үүсгэж
+зардалд бичих, урьдчилж орсон орлого / урьдчилж төлсөн зардал бүртгэх, урьдчилгааг
+дараа нь нэхэмжлэхтэй суутгах; MCP-ээр ч бүгдийг.
+
+**Мөрийн бүртгэлийн төрөл** (`ParsedBankStatementRow.rowAction`, `counterpartyId` —
+`saveBankStatement`-ийн НЭГ транзакц дотор, тусдаа импортын логик ХОРИОТОЙ):
+
+| Төрөл | Мөр | GL |
+|-------|-----|----|
+| (хоосон) + `settleInvoiceId` | орлого / зарлага | Dr банк / Cr авлага, эсвэл Dr өглөг / Cr банк (§ХЭРЭГЖСЭН) |
+| `advance_received` | орлого | Dr банк / Cr урьдчилж орсон орлого (тохиргооны данс) |
+| `prepaid_paid` | зарлага | Dr урьдчилж төлсөн (тохиргооны данс) / Cr банк |
+| `create_ap_bill` | зарлага | АП нэхэмжлэх: Dr зардал (+ Dr НӨАТ оролт) / Cr өглөг — батлагдсан, тэр даруй **төлөгдсөн**; мөр: Dr өглөг / Cr банк |
+
+- Гурван төрөлд **бүртгэлтэй харилцагч ЗААВАЛ** (нэрээр таахгүй — `counterpartyId`;
+  MCP-д нэр яг / ганц таарц). `create_ap_bill`-д харилцагч өглөгийн төрөлтэй
+  (`counterpartyDirectionError`), хяналтын данс = харилцагчийн default өглөг, эс
+  бөгөөс системийн default; харьцах (DR) тал = ЗАРДАЛ (өглөг / банк биш).
+- **НӨАТ** (`create_ap_bill`): байгууллага НӨАТ төлөгч бол ҮРГЭЛЖ дотроос 10/110
+  (`vat_settings.vatRatePercent`, `inputVatAccountNumber` — хатуу дугааргүй).
+- Урьдчилгаа зөвхөн MNT данс (суутгал MNT); харьцах тал нь тохиргооны урьдчилгааны
+  данстай ЗААВАЛ таарна (вэб «Бүртгэл» сонгоход автоматаар бөглөнө).
+- Вэб: хянах хүснэгтэд «Харилцагч» (бүртгэлээс сонгох), «Бүртгэл», «Нэхэмжлэх»
+  (нээлттэй нэхэмжлэхийг гараар — дүн таарахгүй хэсэгчилсэн төлбөрт ч) багана.
+  Харьцах талыг гараар солиход урьдчилгааны бүртгэл, нэхэмжлэхийн холбоос цуцлагдана.
+
+**Урьдчилгааны дансны роль** (`arap_advance_settings`, мөргүй бол default НЭГ удаа):
+`customerAdvanceAccountNumber` 31300001, `supplierAdvanceAccountNumber` 18000001 —
+ялгаатай, идэвхтэй, admin+ («Банкны хуулга» → «Урьдчилгааны данс», MCP
+`update_advance_settings`). POS-ийн `pos_settings.customerAdvanceAccountNumber` ТУСДАА
+(POS-ийн урьдчилгааны төлбөр).
+
+**Үлдэгдэл** (`loadAdvanceBalances`, ЦЭВЭР `computeAdvanceBalances`): урьдчилгааны
+дансан дээрх харилцагчтай, нэхэмжлэхгүй, батлагдсан кассын баримт (худалдан
+авагчид орлого +, буцаан олголт −; нийлүүлэгчид эсрэгээр, MNT дүнгээр) −
+`arap_advance_applications`.
+
+**Суутгал** (`applyAdvanceToInvoice`, MCP `apply_advance_to_invoice`): АР — Dr
+урьдчилж орсон / Cr авлага; АП — Dr өглөг / Cr урьдчилж төлсөн. `post` эрх, MNT,
+огноо ≥ нэхэмжлэхийн огноо, нээлттэй үе; дүн ≤ урьдчилгаа ба нэхэмжлэхийн
+үлдэгдэл (`resolveAdvanceApplyAmount`) — транзакц дотор харилцагчаар advisory lock
+авч ДАХИН шалгана. Бичилт: журнал + `ar_ap_settlements` (кассгүй, voucherId) +
+`arap_advance_applications`. **Буцаалт = `reverseArApOffset(voucherId)`** —
+суутгалын мөр хамт устна (тусдаа буцаалтын зам ХОРИОТОЙ).
+
+**Тооцоо нийлсэн акт** (§5i): урьдчилгааны дансан дээрх нэхэмжлэхгүй мөнгө
+урьдчилгаа болж орно; суутгалын settlement нь дотоод дахин ангилал тул актаас
+ХАСАГДАНА (давхар тооцохгүй).
+
+```
+lib/arap/advance-math.ts     ЦЭВЭР (client-safe): тал, тэмдэг, үлдэгдэл, суутгах дүн,
+                             хуулгын мөрийн төрөл, НӨАТ 10/110
+lib/arap/advances.ts         DB: тохиргоо, үлдэгдэл, суутгалын журналууд
+lib/actions/arap-advances.ts getAdvanceSettings, saveAdvanceSettings, listAdvanceBalances,
+                             applyAdvanceToInvoice
+components/cash/advance-settings-dialog.tsx, components/arap/apply-advance-dialog.tsx
+MCP: import_bank_statement (rowAction), apply_advance_to_invoice,
+     get_counterparty_advances, update_advance_settings
+tests/arap-advances.test.ts (цэвэр), tests/bank-row-actions-flow.test.ts (DB)
+```

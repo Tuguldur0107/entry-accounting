@@ -213,6 +213,19 @@ import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliatio
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
 import { unwrapAction } from "@/lib/action-result";
+import {
+  applyAdvanceToInvoice,
+  getAdvanceSettings,
+  listAdvanceBalances,
+  saveAdvanceSettings,
+} from "@/lib/actions/arap-advances";
+import {
+  ADVANCE_SIDE_LABELS,
+  advanceAccountFor,
+  bankRowActionAdvanceSide,
+  isBankRowAction,
+  loadAdvanceSettings,
+} from "@/lib/arap/advances";
 import { createRecurringInvoice, getRecurringInvoices } from "@/lib/actions/ar-recurring";
 import { getCounterpartyStatement } from "@/lib/actions/ar-statement";
 import { getArReminderOverview, sendInvoiceReminder } from "@/lib/actions/ar-reminders";
@@ -2807,7 +2820,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "import_bank_statement",
     description:
-      "Банкны хуулгын мөрүүдийг импортлон мөр бүрд кассын баримт + GL журнал ШУУД бичнэ (вэбийн хуулга импорттой нэг зам). settleInvoice өгсөн мөр нэхэмжлэхтэй холбогдож төлсөн дүнг шинэчилнэ. Ижил мөрүүдийг дахин импортлохоос hash-аар хамгаална. Зөвхөн 'Шууд бичих' горимд, мөр бүр батлах хязгаар дотор ([AMOUNT_LIMIT_EXCEEDED] бол юу ч бичигдэхгүй — том мөрийг вэбээр), батлах эрхтэй (cash:post), хаагдсан тайлант үед бичихгүй; max 500 мөр.",
+      "Банкны хуулгын мөрүүдийг импортлон мөр бүрд кассын баримт + GL журнал ШУУД бичнэ (вэбийн хуулга импорттой нэг зам). Мөр бүрд: (1) энгийн — counterGlAccount; (2) авлага/өглөг хаах — settleInvoice (нээлттэй нэхэмжлэх); (3) rowAction=advance_received — урьдчилж орсон орлого (орлогын мөр, харьцах тал = урьдчилгааны өр); (4) rowAction=prepaid_paid — урьдчилж төлсөн зардал/урьдчилгаа (зарлагын мөр); (5) rowAction=create_ap_bill — өглөгийн нэхэмжлэх үүсгэж (Dr counterGlAccount = зардал, НӨАТ төлөгч бол 10/110 НӨАТ оролт) энэ мөрөөр тэр даруй хаана. rowAction-тай мөрд counterparty = БҮРТГЭЛТЭЙ харилцагчийн нэр ЗААВАЛ. Урьдчилгааг дараа нь apply_advance_to_invoice-оор нэхэмжлэхтэй суутгана. Ижил мөрүүдийг дахин импортлохоос hash-аар хамгаална. Зөвхөн 'Шууд бичих' горимд, мөр бүр батлах хязгаар дотор ([AMOUNT_LIMIT_EXCEEDED] бол юу ч бичигдэхгүй — том мөрийг вэбээр), батлах эрхтэй (cash:post), хаагдсан тайлант үед бичихгүй; max 500 мөр.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2825,18 +2838,29 @@ export const AI_TOOLS: AiToolDef[] = [
             properties: {
               date: { type: "string", description: "Гүйлгээний огноо YYYY-MM-DD" },
               description: { type: "string", description: "Гүйлгээний утга" },
-              counterparty: { type: "string", description: "Харилцагчийн нэр (текст)" },
+              counterparty: {
+                type: "string",
+                description:
+                  "Харилцагчийн нэр. rowAction-тай мөрд бүртгэлтэй харилцагчтай таарах ёстой (list_counterparties); бусад мөрд яг таарвал бүртгэлтэй холбогдоно",
+              },
               counterAccount: { type: "string", description: "Харьцсан банкны данс (текст)" },
               income: { type: "number", description: "Орлого ₮ (expense-тэй зэрэг биш)" },
               expense: { type: "number", description: "Зарлага ₮" },
               counterGlAccount: {
                 type: "string",
-                description: "Харьцах GL данс (8 оронтой) — орлогод кредитлэгдэх/зарлагад дебетлэгдэх тал (ewalletSettlement=true бол хэрэггүй — түр дансны GL автоматаар)",
+                description:
+                  "Харьцах GL данс (8 оронтой) — орлогод кредитлэгдэх/зарлагад дебетлэгдэх тал. create_ap_bill-д ЗАРДЛЫН данс. ewalletSettlement=true эсвэл advance_received / prepaid_paid бол хэрэггүй (түр данс / урьдчилгааны дансны тохиргооноос автоматаар)",
               },
               exchangeRate: { type: "number", description: "Валютын данс бол ханш" },
               settleInvoice: {
                 type: "string",
                 description: "Хаагдах нэхэмжлэх (ID/дугаар/externalRef) — counterGlAccount нь хяналтын данс байх ёстой",
+              },
+              rowAction: {
+                type: "string",
+                enum: ["advance_received", "prepaid_paid", "create_ap_bill"],
+                description:
+                  "Мөрийн бүртгэлийн төрөл: advance_received (урьдчилж орсон орлого, орлогын мөр), prepaid_paid (урьдчилж төлсөн, зарлагын мөр), create_ap_bill (өглөг үүсгэж зардалд, зарлагын мөр). settleInvoice / ewalletSettlement-тэй зэрэг БОЛОХГҮЙ",
               },
               ewalletSettlement: {
                 type: "boolean",
@@ -2853,6 +2877,43 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["cashAccount", "rows"],
+    },
+  },
+  {
+    name: "apply_advance_to_invoice",
+    description:
+      "Харилцагчийн урьдчилгаагаар нэхэмжлэхийн нээлттэй үлдэгдлийг хаана (суутгал): АР нэхэмжлэх — Dr урьдчилж орсон орлого / Cr авлага; АП нэхэмжлэх — Dr өглөг / Cr урьдчилж төлсөн. amount өгөөгүй бол урьдчилгааны ба нэхэмжлэхийн үлдэгдлийн бага нь. Зөвхөн MNT нэхэмжлэх, 'Шууд бичих' горимд, батлах хязгаарын дотор. Үлдэгдлийг get_counterparty_advances-аар харна. Буцаах нь вэбийн нэхэмжлэхийн панелийн «Суутган тооцоо» буцаалт.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoice: { type: "string", description: "Нэхэмжлэхийн дугаар / ID / externalRef" },
+        amount: { type: "number", description: "Суутгах дүн ₮ (сонголтоор)" },
+        date: { type: "string", description: "Огноо YYYY-MM-DD (default өнөөдөр, нэхэмжлэхийн огнооноос өмнө биш)" },
+      },
+      required: ["invoice"],
+    },
+  },
+  {
+    name: "get_counterparty_advances",
+    description:
+      "Харилцагчдын урьдчилгааны үлдэгдэл (₮): урьдчилж орсон орлого — харилцагч урьдчилж төлсөн, бид бараа/үйлчилгээ өгөх үүрэгтэй; урьдчилж төлсөн — бид урьдчилж төлсөн. Урьдчилгааны дансны роль хамт. counterparty өгвөл тэр харилцагчийнх.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        counterparty: { type: "string", description: "Харилцагчийн нэр (сонголтоор)" },
+      },
+    },
+  },
+  {
+    name: "update_advance_settings",
+    description:
+      "Урьдчилгааны дансны роль солих: customerAdvanceAccount — урьдчилж орсон орлого / худалдан авагчийн урьдчилгаа (өр, default 31300001), supplierAdvanceAccount — урьдчилж төлсөн зардал / нийлүүлэгчийн урьдчилгаа (хөрөнгө, default 18000001). Хоёр данс ялгаатай, идэвхтэй GL данс. Admin эрх шаардлагатай.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        customerAdvanceAccount: { type: "string", description: "8 оронтой GL данс (сонголтоор)" },
+        supplierAdvanceAccount: { type: "string", description: "8 оронтой GL данс (сонголтоор)" },
+      },
     },
   },
   {
@@ -10181,14 +10242,24 @@ async function runImportBankStatement(
       settleInvoice?: string;
       ewalletSettlement?: boolean;
       paymentMethod?: string;
+      rowAction?: string;
     }[];
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
-  for (const [index, row] of input.rows.entries())
-    if (!row.ewalletSettlement && !row.counterGlAccount?.trim())
-      throw codedError("INVALID_INPUT", `rows[${index}].counterGlAccount заавал (ewalletSettlement мөрд л хэрэггүй)`);
+  for (const [index, row] of input.rows.entries()) {
+    if (row.rowAction != null && row.rowAction !== "" && !isBankRowAction(row.rowAction))
+      throw codedError("INVALID_INPUT", `rows[${index}].rowAction: advance_received | prepaid_paid | create_ap_bill`);
+    const advanceRow = isBankRowAction(row.rowAction) && bankRowActionAdvanceSide(row.rowAction);
+    if (!row.ewalletSettlement && !advanceRow && !row.counterGlAccount?.trim())
+      throw codedError(
+        "INVALID_INPUT",
+        `rows[${index}].counterGlAccount заавал (ewalletSettlement, advance_received, prepaid_paid мөрд л хэрэггүй)`
+      );
+    if (isBankRowAction(row.rowAction) && !row.counterparty?.trim())
+      throw codedError("INVALID_INPUT", `rows[${index}].counterparty заавал (rowAction=${row.rowAction})`);
+  }
   if (!Array.isArray(input.rows) || input.rows.length === 0)
     throw new Error("rows хоосон байна");
   if (input.rows.length > 500)
@@ -10229,6 +10300,32 @@ async function runImportBankStatement(
   });
   const bankCode = buildCashCode(account.glAccountNumber);
 
+  // rowAction-тай мөрийн харилцагч — бүртгэлтэй харилцагч (яг / ганц таарц).
+  const actionCounterpartyByIndex = new Map<number, string>();
+  if (input.rows.some((row) => isBankRowAction(row.rowAction))) {
+    const cpList = await db.query.counterparties.findMany({
+      where: and(eq(counterparties.organizationId, orgId), eq(counterparties.isActive, true)),
+      columns: { id: true, name: true },
+    });
+    for (const [index, row] of input.rows.entries()) {
+      if (!isBankRowAction(row.rowAction)) continue;
+      const query = row.counterparty!.trim();
+      const counterparty = requireSingle(
+        nameMatches(cpList, (entry) => entry.name, query),
+        (entry) => entry.name,
+        "харилцагч",
+        query,
+        { codePrefix: "COUNTERPARTY", allNames: cpList.map((entry) => entry.name) }
+      );
+      actionCounterpartyByIndex.set(index, counterparty.id);
+    }
+  }
+  const advanceSettings = input.rows.some(
+    (row) => isBankRowAction(row.rowAction) && bankRowActionAdvanceSide(row.rowAction)
+  )
+    ? await loadAdvanceSettings(orgId)
+    : null;
+
   // settleInvoice лавлагаануудыг урьдчилан ID болгоно.
   const settleIdByRef = new Map<string, string>();
   for (const row of input.rows) {
@@ -10244,9 +10341,14 @@ async function runImportBankStatement(
     // Харьцах данс: оршин буйг resolveAccount-оор шалгаад, кодыг кассын
     // builder-ээр (create_cash_transaction-ий counterAccount-тай ижил).
     // Settlement мөрд түр дансны GL доор (санал таарсны дараа) бөглөгдөнө.
+    const action = isBankRowAction(row.rowAction) ? row.rowAction : null;
+    const advanceSide = action ? bankRowActionAdvanceSide(action) : null;
+    // Урьдчилгааны мөр: харьцах тал = тохиргооны урьдчилгааны данс (counterGlAccount үл тооно).
     const counterCode = row.ewalletSettlement
       ? ""
-      : buildCashCode(resolveAccount(row.counterGlAccount as string, ctx).main);
+      : advanceSide
+        ? buildCashCode(advanceAccountFor(advanceSettings!, advanceSide))
+        : buildCashCode(resolveAccount(row.counterGlAccount as string, ctx).main);
     return {
       id: randomUUID(),
       rowNumber: index + 1,
@@ -10264,6 +10366,8 @@ async function runImportBankStatement(
         ? settleIdByRef.get(row.settleInvoice.trim())
         : null,
       ewalletSettlement: null as EwalletSettlementRowInput | null,
+      rowAction: action,
+      counterpartyId: actionCounterpartyByIndex.get(index) ?? null,
       rawData: {} as Record<string, string>,
     };
   });
@@ -10363,14 +10467,100 @@ async function runImportBankStatement(
 
   const settled = parsedRows.filter((row) => row.settleInvoiceId).length;
   const ewalletSettled = parsedRows.filter((row) => row.ewalletSettlement);
+  const bills = parsedRows.filter((row) => row.rowAction === "create_ap_bill").length;
+  const advances = parsedRows.filter(
+    (row) => row.rowAction === "advance_received" || row.rowAction === "prepaid_paid"
+  ).length;
   const totalIncome = parsedRows.reduce((sum, row) => sum + row.income, 0);
   const totalExpense = parsedRows.reduce((sum, row) => sum + row.expense, 0);
   return {
     resultText: [
       `Банкны хуулга импортлогдлоо: ${account.name}, ${result.rowCount} мөр (орлого ${fmt(totalIncome)}₮ / зарлага ${fmt(totalExpense)}₮)`,
       `Мөр бүрд кассын баримт + GL журнал бичигдсэн${settled > 0 ? `; ${settled} мөр нэхэмжлэхтэй холбогдож төлсөн дүн шинэчлэгдсэн` : ""}${ewalletSettled.length ? `; ${ewalletSettled.length} э-хэтэвчийн settlement — түр данс → банк шилжүүлэг нийт ${fmt(ewalletSettled.reduce((sum, row) => sum + row.ewalletSettlement!.grossAmount, 0))}₮, шимтгэл ${fmt(ewalletSettled.reduce((sum, row) => sum + row.ewalletSettlement!.feeAmount, 0))}₮` : ""}.`,
+      ...(bills || advances
+        ? [
+            `${bills ? `${bills} өглөгийн нэхэмжлэх үүсэж тэр даруй хаагдсан (зардал + НӨАТ төлөгч бол НӨАТ оролт)` : ""}${bills && advances ? "; " : ""}${advances ? `${advances} урьдчилгаа бүртгэгдсэн — apply_advance_to_invoice-оор нэхэмжлэхтэй суутгана` : ""}.`,
+          ]
+        : []),
       `Statement ID: ${result.id.slice(0, 8)} — вэб: Мөнгөн хөрөнгө → Хуулгууд.`,
     ].join("\n"),
+  };
+}
+
+// ── Урьдчилгаа (docs/dev/arap.md §5l) ─────────────────────────────────────────
+
+async function runApplyAdvanceToInvoice(
+  orgId: string,
+  input: { invoice: string; amount?: number; date?: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const document = await findArapDocument(orgId, input.invoice);
+  const balance = Math.round((Number(document.totalAmount) - Number(document.paidAmount)) * 100) / 100;
+  const amount = input.amount != null ? Math.round(Number(input.amount) * 100) / 100 : null;
+  // Батлах хязгаар — өгсөн дүн, эс бөгөөс нэхэмжлэхийн үлдэгдэл (дээд хязгаар).
+  assertPostLimit(amount ?? balance);
+  const result = unwrapAction(
+    await applyAdvanceToInvoice({
+      documentId: document.id,
+      amount,
+      date: input.date?.trim() || ulaanbaatarToday(),
+    })
+  );
+  return {
+    resultText: `Урьдчилгаа суутгагдлаа: ${document.documentNo}, ${fmt(result.amount)}₮ — GL-д суутгалын журнал бичигдэж, нэхэмжлэхийн үлдэгдэл ${fmt(Math.max(0, balance - result.amount))}₮ боллоо.`,
+    action: { kind: "arap", id: document.id, title: document.documentNo, status: "posted" },
+  };
+}
+
+async function runGetCounterpartyAdvances(
+  orgId: string,
+  input: { counterparty?: string }
+): Promise<AiToolResult> {
+  let counterpartyId: string | undefined;
+  if (input.counterparty?.trim()) {
+    const cpList = await db.query.counterparties.findMany({
+      where: eq(counterparties.organizationId, orgId),
+      columns: { id: true, name: true },
+    });
+    counterpartyId = requireSingle(
+      nameMatches(cpList, (entry) => entry.name, input.counterparty),
+      (entry) => entry.name,
+      "харилцагч",
+      input.counterparty,
+      { codePrefix: "COUNTERPARTY", allNames: cpList.map((entry) => entry.name) }
+    ).id;
+  }
+  const { balances, settings } = unwrapAction(await listAdvanceBalances({ counterpartyId }));
+  const header = `Урьдчилгааны данс: орсон орлого ${settings.customerAdvanceAccountNumber}, төлсөн ${settings.supplierAdvanceAccountNumber}`;
+  if (balances.length === 0)
+    return { resultText: `${header}\nУрьдчилгааны үлдэгдэл алга.` };
+  return {
+    resultText: [
+      header,
+      ...balances.map(
+        (row) =>
+          `  ${row.counterpartyName} · ${ADVANCE_SIDE_LABELS[row.side]}: үлдэгдэл ${fmt(row.balance)}₮ (орсон/төлсөн ${fmt(row.received)}₮, суутгасан ${fmt(row.applied)}₮)`
+      ),
+    ].join("\n"),
+  };
+}
+
+async function runUpdateAdvanceSettings(input: {
+  customerAdvanceAccount?: string;
+  supplierAdvanceAccount?: string;
+}): Promise<AiToolResult> {
+  const current = unwrapAction(await getAdvanceSettings()).settings;
+  const { settings } = unwrapAction(
+    await saveAdvanceSettings({
+      customerAdvanceAccountNumber:
+        input.customerAdvanceAccount?.trim() || current.customerAdvanceAccountNumber,
+      supplierAdvanceAccountNumber:
+        input.supplierAdvanceAccount?.trim() || current.supplierAdvanceAccountNumber,
+    })
+  );
+  return {
+    resultText: `Урьдчилгааны данс хадгалагдлаа: урьдчилж орсон орлого ${settings.customerAdvanceAccountNumber}, урьдчилж төлсөн ${settings.supplierAdvanceAccountNumber}.`,
   };
 }
 
@@ -12868,6 +13058,12 @@ async function dispatchAiTool(
         return await runUpdateCostingAccounts(orgId, args);
       case "import_bank_statement":
         return await runImportBankStatement(orgId, args, mode);
+      case "apply_advance_to_invoice":
+        return await runApplyAdvanceToInvoice(orgId, args, mode);
+      case "get_counterparty_advances":
+        return await runGetCounterpartyAdvances(orgId, args);
+      case "update_advance_settings":
+        return await runUpdateAdvanceSettings(args);
       case "get_inventory_valuation":
         return await runInventoryValuation(orgId, args);
       case "run_fa_depreciation":

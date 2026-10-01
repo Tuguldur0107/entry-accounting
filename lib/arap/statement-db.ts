@@ -4,6 +4,7 @@
 // Server-only (orgId параметртэй) — action / API route эрхийг шалгасны дараа дуудна.
 
 import { and, eq, inArray, isNull, lte, notInArray } from "drizzle-orm";
+import { loadAdvanceApplicationVoucherIds, loadAdvanceSettings } from "@/lib/arap/advances";
 
 import { db } from "@/lib/db";
 import {
@@ -91,12 +92,17 @@ export async function loadCounterpartyStatement(
       const amount = Number(row.settlement.baseAmount) || baseOf(doc, Number(row.settlement.amount));
       return { ...row, doc, signedAmount: -statementDocumentSign(doc.documentType) * amount };
     });
+    // Урьдчилгааны суутгал (docs/dev/arap.md §5l) нь дотоод дахин ангилал —
+    // урьдчилгааны мөнгө доорх «нэхэмжлэхгүй мөнгөн гүйлгээ»-нд аль хэдийн
+    // тооцогдсон тул давхар хасахгүй.
+    const applicationVouchers = await loadAdvanceApplicationVoucherIds(orgId, counterpartyId);
     const voucherNet = new Map<string, number>();
     for (const row of signed)
       if (!row.settlement.cashDocumentId && row.settlement.voucherId)
         voucherNet.set(row.settlement.voucherId, (voucherNet.get(row.settlement.voucherId) ?? 0) + row.signedAmount);
     for (const row of signed) {
       const voucherId = row.settlement.voucherId;
+      if (voucherId && applicationVouchers.has(voucherId)) continue;
       if (!row.settlement.cashDocumentId && voucherId && Math.abs(voucherNet.get(voucherId) ?? 0) < 0.005) continue;
       entries.push({
         date: row.settlement.settlementDate,
@@ -110,12 +116,16 @@ export async function loadCounterpartyStatement(
     }
   }
 
-  // Нэхэмжлэхгүй мөнгөн гүйлгээ (урьдчилгаа) — харилцагчийн хяналтын дансанд.
+  // Нэхэмжлэхгүй мөнгөн гүйлгээ (урьдчилгаа) — харилцагчийн хяналтын данс
+  // эсвэл урьдчилгааны дансны роль (урьдчилж орсон / төлсөн, §5l).
+  const advanceSettings = await loadAdvanceSettings(orgId);
   const controlAccounts = new Set(
     [
       ...documents.map((doc) => doc.controlAccountNumber),
       counterparty.defaultReceivableAccountNumber,
       counterparty.defaultPayableAccountNumber,
+      advanceSettings.customerAdvanceAccountNumber,
+      advanceSettings.supplierAdvanceAccountNumber,
     ]
       .filter((account): account is string => !!account)
       .map(extractMainAccount)

@@ -1,4 +1,5 @@
 import type { EwalletSettlementRowInput } from "./ewallet-settlement";
+import type { BankRowAction } from "@/lib/arap/advance-math";
 
 export type ParsedBankStatementRow = {
   id: string;
@@ -33,6 +34,18 @@ export type ParsedBankStatementRow = {
    * гүйлгээг ДАХИН бичихгүй. Файлын импортод байхгүй.
    */
   externalRef?: string | null;
+  /**
+   * Мөрийн бүртгэлийн төрөл (docs/dev/arap.md §5l) — хоосон бол ердийн
+   * (харьцах данс / нэхэмжлэх хаах):
+   *   advance_received — урьдчилж орсон орлого (харьцах тал = урьдчилгааны өр)
+   *   prepaid_paid     — урьдчилж төлсөн (харьцах тал = урьдчилж төлсөн хөрөнгө)
+   *   create_ap_bill   — өглөгийн нэхэмжлэх үүсгэж (Dr харьцах тал = зардал,
+   *                      НӨАТ төлөгч бол 10/110 НӨАТ) тэр даруй энэ мөрөөр хаана
+   * Гурвуулаа `counterpartyId` ЗААВАЛ.
+   */
+  rowAction?: BankRowAction | null;
+  /** Харилцагчийн бүртгэл — өгвөл нэрээр таахаас давуу. */
+  counterpartyId?: string | null;
   rawData: Record<string, string>;
 };
 

@@ -99,7 +99,7 @@ import {
   offsetPair,
 } from "@/lib/arap/document-kind";
 
-import { inventoryItems, warehouses } from "@/lib/db/schema";
+import { arapAdvanceApplications, inventoryItems, warehouses } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
@@ -2974,6 +2974,11 @@ async function reverseArApOffsetCore(voucherId: string) {
         .delete(arApSettlements)
         .where(eq(arApSettlements.id, settlement.id));
     }
+    // Урьдчилгааны суутгал (docs/dev/arap.md §5l) — ижил voucherId-тай мөр
+    // байвал хамт устгаж урьдчилгааны үлдэгдлийг сэргээнэ.
+    await tx
+      .delete(arapAdvanceApplications)
+      .where(eq(arapAdvanceApplications.voucherId, voucherId));
 
     await logAuditEvent(
       {
