@@ -180,3 +180,12 @@ test("«Зээлээр» (credit): өөрийн код шаардахгүй, н�
   });
   assert.deepEqual(ready.warnings, []);
 });
+
+test("«Зээлээр» браузер горимд: төлөлтийн баримт явахгүй гэж ил анхааруулна", () => {
+  const credit = { name: "Зээлээр", ebarimtCode: null, kind: "credit" };
+  const invoice = { paymentCode: "BANK_TRANSFER", bankAccountNo: "5000123456" };
+  assert.deepEqual(ebarimtReadiness({ items: [], categories: [], paymentMethods: [credit], invoice, mode: "server" }).warnings, []);
+  const browser = ebarimtReadiness({ items: [], categories: [], paymentMethods: [credit], invoice, mode: "browser" });
+  assert.equal(browser.warnings.length, 1);
+  assert.match(browser.warnings[0], /Браузер горимд.*ТӨЛӨЛТИЙН баримт.*илгээгдэхгүй/);
+});

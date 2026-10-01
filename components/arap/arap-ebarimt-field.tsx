@@ -27,6 +27,8 @@ export interface ArapEbarimtInfo {
   unqueuedPayments: number;
   /** POS «Зээлээр» — нэхэмжлэхийг POS панелиас дахин илгээнэ, энд зөвхөн төлөлт. */
   posSourced: boolean;
+  /** Браузер горим — төлөлтийн баримт ТЕГ-д явахгүй (ил анхааруулга). */
+  paymentsBlocked: boolean;
   /** ТЕГ-ийн TPI тулгалт — холболтгүй / ТЕГ-д бүртгэлгүй бол null. */
   taxCheck: EbarimtTaxCheckRow | null;
   taxSyncedAt: string | null;
@@ -171,7 +173,12 @@ export function ArapEbarimtField({
           })}
         </div>
       )}
-      {paid && !reversed && ebarimt.status === "sent" && ebarimt.unqueuedPayments > 0 && (
+      {paid && !reversed && ebarimt.status === "sent" && ebarimt.paymentsBlocked && (
+        <div className="text-xs text-[var(--ea-warning-fg)]">
+          Браузер горимд төлөлтийн баримт ТЕГ-д илгээгдэхгүй (PosAPI кассын PC дээр) — «Сервер» горимд шилжих эсвэл ТЕГ-ийн порталд гараар бүртгэнэ
+        </div>
+      )}
+      {paid && !reversed && ebarimt.status === "sent" && !ebarimt.paymentsBlocked && ebarimt.unqueuedPayments > 0 && (
         <div className="text-xs text-[var(--ea-text-3)]">
           {ebarimt.unqueuedPayments} төлөлт ТЕГ-д илгээгдэх дараалалд орж байна (1–2 минутад)
         </div>

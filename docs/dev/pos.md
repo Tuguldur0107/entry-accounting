@@ -290,7 +290,9 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   `*_RECEIPT`: `enqueueArapInvoicePayments` POS-оос үүссэн АР-ыг (`sourceType=pos`,
   ДДТД нь `pos_sales`-д) ч авна, зөвхөн `EBARIMT_POS_CREDIT_PAYMENTS_SINCE`-ээс хойшх
   settlement. Төлөв АР панельд (`posSourced`). Кассгүй хэсэг (бэлгийн карт, урьдчилгаа)
-  төлөлтийн баримт болохгүй — АР-ын Q8-тай ижил хязгаар
+  төлөлтийн баримт болохгүй — АР-ын Q8-тай ижил хязгаар. **Браузер горимд** нэхэмжлэх
+  явна, харин төлөлтийн баримт ЯВАХГҮЙ (сервер кассын PC-ийн PosAPI-д хүрэхгүй) —
+  readiness анхааруулга + АР панельд ил (`paymentsBlocked`), чимээгүй үлдэхгүй
 - **PosAPI хариу:** ЗӨВХӨН ДДТД + `status: SUCCESS` амжилт; `PAYMENT` («төлбөрийн
   мэдээлэл дутуу») ДДТД-тэй ирсэн ч «Алдаатай» (`receiptResponseOutcome`)
 - **taxType бүлэглэл:** барааны `vatMode` → `VAT_ABLE|VAT_FREE|VAT_ZERO`

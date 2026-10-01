@@ -75,6 +75,11 @@ export interface EbarimtReadinessInput {
    * борлуулалт НЭХЭМЖЛЭХ болж явахад код + данс ЗААВАЛ (`withCreditInvoice`).
    */
   invoice?: { paymentCode: string | null; bankAccountNo: string | null } | null;
+  /**
+   * eBarimt-ийн горим. Браузер горимд PosAPI кассын PC дээр тул сервер «Зээлээр»
+   * нэхэмжлэхийн ТӨЛӨЛТИЙН баримтыг илгээж чадахгүй — чимээгүй үлдээхгүй (анхааруулга).
+   */
+  mode?: "server" | "browser";
 }
 
 /** Нэг бүлгийн дутуу — тоо + жишээ нэрс (UI-д бүгдийг нь асгахгүй). */
@@ -190,6 +195,10 @@ export function ebarimtReadiness(input: EbarimtReadinessInput): EbarimtReadiness
     if (!invoiceReady)
       warnings.push(
         `«${creditMethods.map((method) => method.name).join("», «")}» борлуулалт eBarimt-д НЭХЭМЖЛЭХ болж явна — POS тохиргоо → eBarimt → Нэхэмжлэх: төлбөрийн код ба ТЕГ-д бүртгэлтэй банкны данс тохируулаагүй бол тэр борлуулалтын eBarimt «Алдаатай» болно`
+      );
+    if (input.mode === "browser")
+      warnings.push(
+        `Браузер горимд «${creditMethods.map((method) => method.name).join("», «")}» борлуулалтын нэхэмжлэх ТЕГ-д явна, харин дараагийн ТӨЛӨЛТИЙН баримт (invoiceId-тай) илгээгдэхгүй — PosAPI кассын PC дээр тул сервер хүрэхгүй. «Сервер» горимд шилжих эсвэл төлөлтийг ТЕГ-ийн порталд гараар бүртгэнэ`
       );
   }
 

@@ -26,6 +26,7 @@ import {
   arApInvoiceSends,
   posEbarimtSubmissions,
   posSales,
+  posSettings,
 } from "@/lib/db/schema";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
@@ -107,6 +108,8 @@ export type ArApDocumentDetail = ArApDocumentView & {
      * дахин илгээх нь POS панелиас (энд зөвхөн төлөлтийн баримт).
      */
     posSourced: boolean;
+    /** Төлөлтийн баримт энэ горимд илгээгдэх боломжгүй (POS «Зээлээр», браузер горим). */
+    paymentsBlocked: boolean;
     /** ТЕГ-ийн TPI тулгалт (холболттой, нэхэмжлэх ТЕГ-д бүртгэлтэй үед) — үлдэгдэл, шалтгаан. */
     taxCheck: EbarimtTaxCheckRow | null;
     /** ТЕГ-ээс сүүлд амжилттай татсан мөч (ISO). */
@@ -461,6 +464,15 @@ export async function loadArApDocumentDetail(
         })
       : null;
   const posInvoice = posSale?.ebarimtStatus && posSale.ebarimtType?.endsWith("_INVOICE") ? posSale : null;
+  // Браузер горимд сервер кассын PC-ийн PosAPI-д хүрэхгүй — төлөлтийн баримт ЯВАХГҮЙ (ил хэлнэ).
+  const browserMode = posInvoice
+    ? (
+        await db.query.posSettings.findFirst({
+          where: eq(posSettings.organizationId, orgId),
+          columns: { ebarimtMode: true },
+        })
+      )?.ebarimtMode === "browser"
+    : false;
   const taxChecks =
     row.ebarimtStatus === "sent" || posInvoice?.ebarimtStatus === "sent"
       ? await loadEbarimtTaxChecks(orgId, { documentId })
@@ -487,6 +499,7 @@ export async function loadArApDocumentDetail(
           payments: paymentEbarimt.payments,
           unqueuedPayments: paymentEbarimt.unqueued,
           posSourced: false,
+          paymentsBlocked: false,
           taxCheck,
           taxSyncedAt,
         }
@@ -500,6 +513,7 @@ export async function loadArApDocumentDetail(
             payments: paymentEbarimt.payments,
             unqueuedPayments: paymentEbarimt.unqueued,
             posSourced: true,
+            paymentsBlocked: browserMode,
             taxCheck,
             taxSyncedAt,
           }
