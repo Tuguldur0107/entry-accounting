@@ -23,6 +23,7 @@ import {
   counterparties,
   journalLines,
   journalVouchers,
+  posQpayIntents,
   segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
@@ -1520,6 +1521,24 @@ export async function reverseCashDocument(id: string): Promise<ActionResult> {
  * байсан бол төлөлтийг нь буцааж (settlement rollback) нэхэмжлэхийн
  * үлдэгдэл, төлөв сэргэнэ. Период нээлттэй байх шаардлагатай.
  */
+/**
+ * QPay-ээр орсон мөнгөөр үүссэн баримтыг (нэхэмжлэхийн линкийн төлбөр —
+ * `pos_qpay_intents.cash_document_id`) устгахгүй: intent «шийдсэн» хэвээр, мөнгө
+ * баримтгүй үлдэнэ (CLAUDE.md §5c — журналгүй «шийдсэн» төлөв ХОРИОТОЙ).
+ * Мөнгө бодитоор орсон тул буцаалт нь тусдаа зарлагын баримт; QPay-ийн
+ * буцаалтын баримт (`refundQpayIntent`) POS-оос үүссэн тул `assertNotPosSourced` хаадаг.
+ */
+async function assertNotQpaySettlement(handle: Pick<typeof db, "query">, orgId: string, cashDocumentId: string) {
+  const intent = await handle.query.posQpayIntents.findFirst({
+    where: and(eq(posQpayIntents.organizationId, orgId), eq(posQpayIntents.cashDocumentId, cashDocumentId)),
+    columns: { id: true },
+  });
+  if (intent)
+    throw new Error(
+      "[QPAY_SETTLEMENT] Энэ баримт QPay-ээр бодитоор орсон төлбөрийн бүртгэл — устгавал орсон мөнгө баримтгүй үлдэнэ. Харилцагчид мөнгө буцаасан бол тусдаа зарлагын баримтаар бүртгэнэ үү"
+    );
+}
+
 async function deleteCashDocumentCore(id: string) {
   const { orgId, userId } = await requireModuleAction("cash", "write");
   const document = await db.query.cashDocuments.findFirst({
@@ -1552,6 +1571,7 @@ async function deleteCashDocumentCore(id: string) {
   // Батлагдсан баримтыг GL журналтай нь устгах нь батлах түвшний эрх.
   await requireModuleAction("cash", "post");
   await assertPeriodOpen(orgId, document.date);
+  await assertNotQpaySettlement(db, orgId, id);
 
   // SIM2-013: нээлтийн журналын толин баримтыг устгахад НЭЭЛТИЙН ЖУРНАЛ
   // хөндөгдөхгүй — тэр нь дансны opening_balance-ийн GL тал.
@@ -1575,6 +1595,11 @@ async function deleteCashDocumentCore(id: string) {
   }
 
   await db.transaction(async (tx) => {
+    // 0. Тайлант үе НЭЭЛТТЭЙ үед л устгана — хаалттай уралдахаас хамгаалсан
+    // транзакц-доторх шалгалт; QPay-ийн холбоосыг ч дахин шалгана.
+    await assertPeriodOpenInTx(tx, orgId, document.date);
+    await assertNotQpaySettlement(tx, orgId, id);
+
     // 1. Нэхэмжлэхийн төлөлт байсан бол буцаана — үлдэгдэл, төлөв сэргэнэ.
     const settlements = await tx.query.arApSettlements.findMany({
       where: and(
