@@ -16,6 +16,7 @@ import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, asc, eq, inArray, isNotNull, like, ne, notInArray, sql } from "drizzle-orm";
 
+import { cleanExternalRef, isExternalRefConflict } from "@/lib/idempotency";
 import { actionError, type ActionResult, unwrapAction } from "@/lib/action-result";
 import { roundMoney } from "@/lib/arap/accounting";
 import {
@@ -1827,11 +1828,25 @@ async function createGoodsReceiptCore(data: {
   description?: string;
   lines?: { purchaseOrderLineId: string; quantity: number }[];
   confirmNow?: boolean;
-}): Promise<{ id: string; documentNo: string }> {
+  /** Idempotency түлхүүр — давтан дуудлага анхныхыг буцаана (lib/idempotency.ts). */
+  externalRef?: string;
+}): Promise<{ id: string; documentNo: string; dedup?: true }> {
   const { orgId, userId } = await requireModuleAction(
     PROCUREMENT_MODULE_KEY,
     data.confirmNow ? "post" : "write"
   );
+  // Давтан дуудлага: хүлээн авах үлдэгдлийг ДАХИН шалгахаас ӨМНӨ (анхны
+  // хүлээн авалт үлдэгдлийг аль хэдийн хэрэглэсэн тул [OVER_RECEIVED] болно).
+  const externalRef = cleanExternalRef(data.externalRef);
+  const findByRef = async () =>
+    externalRef
+      ? db.query.goodsReceipts.findFirst({
+          where: and(eq(goodsReceipts.organizationId, orgId), eq(goodsReceipts.externalRef, externalRef)),
+          columns: { id: true, documentNo: true },
+        })
+      : undefined;
+  const existingByRef = await findByRef();
+  if (existingByRef) return { ...existingByRef, dedup: true as const };
   assertDate(data.date, "Огноо");
   await assertPeriodOpen(orgId, data.date);
 
@@ -1857,50 +1872,59 @@ async function createGoodsReceiptCore(data: {
   const manualNo = cleanText(data.documentNo);
   if (manualNo) await assertManualDocumentNoFree(orgId, "gr", manualNo);
 
-  const created = await withDocumentNo(
-    () => nextGoodsReceiptNo(orgId, data.date),
-    manualNo,
-    async (documentNo) =>
-      await db.transaction(async (tx) => {
-        await assertPeriodOpenInTx(tx, orgId, data.date);
-        const [receipt] = await tx
-          .insert(goodsReceipts)
-          .values({
-            userId,
-            organizationId: orgId,
-            purchaseOrderId: order.id,
-            documentNo,
-            date: data.date,
-            warehouseId,
-            exchangeRate: String(rate.rate),
-            rateSource: rate.rateSource,
-            rateDate: rate.rateDate,
-            description: data.description?.trim() ?? "",
-            status: "draft",
-          })
-          .returning({ id: goodsReceipts.id });
-        await tx.insert(goodsReceiptLines).values(
-          lines.map((line, index) => ({
-            receiptId: receipt.id,
-            purchaseOrderLineId: line.purchaseOrderLineId,
-            quantity: String(line.quantity),
-            sortOrder: index,
-          }))
-        );
-        await logAuditEvent(
-          {
-            userId,
-            organizationId: orgId,
-            action: "create",
-            entityType: "goods_receipt",
-            entityId: receipt.id,
-            summary: `Хүлээн авалт үүслээ — ${documentNo}, ${data.date}, ${order.documentNo}, ${lines.length} мөр, ханш ${rate.rate}`,
-          },
-          tx
-        );
-        return { id: receipt.id, documentNo };
-      })
-  );
+  let created: { id: string; documentNo: string };
+  try {
+    created = await withDocumentNo(
+      () => nextGoodsReceiptNo(orgId, data.date),
+      manualNo,
+      async (documentNo) =>
+        await db.transaction(async (tx) => {
+          await assertPeriodOpenInTx(tx, orgId, data.date);
+          const [receipt] = await tx
+            .insert(goodsReceipts)
+            .values({
+              userId,
+              organizationId: orgId,
+              purchaseOrderId: order.id,
+              documentNo,
+              date: data.date,
+              warehouseId,
+              exchangeRate: String(rate.rate),
+              rateSource: rate.rateSource,
+              rateDate: rate.rateDate,
+              description: data.description?.trim() ?? "",
+              status: "draft",
+              externalRef,
+            })
+            .returning({ id: goodsReceipts.id });
+          await tx.insert(goodsReceiptLines).values(
+            lines.map((line, index) => ({
+              receiptId: receipt.id,
+              purchaseOrderLineId: line.purchaseOrderLineId,
+              quantity: String(line.quantity),
+              sortOrder: index,
+            }))
+          );
+          await logAuditEvent(
+            {
+              userId,
+              organizationId: orgId,
+              action: "create",
+              entityType: "goods_receipt",
+              entityId: receipt.id,
+              summary: `Хүлээн авалт үүслээ — ${documentNo}, ${data.date}, ${order.documentNo}, ${lines.length} мөр, ханш ${rate.rate}`,
+            },
+            tx
+          );
+          return { id: receipt.id, documentNo };
+        })
+    );
+  } catch (caught) {
+    // Зэрэгцээ ижил ref — нөгөө нь түрүүлж бичсэн: түүнийг буцаана.
+    const raced = isExternalRefConflict(caught) ? await findByRef() : undefined;
+    if (raced) return { ...raced, dedup: true as const };
+    throw caught;
+  }
 
   revalidateProcurement();
   if (data.confirmNow) await confirmGoodsReceiptCore({ id: created.id });
@@ -1909,7 +1933,7 @@ async function createGoodsReceiptCore(data: {
 
 export async function createGoodsReceipt(
   data: Parameters<typeof createGoodsReceiptCore>[0]
-): Promise<ActionResult<{ id: string; documentNo: string }>> {
+): Promise<ActionResult<{ id: string; documentNo: string; dedup?: true }>> {
   try {
     return await createGoodsReceiptCore(data);
   } catch (caught) {

@@ -91,9 +91,25 @@ ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтв�
 **Idempotency (externalRef):** create_{journal_voucher,arap_invoice,
 cash_transaction} нь externalRef (eBarimt ДДТД, банкны гүйлгээний ID) авдаг —
 ижил ref-тэй хоёр дахь дуудлага ШИНЭ баримт үүсгэхгүй, байгааг нь буцаана
-(`dedup`, batch-д "алгассан"). DB талд (user_id, external_ref) partial unique
-index гурван хүснэгтэд бий. Давхардлыг create_counterparty нэр
+(`dedup`, batch-д "алгассан"). DB талд (organization_id, external_ref) partial
+unique index. Давхардлыг create_counterparty нэр
 (case-insensitive) + ТТД-гээр мөн шалгаж [CONFLICT] буцаана.
+
+2026-10-01-ээс мөнгө/бараа/tenant үүсгэдэг бүх tool externalRef авна
+(docs/ontology-audit.md §4.2, H2 — сүлжээ тасарч агент дахин дуудахад давхар
+төлбөр/борлуулалт үүсдэг байв): `pay_arap_document` (кассын баримт),
+`create_pos_sale`, `create_goods_receipt`, `create_inventory_movement`,
+`create_fixed_asset(s_batch)`, `create_cost_allocation`, `create_company`.
+Хэв маяг (`lib/idempotency.ts`, ЦЭВЭР):
+1. Runner-ийн ЭХЭНД урьдчилж хайна — үлдэгдэл, ээлж, лимит, PO/мөрийн
+   үлдэгдлийн шалгалт давтан дуудлагад алдаа өгөхөөс ӨМНӨ;
+2. action дотор дахин хайж, insert-ийг `<хүснэгт>_org_external_ref_uq` барина;
+3. ЗЭРЭГЦЭЭ дуудлагын unique violation-ийг `isExternalRefConflict`-оор таньж
+   анхныхыг `dedup`-тайгаар буцаана (транзакц бүхэлдээ буцна).
+`create_company`-ийн түлхүүр `organizations.external_ref`-д хэрэглэгчээр нэрийн
+талбартай (`user:<userId>:<ref>`) — бусдын байгууллагыг dedup-аар ХЭЗЭЭ Ч
+буцаахгүй. Шинэ «үүсгэх» tool нэмэхдээ ижил хэв маягаар; тест
+`tests/tool-idempotency.test.ts` (давтан + зэрэгцээ), `tests/idempotency.test.ts`.
 
 **Алдааны кодууд:** tool-ийн алдаа `[CODE] текст` форматтай —
 COUNTERPARTY_NOT_FOUND (ойролцоо нэрс санал болгоно), COUNTERPARTY_AMBIGUOUS,

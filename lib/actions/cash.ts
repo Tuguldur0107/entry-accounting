@@ -69,6 +69,7 @@ import {
 import { logAuditEvent } from "@/lib/audit";
 import { POS_SOURCE_TYPE } from "@/lib/pos/constants";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
+import { cleanExternalRef, isExternalRefConflict } from "@/lib/idempotency";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { settlementCashType } from "@/lib/arap/document-kind";
 import type { ArApDocumentType } from "@/lib/arap/types";
@@ -852,6 +853,21 @@ async function createCashDocumentCore(data: {
     "cash",
     data.postNow ? "post" : "write"
   );
+  // Idempotency (lib/idempotency.ts): ижил ref-тэй дахин дуудлага ШИНЭ баримт
+  // үүсгэхгүй — анхныхыг буцаана (AI-ийн retry-д давхар төлбөр үгүй).
+  const externalRef = cleanExternalRef(data.externalRef);
+  const findByRef = async () =>
+    externalRef
+      ? db.query.cashDocuments.findFirst({
+          where: and(
+            eq(cashDocuments.organizationId, orgId),
+            eq(cashDocuments.externalRef, externalRef)
+          ),
+          columns: { id: true },
+        })
+      : undefined;
+  const existingByRef = await findByRef();
+  if (existingByRef) return { id: existingByRef.id, dedup: true as const };
   const description = data.description.trim();
   if (!description) throw new Error("Журналын нэр оруулна уу");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
@@ -960,29 +976,37 @@ async function createCashDocumentCore(data: {
           arApCounterpartyId: settlement?.document.counterpartyId ?? null,
         });
 
-  const [document] = await db
-    .insert(cashDocuments)
-    .values({
-      userId,
-      organizationId: orgId,
-      documentNo,
-      documentType: data.documentType,
-      date: data.date,
-      fromCashAccountId,
-      toCashAccountId,
-      counterAccountNumber,
-      cashFlowCode,
-      counterparty: counterpartyLink.counterparty,
-      counterpartyId: counterpartyLink.counterpartyId,
-      description,
-      amount: String(data.amount),
-      currency,
-      exchangeRate: String(exchangeRate),
-      baseAmount: String(baseAmount),
-      arApDocumentId,
-      externalRef: cleanText(data.externalRef),
-    })
-    .returning({ id: cashDocuments.id });
+  let document: { id: string };
+  try {
+    [document] = await db
+      .insert(cashDocuments)
+      .values({
+        userId,
+        organizationId: orgId,
+        documentNo,
+        documentType: data.documentType,
+        date: data.date,
+        fromCashAccountId,
+        toCashAccountId,
+        counterAccountNumber,
+        cashFlowCode,
+        counterparty: counterpartyLink.counterparty,
+        counterpartyId: counterpartyLink.counterpartyId,
+        description,
+        amount: String(data.amount),
+        currency,
+        exchangeRate: String(exchangeRate),
+        baseAmount: String(baseAmount),
+        arApDocumentId,
+        externalRef,
+      })
+      .returning({ id: cashDocuments.id });
+  } catch (caught) {
+    // Зэрэгцээ ижил ref — нөгөө нь түрүүлж бичсэн: түүнийг буцаана.
+    const raced = isExternalRefConflict(caught) ? await findByRef() : undefined;
+    if (raced) return { id: raced.id, dedup: true as const };
+    throw caught;
+  }
 
   if (data.postNow) {
     await postCashDocumentCore(document.id);
@@ -992,7 +1016,7 @@ async function createCashDocumentCore(data: {
 
 export async function createCashDocument(
   data: Parameters<typeof createCashDocumentCore>[0]
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: string; dedup?: true }>> {
   try {
     return await createCashDocumentCore(data);
   } catch (caught) {

@@ -49,6 +49,7 @@ import {
   organizationProfile,
   organizations,
 } from "@/lib/db/schema";
+import { cleanExternalRef, isExternalRefConflict } from "@/lib/idempotency";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { logAuditEvent } from "@/lib/audit";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
@@ -951,6 +952,11 @@ export interface CreatePosSaleInput extends SaleQuoteInput {
    * `finalized` болно (давхар борлуулалт үгүй). Гараар «төлсөн» тэмдэглэх зам ҮГҮЙ.
    */
   qpayIntentId?: string | null;
+  /**
+   * Idempotency түлхүүр (AI/MCP/REST-ийн дахин дуудлага) — ижил ref-тэй
+   * борлуулалт байвал ШИНЭЭР бүртгэхгүй, анхныхыг буцаана (lib/idempotency.ts).
+   */
+  externalRef?: string | null;
 }
 
 /** B2B худалдан авагчийн нэрийг ТЕГ-ээс хүлээх дээд хугацаа (борлуулалтын зам дээр). */
@@ -1050,7 +1056,7 @@ async function loadReceiptSeller(orgId: string): Promise<ReceiptSeller | null> {
 
 export async function createPosSale(
   input: CreatePosSaleInput
-): Promise<ActionResult<{ id: string; documentNo: string; receipt: PosReceipt }>> {
+): Promise<ActionResult<{ id: string; documentNo: string; receipt: PosReceipt; dedup?: true }>> {
   try {
     return await createPosSaleCore(input);
   } catch (caught) {
@@ -1225,8 +1231,30 @@ async function planSalePayments(
   return { plan, giftCards, qpayIntent };
 }
 
-async function createPosSaleCore(input: CreatePosSaleInput) {
+function unwrapPosReceipt(result: ActionResult<{ receipt: PosReceipt }>): { receipt: PosReceipt } {
+  if (result.error || !result.receipt) throw new Error(result.error ?? "Борлуулалтын баримт уншигдсангүй");
+  return { receipt: result.receipt };
+}
+
+async function createPosSaleCore(
+  input: CreatePosSaleInput
+): Promise<{ id: string; documentNo: string; receipt: PosReceipt; dedup?: true }> {
   const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
+  // Давтан дуудлага (ижил externalRef): ТЕГ-ийн лавлах, QPay, үлдэгдлийн
+  // шалгалтаас ӨМНӨ анхны борлуулалтыг буцаана — давхар зарлага/төлбөр үгүй.
+  const externalRef = cleanExternalRef(input.externalRef);
+  const dedupByRef = async () => {
+    if (!externalRef) return null;
+    const existing = await db.query.posSales.findFirst({
+      where: and(eq(posSales.organizationId, orgId), eq(posSales.externalRef, externalRef)),
+      columns: { id: true, documentNo: true },
+    });
+    if (!existing) return null;
+    const { receipt } = unwrapPosReceipt(await getPosReceipt(existing.id));
+    return { id: existing.id, documentNo: existing.documentNo, receipt, dedup: true as const };
+  };
+  const existingByRef = await dedupByRef();
+  if (existingByRef) return existingByRef;
   const ctx = await quoteContext(orgId, userId, input.counterpartyId, !!input.nonVat);
   const quote = await buildQuote(input, ctx);
   // НӨАТ-гүй борлуулалт (lib/pos/non-vat.ts): шалтгаан, данс, eBarimt-гүй — буруу бол ШИДНЭ.
@@ -1347,7 +1375,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   let documentNo = "";
   const soldAt = new Date();
 
-  await db.transaction(async (tx) => {
+  const raced = await db.transaction(async (tx) => {
     await assertPeriodOpenInTx(tx, orgId, date);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), ${POS_LOCK_KEY})`);
@@ -1432,6 +1460,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         ebarimtCustomerName: ebarimtCustomerTin ? ebarimtCustomerName : null,
         nonVat: nonVatPlan.nonVat,
         nonVatReason: nonVatPlan.nonVat ? nonVatPlan.reason : null,
+        externalRef,
       })
       .returning({ id: posSales.id });
     saleId = sale.id;
@@ -1958,7 +1987,17 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
       },
       tx
     );
-  });
+  }).then(
+    () => null,
+    // Зэрэгцээ ижил ref (POS-ийн түгжээгээр дараалсан) — нөгөө нь түрүүлж
+    // бичсэн: бүх транзакц буцсан, анхныхыг буцаана.
+    async (caught: unknown) => {
+      const existing = isExternalRefConflict(caught) ? await dedupByRef() : null;
+      if (!existing) throw caught;
+      return existing;
+    }
+  );
+  if (raced) return raced;
 
   // eBarimt дараалал — commit-ийн ДАРАА, борлуулалтыг ХЭЗЭЭ Ч зогсоохгүй (§4.4).
   // Server горимд хариуг ХҮЛЭЭЖ (≤ EBARIMT_INLINE_SEND_TIMEOUT_MS) баримт дээр
