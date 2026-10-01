@@ -1587,8 +1587,8 @@ export function BankStatementImport({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <section className="flex flex-col gap-3">
-        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
-          <div>
+        <div className="flex flex-col items-start justify-between gap-3 lg:flex-row lg:items-end">
+          <div className="min-w-0 lg:flex-1">
             <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
               Дансны хуулга импорт
             </h1>
@@ -1597,48 +1597,51 @@ export function BankStatementImport({
               данс оноосны дараа GL-д бичнэ.
             </p>
           </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            <select
-              value={cashAccountId}
-              onChange={(event) => {
-                const next = event.target.value;
-                const switchAccount = () => {
-                  setCashAccountId(next);
-                  setParsed(null);
-                  setRows([]);
-                  setTriageFilter("all");
-                  discardDraft();
-                };
-                // Хадгалаагүй хуулгатай үед данс солих нь түүнийг хаяна — асууна.
-                if (rows.length === 0) return switchAccount();
-                void confirm({
-                  title: "Данс солих уу?",
-                  description:
-                    "Хянаж буй хуулга хадгалагдаагүй байна. Данс солибол хуулга, түүн дээрх сонголтууд устна.",
-                  confirmText: "Солих",
-                  danger: true,
-                }).then((ok) => {
-                  if (ok) switchAccount();
-                });
-              }}
-              className="ea-form-select sm:w-64"
-              aria-label="Банкны мөнгөн хөрөнгийн данс"
-            >
-              <option value="">Банкны данс сонгох...</option>
-              {accounts
-                .filter(
-                  (account) =>
-                    account.isActive && account.accountType === "bank"
-                )
-                .map((account) => (
-                  <option
-                    key={account.id}
-                    value={account.id}
-                  >
-                    {account.name} · {account.currency}
-                  </option>
-                ))}
-            </select>
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:w-auto lg:shrink-0">
+            {/* .ea-form-select нь width:100% — өргөнийг wrapper тогтооно. */}
+            <div className="w-full sm:w-64 sm:shrink-0">
+              <select
+                value={cashAccountId}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  const switchAccount = () => {
+                    setCashAccountId(next);
+                    setParsed(null);
+                    setRows([]);
+                    setTriageFilter("all");
+                    discardDraft();
+                  };
+                  // Хадгалаагүй хуулгатай үед данс солих нь түүнийг хаяна — асууна.
+                  if (rows.length === 0) return switchAccount();
+                  void confirm({
+                    title: "Данс солих уу?",
+                    description:
+                      "Хянаж буй хуулга хадгалагдаагүй байна. Данс солибол хуулга, түүн дээрх сонголтууд устна.",
+                    confirmText: "Солих",
+                    danger: true,
+                  }).then((ok) => {
+                    if (ok) switchAccount();
+                  });
+                }}
+                className="ea-form-select"
+                aria-label="Банкны мөнгөн хөрөнгийн данс"
+              >
+                <option value="">Банкны данс сонгох...</option>
+                {accounts
+                  .filter(
+                    (account) =>
+                      account.isActive && account.accountType === "bank"
+                  )
+                  .map((account) => (
+                    <option
+                      key={account.id}
+                      value={account.id}
+                    >
+                      {account.name} · {account.currency}
+                    </option>
+                  ))}
+              </select>
+            </div>
             <input
               ref={fileRef}
               type="file"
