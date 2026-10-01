@@ -204,6 +204,32 @@ test("import_bank_statement: авлага үүсгэж борлуулалтад 
   assert.match(controlCounter.resultText, /орлогын данс байх ёстой/);
 });
 
+test("өглөг үүсгэх: харилцагчийн картын данс бүтэн сегмент кодоор хадгалагдсан ч хяналтын данс танигдана", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // Вэбийн CounterpartyDialog данс сонгогч нь бүтэн 10 хэсэгт код хадгалдаг.
+  ok(await tool("create_counterparty", { name: "Сегмент Нийлүүлэгч", counterpartyType: "supplier" }, "draft"));
+  await db
+    .update(counterparties)
+    .set({ defaultPayableAccountNumber: "000.000000.31000001.00.0000" })
+    .where(and(eq(counterparties.organizationId, orgId), eq(counterparties.name, "Сегмент Нийлүүлэгч")));
+  ok(
+    await tool("import_bank_statement", {
+      cashAccount: "Голомт банк",
+      statementRef: `bra-${STAMP}-segment-control`,
+      rows: [{ date: "2026-09-07", description: "Шимтгэл", counterparty: "Сегмент Нийлүүлэгч", expense: 1_100, counterGlAccount: "73100001", rowAction: "create_ap_bill" }],
+    })
+  );
+  const bill = await db.query.arApDocuments.findFirst({
+    where: and(
+      eq(arApDocuments.organizationId, orgId),
+      eq(arApDocuments.counterpartyId, await counterpartyId("Сегмент Нийлүүлэгч"))
+    ),
+  });
+  assert.ok(bill);
+  assert.equal(main(bill.controlAccountNumber), "31000001");
+  assert.equal(bill.status, "paid");
+});
+
 test("rowAction-ийн буруу хэрэглээ — харилцагчгүй, буруу чиглэл", { skip: !DB_READY }, async () => {
   await setupOrg();
   const missing = await tool("import_bank_statement", {
