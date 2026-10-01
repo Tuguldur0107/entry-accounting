@@ -57,7 +57,7 @@ export const EBARIMT_TAX_CHECK_HINTS: Record<EbarimtTaxCheck, string> = {
   entry_reversed:
     "ТЕГ-д мэдэгдсэн төлөлт Entry-д буцаагдсан (касс/хуулга) — ТЕГ-ийн порталаас гараар засна",
   total_mismatch:
-    "ТЕГ-ийн нэхэмжлэхийн дүн Entry-ийн бүртгэсэн дүнтэй зөрсөн — буцаалтын засвар (inactiveId) ТЕГ-д очоогүй эсэхийг шалгана",
+    "ТЕГ-ийн нэхэмжлэх/үлдэгдэл Entry-ийнхээс өөр — буцаалтын засвар (inactiveId) ТЕГ-д очоогүй, эсвэл зээлийн борлуулалтын төлөгдсөн хэсгийг бэлнээр буцаасан (ТЕГ-д өмнө явсан төлбөрийн баримт буцаагдаагүй) эсэхийг шалгаж ТЕГ-ийн порталаас засна",
   tax_missing_invoice:
     "Entry ДДТД авсан нэхэмжлэх 72 цагаас хойш ТЕГ-ийн жагсаалтад алга — PosAPI-ийн sendData, ТЕГ-ийн порталаас шалгана",
   not_synced: "Нэхэмжлэхийн огноо ТЕГ-ээс татсан хугацаанаас өмнө — тулгагдаагүй",
@@ -119,6 +119,13 @@ export function buildTaxLedger(rows: readonly TaxReceiptInput[]): TaxLedger {
 export interface EntryInvoiceInput {
   /** ТЕГ-д бүртгэлтэй нэхэмжлэхийн ДДТД (одоо хүчинтэй — засварын дараах). */
   ddtd: string;
+  /**
+   * Энэ нэхэмжлэхийн ӨМНӨХ ДДТД-ууд (хэсэгчилсэн буцаалтын `inactiveId` засвар
+   * бүр шинэ ДДТД олгоно). Засварын өмнө илгээсэн төлөлтийн баримт хуучин ДДТД-д
+   * (`prParentRno`) бүртгэлтэй тул төлөлтийг бүх гинжээр нийлүүлнэ — эс бөгөөс
+   * худал «Төлөлт ТЕГ-д алга». Баримт бүр НЭГ эх-тэй тул давхар тоологдохгүй.
+   */
+  previousDdtds?: readonly string[];
   /** Нэхэмжлэхийн огноо (YYYY-MM-DD). */
   invoiceDate: string;
   /** Нэхэмжлэх ТЕГ-д илгээгдсэн мөч (PosAPI SUCCESS). */
@@ -162,7 +169,14 @@ export function checkTaxInvoice(entry: EntryInvoiceInput, ledger: TaxLedger, cov
   const tol = EBARIMT_DRIFT_TOLERANCE;
   const ddtd = key(entry.ddtd);
   const taxTotal = ledger.invoices.get(ddtd) ?? null;
-  const payment = ledger.payments.get(ddtd) ?? { paid: 0, count: 0 };
+  const chain = [ddtd, ...(entry.previousDdtds ?? []).map(key).filter((value) => value && value !== ddtd)];
+  const payment = [...new Set(chain)].reduce(
+    (sum, value) => {
+      const entryPayment = ledger.payments.get(value);
+      return entryPayment ? { paid: round2(sum.paid + entryPayment.paid), count: sum.count + entryPayment.count } : sum;
+    },
+    { paid: 0, count: 0 }
+  );
   const taxPaid = payment.paid;
   const entryRemaining = round2(entry.entryTotal - entry.entryPaid);
   const taxRemaining = taxTotal === null ? null : round2(taxTotal - taxPaid);

@@ -153,3 +153,18 @@ test("TPI хуудаслалт: дараагийн хуудас өмнөхийн
   // Сервер хуудаслалтыг үл тоож бүгдийг өгсөн
   assert.equal(tpiHasMorePages(5000, 500), false);
 });
+
+test("хэсэгчилсэн буцаалтын засвар (шинэ ДДТД): хуучин ДДТД-д бүртгэгдсэн төлөлт гинжээр тоологдоно", () => {
+  const OLD_DDTD = "000006596177000260920000000111111";
+  const chainLedger = buildTaxLedger([
+    { ddtd: INV, isInvoice: true, parentDdtd: null, total: 1_200_000 },
+    { ddtd: "P-OLD", isInvoice: false, parentDdtd: OLD_DDTD, total: 500_000 },
+  ]);
+  const base = entry({ registeredTotal: 1_200_000, entryTotal: 1_200_000 });
+  // Гинжгүй бол худал «Төлөлт ТЕГ-д алга»
+  assert.equal(checkTaxInvoice(base, chainLedger, coverage).check, "tax_missing_payment");
+  const result = checkTaxInvoice({ ...base, previousDdtds: [OLD_DDTD, INV] }, chainLedger, coverage);
+  assert.equal(result.check, "ok");
+  assert.equal(result.taxPaid, 500_000);
+  assert.equal(result.taxRemaining, 700_000);
+});

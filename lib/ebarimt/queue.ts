@@ -1095,7 +1095,7 @@ export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadin
     }),
     db.query.posSettings.findFirst({
       where: eq(posSettings.organizationId, orgId),
-      columns: { ebarimtArapPaymentCode: true, ebarimtArapBankAccountNo: true },
+      columns: { ebarimtArapPaymentCode: true, ebarimtArapBankAccountNo: true, ebarimtMode: true },
     }),
   ]);
 
@@ -1112,6 +1112,7 @@ export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadin
     invoice: settings
       ? { paymentCode: settings.ebarimtArapPaymentCode, bankAccountNo: settings.ebarimtArapBankAccountNo }
       : null,
+    mode: settings?.ebarimtMode === "browser" ? "browser" : "server",
   });
 }
 

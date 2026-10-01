@@ -361,6 +361,14 @@ async function loadSubmissionFacts(invoices: EntryInvoiceRow[]) {
     for (const payment of payments)
       if (payment.documentId) reported.set(payment.documentId, { paid: Number(payment.paid), at: payment.at ?? null });
   }
+  // Нэхэмжлэхийн ДДТД-ийн гинж — амжилттай илгээлт бүрийн хариуны ДДТД (засвар бүр шинэ).
+  const chains = new Map<string, Set<string>>();
+  const addChain = (key: string, id: string | null) => {
+    if (!id) return;
+    const set = chains.get(key) ?? new Set<string>();
+    set.add(id.replace(/\s/g, ""));
+    chains.set(key, set);
+  };
   const saleSentAt = new Map<string, Date>();
   for (let index = 0; index < saleIds.length; index += 1000) {
     const chunk = saleIds.slice(index, index + 1000);
@@ -370,10 +378,17 @@ async function loadSubmissionFacts(invoices: EntryInvoiceRow[]) {
       .where(and(inArray(posEbarimtSubmissions.saleId, chunk), eq(posEbarimtSubmissions.status, "sent"), isNotNull(posEbarimtSubmissions.sentAt)))
       .groupBy(posEbarimtSubmissions.saleId);
     for (const send of sends) if (send.saleId && send.at) saleSentAt.set(send.saleId, send.at);
+    const ids = await db
+      .select({ saleId: posEbarimtSubmissions.saleId, ddtd: sql<string | null>`${posEbarimtSubmissions.response} ->> 'id'` })
+      .from(posEbarimtSubmissions)
+      .where(and(inArray(posEbarimtSubmissions.saleId, chunk), eq(posEbarimtSubmissions.status, "sent")));
+    for (const row of ids) if (row.saleId) addChain(row.saleId, row.ddtd);
   }
   return {
     invoiceSentAt: (row: EntryInvoiceRow) => (row.saleId ? saleSentAt.get(row.saleId) : sentAt.get(row.documentId)) ?? null,
     reportedOf: (row: EntryInvoiceRow) => reported.get(row.documentId) ?? { paid: 0, at: null },
+    previousDdtdsOf: (row: EntryInvoiceRow) =>
+      row.saleId ? [...(chains.get(row.saleId) ?? [])].filter((id) => id !== row.ddtd) : [],
   };
 }
 
@@ -413,13 +428,16 @@ export async function loadEbarimtTaxChecks(
   const since = shiftDays(ulaanbaatarToday(), -EBARIMT_TAX_MAX_LOOKBACK_DAYS);
   const invoices = await loadEntryInvoices(orgId, options.documentId ? { documentId: options.documentId } : { since });
   const facts = await loadSubmissionFacts(invoices);
-  const ledger = buildTaxLedger(await loadTaxRows(orgId, invoices.map((row) => row.ddtd)));
+  const ledger = buildTaxLedger(
+    await loadTaxRows(orgId, [...new Set(invoices.flatMap((row) => [row.ddtd, ...facts.previousDdtdsOf(row)]))])
+  );
   const now = new Date();
   const rows = invoices.map((row): EbarimtTaxCheckRow => {
     const reported = facts.reportedOf(row);
     const result = checkTaxInvoice(
       {
         ddtd: row.ddtd,
+        previousDdtds: facts.previousDdtdsOf(row),
         invoiceDate: row.invoiceDate,
         invoiceSentAt: facts.invoiceSentAt(row),
         registeredTotal: row.registeredTotal,
