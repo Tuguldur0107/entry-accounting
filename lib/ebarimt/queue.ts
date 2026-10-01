@@ -24,7 +24,14 @@ import { toItemVatMode } from "@/lib/inventory/load-data";
 import { loadVatSettings } from "@/lib/vat/settings";
 import type { PaymentKind } from "@/lib/pos/constants";
 
-import { EBARIMT_ERRORS, EBARIMT_POS_CREDIT_PAYMENTS_SINCE, backoffMs, type SubmissionKind } from "./constants";
+import {
+  EBARIMT_ERRORS,
+  EBARIMT_INVOICE_PAYMENT_KINDS,
+  EBARIMT_POS_CREDIT_PAYMENTS_SINCE,
+  backoffMs,
+  type SubmissionKind,
+} from "./constants";
+import { resolveInvoiceBank } from "./invoice-bank";
 import { categoryClassificationMap, ebarimtReadiness, type EbarimtReadiness } from "./readiness";
 import { fetchPosApiHealth } from "./client";
 import { lookupTaxpayerByTin } from "./lookup";
@@ -137,16 +144,19 @@ async function setSaleCorrection(saleId: string, correction: "pending" | "failed
 }
 
 /**
- * Нэхэмжлэхийн тохиргоо (POS тохиргоо → eBarimt → Нэхэмжлэх) — АР нэхэмжлэх ба
- * POS «Зээлээр» борлуулалт НЭГ эх (`withCreditInvoice`). АР-ын асаах товчоос
- * үл хамаарна: зээлийн борлуулалт eBarimt асаалттай л бол нэхэмжлэх болж явна.
+ * POS «Зээлээр» хэсэгтэй борлуулалтыг НЭХЭМЖЛЭХ болгоно — код нь нэхэмжлэхийн
+ * тохиргооноос, данс нь тохиргоо эсвэл ТЕГ-д бүртгэлтэй ГАНЦ данс (`resolveInvoiceBank`,
+ * АР нэхэмжлэхтэй НЭГ эх). АР-ын асаах товчоос үл хамаарна. Шийдэж чадахгүй бол
+ * [EBARIMT_SETTINGS] (данс зохиохгүй).
  */
-export function invoiceSettingsOf(row: PosSettings): { paymentCode: string; bankAccountNo: string; iBan: string } {
-  return {
-    paymentCode: row.ebarimtArapPaymentCode,
-    bankAccountNo: row.ebarimtArapBankAccountNo,
-    iBan: row.ebarimtArapIban,
-  };
+async function withCreditInvoiceResolved(loaded: EbarimtSaleInput, row: PosSettings): Promise<EbarimtSaleInput> {
+  const hasCredit = loaded.payments.some(
+    (payment) => payment.baseAmount > 0.005 && EBARIMT_INVOICE_PAYMENT_KINDS.includes(payment.kind)
+  );
+  if (!hasCredit) return loaded;
+  const bank = await resolveInvoiceBank(row);
+  if (!bank.ok) throw new EbarimtError(EBARIMT_ERRORS.settings, `«Зээлээр» борлуулалт eBarimt-д НЭХЭМЖЛЭХ болж явна — ${bank.reason}`);
+  return withCreditInvoice(loaded, { paymentCode: row.ebarimtArapPaymentCode, bankAccountNo: bank.bankAccountNo, iBan: bank.iBan });
 }
 
 export function settingsInputOf(row: PosSettings): EbarimtSettingsInput {
@@ -691,7 +701,7 @@ export async function prepareSubmission(
       if (alreadySent) return settle(null); // давхар enqueue
       if (!hasRemaining) return settle("cancelled"); // илгээхээс өмнө бүгд буцаагдсан
       // «Зээлээр» хэсэгтэй бол НЭХЭМЖЛЭХ — нэхэмжлэхийн код/данс (дутуу бол [EBARIMT_SETTINGS]).
-      const input = withCreditInvoice(loaded, invoiceSettingsOf(settingsRow));
+      const input = await withCreditInvoiceResolved(loaded, settingsRow);
       request = buildEbarimtReceipt(input, settings, { edit: await editIndexOf(submission) });
     } else if (!alreadySent) {
       // Эх нь ТЕГ-д очоогүй байхад буцаагдав — цуцлах/засах зүйл алга; хүлээгдэж
@@ -701,7 +711,7 @@ export async function prepareSubmission(
       // ХЭСЭГЧИЛСЭН буцаалт — албан спек §5: inactiveId = сүүлийн ДДТД, шинэ
       // бичилт эхийг орлоно, сугалаа ДАХИН олгогдохгүй (DELETE + шинэ бол
       // үйлчлүүлэгч хоёр дахь сугалаа авах зөрчил байсан).
-      request = buildEbarimtReceipt(withCreditInvoice(loaded, invoiceSettingsOf(settingsRow)), settings, {
+      request = buildEbarimtReceipt(await withCreditInvoiceResolved(loaded, settingsRow), settings, {
         inactiveId: sale.ebarimtId,
         edit: Math.max(1, await editIndexOf(submission)),
       });
@@ -1095,9 +1105,11 @@ export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadin
     }),
     db.query.posSettings.findFirst({
       where: eq(posSettings.organizationId, orgId),
-      columns: { ebarimtArapPaymentCode: true, ebarimtArapBankAccountNo: true, ebarimtMode: true },
     }),
   ]);
+  // Нэхэмжлэхийн данс: тохиргоо эсвэл ТЕГ-д бүртгэлтэй ганц данс (зөвхөн «Зээлээр» хэлбэр байвал асууна).
+  const hasCredit = methods.some((method) => (EBARIMT_INVOICE_PAYMENT_KINDS as readonly string[]).includes(method.kind ?? ""));
+  const bank = settings && hasCredit ? await resolveInvoiceBank(settings) : null;
 
   return ebarimtReadiness({
     items: items.map((item) => ({
@@ -1110,7 +1122,10 @@ export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadin
     categories,
     paymentMethods: methods,
     invoice: settings
-      ? { paymentCode: settings.ebarimtArapPaymentCode, bankAccountNo: settings.ebarimtArapBankAccountNo }
+      ? {
+          paymentCode: settings.ebarimtArapPaymentCode,
+          bankAccountNo: bank?.ok ? bank.bankAccountNo : settings.ebarimtArapBankAccountNo,
+        }
       : null,
     mode: settings?.ebarimtMode === "browser" ? "browser" : "server",
   });

@@ -162,7 +162,7 @@ test("«Зээлээр» (credit): өөрийн код шаардахгүй, н�
   assert.equal(missing.unknownPaymentCodes.count, 0);
   assert.equal(missing.ready, true);
   assert.equal(missing.warnings.length, 1);
-  assert.match(missing.warnings[0], /Зээлээр.*НЭХЭМЖЛЭХ.*банкны данс/);
+  assert.match(missing.warnings[0], /Зээлээр.*НЭХЭМЖЛЭХ.*ТЕГ-д бүртгэлтэй данс/);
 
   const noBank = ebarimtReadiness({
     items: [],

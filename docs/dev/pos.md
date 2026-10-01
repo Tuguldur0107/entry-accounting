@@ -283,8 +283,11 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   `EBARIMT_INVOICE_PAYMENT_KINDS` нь ЦОРЫН ГАНЦ эх. АР нэхэмжлэхтэй ИЖИЛ хэв маяг:
   `withCreditInvoice` (receipt.ts, тесттэй) зээлийн хэсгийн кодыг нэхэмжлэхийн
   тохиргооны АЛБАН кодоор (`ebarimtArapPaymentCode`, хэлбэрийн өөрийн код БИШ) солиж,
-  дэд баримт бүрд данс (`ebarimtArapBankAccountNo`/`Iban`) тавина — дутуу бол
-  `[EBARIMT_SETTINGS]` (АР-ын switch-ээс үл хамаарна). Бүх төлбөр **`PAID`** — `PAY`
+  дэд баримт бүрд данс тавина — данс нь `resolveInvoiceBank` (lib/ebarimt/invoice-bank.ts,
+  АР нэхэмжлэх, readiness, АР-ын switch-тэй НЭГ эх): тохиргоонд сонгосон → PosAPI
+  `/rest/bankAccounts`-ийн ГАНЦ данс (10 мин кэш) → олон бол Компанийн мэдээллийн үндсэн /
+  ганц давхцсан данс; тодорхойгүй бол `[EBARIMT_SETTINGS]` шалтгаантай (АР-ын switch-ээс үл
+  хамаарна). IBAN-ийг ТЕГ-ийн бүртгэлээс (угтвар «MN08001500» хэлбэр — `normalizeIban` 8+ цифр). Бүх төлбөр **`PAID`** — `PAY`
   ХЭРЭГЛЭХГҮЙ (спек 3.0.1 §11: гуравдагч төлбөрийн сервисийн төлөв, «төлөгдөөгүй» биш).
   Авлагын төлөлт бүр (борлуулах мөчийн бэлэн/карт хэсэг ч) → `invoiceId`-тай
   `*_RECEIPT`: `enqueueArapInvoicePayments` POS-оос үүссэн АР-ыг (`sourceType=pos`,

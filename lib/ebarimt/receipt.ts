@@ -260,10 +260,15 @@ export function normalizeBankAccountNo(value: string | null | undefined): string
   return /^\d{6,20}$/.test(digits) ? digits : null;
 }
 
-/** IBAN — зай хасаж, том үсгээр; «MN» + цифр эсвэл зөвхөн цифр (албан жишээ), 12–34 тэмдэгт. */
+/**
+ * IBAN — зай хасаж, том үсгээр; «MN» + цифр эсвэл зөвхөн цифр, 8–32 цифр. ТЕГ-ийн
+ * бүртгэл (`/rest/bankAccounts`) IBAN-ий угтварыг (MN + шалгах 2 орон + банкны код,
+ * жишээ «MN08001500») тусад нь өгдөг тул түүнийг ТАТГАЛЗАХГҮЙ (2026-10-02 засвар —
+ * өмнө нь ≥10 цифр шаардаж ТЕГ-ийн өөрийн утгыг буруу гэж хааж байв).
+ */
 export function normalizeIban(value: string | null | undefined): string | null {
   const compact = (value ?? "").replace(/\s/g, "").toUpperCase();
-  return /^(MN)?\d{10,32}$/.test(compact) ? compact : null;
+  return /^(MN)?\d{8,32}$/.test(compact) ? compact : null;
 }
 
 const DOCUMENT_NO_RE = /^([A-Za-z]*)-?(\d{2})(\d{2})-(\d+)$/;

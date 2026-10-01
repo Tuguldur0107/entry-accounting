@@ -86,6 +86,7 @@ import { processPendingEbarimt, sendSubmissionNow } from "@/lib/ebarimt/worker";
 import { lookupTaxpayerByTin, lookupTinByRegNo } from "@/lib/ebarimt/lookup";
 import { ORG_REGISTER_RE } from "@/lib/pos/ebarimt-buyer";
 import { ebarimtSettingsProblems, initialSaleEbarimtStatus, normalizeBankAccountNo, normalizeIban } from "@/lib/ebarimt/receipt";
+import { resolveInvoiceBank } from "@/lib/ebarimt/invoice-bank";
 import {
   CONSUMER_NO_RE,
   DISTRICT_CODE_RE,
@@ -353,8 +354,9 @@ export async function updatePosSettings(
         if (merged.ebarimtMode !== "server") throw new Error("АР нэхэмжлэх зөвхөн «Сервер» горимд илгээгдэнэ");
         if (!isKnownEbarimtPaymentCode(merged.ebarimtArapPaymentCode))
           throw new Error("АР нэхэмжлэхийн eBarimt төлбөрийн код сонгоно уу (ихэвчлэн BANK_TRANSFER)");
-        if (!normalizeBankAccountNo(merged.ebarimtArapBankAccountNo))
-          throw new Error("Нэхэмжлэхийн банкны данс (ТЕГ-д бүртгэлтэй) оруулна уу — нэхэмжлэхэд заавал (PosAPI 3.0.1)");
+        // Данс: сонгосон эсвэл ТЕГ-д бүртгэлтэй ГАНЦ данс (resolveInvoiceBank) — алга/олон бол шалтгаантай.
+        const bank = await resolveInvoiceBank({ ...merged, organizationId: orgId });
+        if (!bank.ok) throw new Error(bank.reason);
       }
       patch.ebarimtArapEnabled = !!data.ebarimtArapEnabled;
     }
