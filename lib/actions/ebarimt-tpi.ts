@@ -111,7 +111,8 @@ export async function saveEbarimtTpiConnection(input: {
 }
 
 /** Нэвтэрч өнөөдрийн нэхэмжлэхийг асууна — юу ч хадгалахгүй. */
-export async function testEbarimtTpiConnection(): Promise<ActionResult<{ invoicesToday: number; skipped: number }>> {
+/** `invoicesToday: null` — бодит орчинд 01:00–07:00-оос гадуур тул зөвхөн нэвтрэлтийг шалгав. */
+export async function testEbarimtTpiConnection(): Promise<ActionResult<{ invoicesToday: number | null; skipped: number }>> {
   try {
     const { orgId } = await requireRole("admin");
     return await testTpiConnection(orgId);

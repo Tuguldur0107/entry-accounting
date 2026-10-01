@@ -6,7 +6,9 @@ import {
   checkTaxInvoice,
   isTaxCheckProblem,
   isTaxSyncDue,
+  isTpiSalesWindowOpen,
   summarizeTaxChecks,
+  ulaanbaatarHour,
   taxSyncDays,
   type EntryInvoiceInput,
 } from "../lib/ebarimt/tax-reconcile";
@@ -104,9 +106,13 @@ test("summarizeTaxChecks: pending/ok/not_synced асуудал биш, danger н
   });
 });
 
-test("isTaxSyncDue: анх, нөхөлт 10 мин тутам, алдаанд 1 цаг, эс бөгөөс өдөрт нэг 06:00-аас", () => {
-  const base = { now: NOW, todayUb: "2026-10-10", hourUb: 8, lastSyncError: null };
+test("isTaxSyncDue: бодит орчинд ЗӨВХӨН 01–07 цагт; анх, нөхөлт 10 мин тутам, алдаанд 1 цаг, эс бөгөөс өдөрт нэг", () => {
+  const base = { environment: "production" as const, now: NOW, todayUb: "2026-10-10", hourUb: 2, lastSyncError: null };
   assert.equal(isTaxSyncDue({ ...base, lastSyncAt: null, lastSyncDateUb: null, syncedThrough: null }), true);
+  // Цонхны гадна (07:00, 23:00, 00:00) — бодит орчинд хэзээ ч үгүй; туршилтын орчинд хязгааргүй
+  for (const hourUb of [0, 7, 12, 23])
+    assert.equal(isTaxSyncDue({ ...base, hourUb, lastSyncAt: null, lastSyncDateUb: null, syncedThrough: null }), false);
+  assert.equal(isTaxSyncDue({ ...base, environment: "staging", hourUb: 15, lastSyncAt: null, lastSyncDateUb: null, syncedThrough: null }), true);
   const fiveMinAgo = new Date(NOW.getTime() - 5 * 60_000);
   const twentyMinAgo = new Date(NOW.getTime() - 20 * 60_000);
   // Нөхөлт дуусаагүй
@@ -117,11 +123,20 @@ test("isTaxSyncDue: анх, нөхөлт 10 мин тутам, алдаанд 1 
     isTaxSyncDue({ ...base, lastSyncError: "x", lastSyncAt: twentyMinAgo, lastSyncDateUb: "2026-10-10", syncedThrough: "2026-09-20" }),
     false
   );
-  // Гүйцсэн: өнөөдөр татсан бол дахин үгүй; өчигдөр татсан бол 06:00-аас хойш
+  // Гүйцсэн: өнөөдөр татсан бол дахин үгүй; өчигдөр татсан бол цонхонд тийм
   assert.equal(isTaxSyncDue({ ...base, lastSyncAt: twentyMinAgo, lastSyncDateUb: "2026-10-10", syncedThrough: "2026-10-10" }), false);
   const yesterday = new Date(NOW.getTime() - 20 * 3600_000);
   assert.equal(isTaxSyncDue({ ...base, lastSyncAt: yesterday, lastSyncDateUb: "2026-10-09", syncedThrough: "2026-10-09" }), true);
-  assert.equal(isTaxSyncDue({ ...base, hourUb: 5, lastSyncAt: yesterday, lastSyncDateUb: "2026-10-09", syncedThrough: "2026-10-09" }), false);
+});
+
+test("TPI-ийн цонх: 01:00–07:00 УБ (бодит), ulaanbaatarHour = UTC+8", () => {
+  assert.equal(isTpiSalesWindowOpen("production", 1), true);
+  assert.equal(isTpiSalesWindowOpen("production", 6), true);
+  assert.equal(isTpiSalesWindowOpen("production", 7), false);
+  assert.equal(isTpiSalesWindowOpen("production", 0), false);
+  assert.equal(isTpiSalesWindowOpen("staging", 13), true);
+  assert.equal(ulaanbaatarHour(new Date("2026-10-01T17:30:00Z")), 1);
+  assert.equal(ulaanbaatarHour(new Date("2026-10-01T16:00:00Z")), 0);
 });
 
 test("taxSyncDays: сүүлийн 3 өдрийг давтаж, эхлэлээс доош орохгүй, нэг удаад ≤ maxDays", () => {

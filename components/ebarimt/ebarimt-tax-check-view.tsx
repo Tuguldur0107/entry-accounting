@@ -159,7 +159,7 @@ export function EbarimtTaxCheckView({
           hint={
             connection.lastSyncError
               ? `Сүүлийн оролдлого алдаатай: ${connection.lastSyncError.slice(0, 160)}`
-              : `${connection.syncFrom ?? "—"} → ${connection.syncedThrough ?? "—"} · өдөр бүр 06:00-аас`
+              : `${connection.syncFrom ?? "—"} → ${connection.syncedThrough ?? "—"} · өдөр бүр 01:00–07:00`
           }
           tone={connection.lastSyncError ? "danger" : undefined}
         />

@@ -106,16 +106,22 @@ grant_type=password&client_id={client}&username={нэвтрэх нэр}&password
   сарын 20; жилийн ААНОАТ дараа оны 2-р сарын 10.
 - **Холбогдох eBarimt TPI сервисүүд** (НӨАТ тайлангийн тулгалтад шууд хэрэгтэй,
   `api.ebarimt.mn`, Bearer `vatps` + `X-API-KEY`):
-  - `POST /api/tpi/receipt/getSalesTotalData` — борлуулалтын задаргаа (жил/сар/өдөр,
-    status: 0 бүгд · 1 B2B · 2 сугалаатай · 3 нэхэмжлэх · 4 багцын толгой; startCount/endCount)
-    → `posRno` (ДДТД), `posRdate`, `posRamt`, `posVamt` (НӨАТ), `cityTax`, `netAmt`,
-    `csmrRegNo/csmrName`, `posNo`, `districtCode`; 2025-09-01-ээс `prParentRno`
-    (нэхэмжлэхийн төлөлт болох баримт). Том татвар төлөгчид зориулсан.
-  - `POST /api/tpi/receipt/getSaleListERP` — толгой татвар төлөгч охин компанийнхаа
-    **худалдан авалтыг** татах (`Pin`, `subPin[]`, `StartDate`, `EndDate`) →
-    `receiptBuyModelList[]` (`prPosRno`, борлуулагчийн `regNo/name`, `amountVat`,
-    `amountCityTax`, `amountTotal`, `amountNet`, `fromType`, 2025-09-01-ээс `receiptType`)
-    → **оролтын НӨАТ-ын eBarimt тулгалт** (АП баримт ↔ ТЕГ-ийн бүртгэл).
+  - `POST /api/tpi/receipt/getSalesTotalData` — борлуулалтын задаргаа. Body (албан хуудас
+    2026-10-02): `year`, `month` (заавал), `day` — string; `status` (0 бүгд · 1 B2B ·
+    2 сугалаатай · 3 нэхэмжлэх · 4 багцын толгой), `startCount`, `endCount` — number, заавал
+    → `data.content[]`: `posRno` (ДДТД), `posRdate`, `posRamt`, `posVamt` (НӨАТ), `citytax`,
+    `netAmt`, `csmrRegNo/csmrName`, `posNo`, `operatorName`, `districtCode`, `prParentRno`;
+    `data.pageModel.totalElements`. **Бодит орчинд зөвхөн 01:00–07:00.** «Том сегментэд
+    харьяалагддаг татвар төлөгч»-д зориулсан.
+  - `POST /api/tpi/receipt/getSaleListERP` — **худалдан авалтын** цорын ганц албан сервис
+    («Толгой татвар төлөгч өөрийн охин компанийн худалдан авалт татах сервис»; тусдаа «buy»
+    зам БАЙХГҮЙ). Body: `pin` (компанийн РЕГИСТР), `subPin[]` (хоосон бол `pin`-ий ӨӨРИЙН
+    худалдан авалт), `startDate`, `endDate` — жижиг үсгээр → `data[]` →
+    `receiptBuyModelList[]`: `prPosRno`, борлуулагчийн `name/regNo` (**далдлагдсан**),
+    `buyerRegNo`, `date`, `amountVat`, `amountCitytax`, `amountTotal`, `amountNet`,
+    `fromType` (INVOICE / POS API), `receiptType` → **оролтын НӨАТ-ын eBarimt тулгалт**
+    (АП баримт ↔ ТЕГ-ийн бүртгэл, ДДТД-ээр — борлуулагч далдлагдсан тул).
+  - Мөн «Хуулийн этгээдийн гаалийн мэдүүлэг татах сервис» байна (импортын НӨАТ — хожим).
   - `GET /api/info/check/getInfo?tin=` → `vatPayer`, `cityPayer`, `freeProject`
     (true бол `taxType VAT_FREE` + `taxProductCode "304"`), `isGovernment`,
     `vatpayerRegisteredDate` — харилцагчийн картын НӨАТ төлөгч тэмдэглэгээг автоматжуулна.

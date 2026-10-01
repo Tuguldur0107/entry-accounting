@@ -31,7 +31,10 @@ import {
   buildTaxLedger,
   checkTaxInvoice,
   isTaxSyncDue,
+  isTpiSalesWindowOpen,
   summarizeTaxChecks,
+  TPI_SALES_WINDOW_UB,
+  ulaanbaatarHour,
   taxSyncDays,
   type EbarimtTaxCheckRow,
   type EbarimtTpiConnectionView,
@@ -96,20 +99,25 @@ function sessionOf(row: ConnectionRow): TpiSession {
   };
 }
 
-/** Нэг өдөр × status-ийн бүх хуудас. Хуудасны дээд хязгаар хэтэрвэл ил алдаа. */
+/**
+ * Нэг өдөр × status-ийн бүх хуудас — `pageModel.totalElements` ирвэл түүгээр,
+ * эс бөгөөс дүүрэн хуудсаар. Хуудасны дээд хязгаар хэтэрвэл ил алдаа.
+ */
 async function fetchDayRows(session: TpiSession, day: string, status: TpiSalesStatus): Promise<{ rows: TpiSaleRow[]; skipped: number }> {
   const [year, month, date] = day.split("-").map(Number);
   const rows: TpiSaleRow[] = [];
   let skipped = 0;
   for (let page = 0; page < TPI_MAX_PAGES; page += 1) {
+    const window = tpiPageWindow(page);
     const result = await tpiSalesTotalData(
       session.env,
       { token: await session.token(), apiKey: session.apiKey },
-      { year, month, day: date, status, ...tpiPageWindow(page) }
+      { year, month, day: date, status, ...window }
     );
     rows.push(...result.rows);
     skipped += result.skipped;
-    if (!tpiHasMorePages(result.rows.length + result.skipped)) return { rows, skipped };
+    const progress = { nextStart: window.endCount, totalElements: result.totalElements ?? null };
+    if (!tpiHasMorePages(result.rows.length + result.skipped, undefined, progress)) return { rows, skipped };
   }
   throw new ItcError(ITC_ERRORS.tpi, `${day}: ${TPI_MAX_PAGES} хуудаснаас их мөр — татлага таслагдав (тулгалт бүрэн биш)`);
 }
@@ -191,7 +199,15 @@ export async function syncEbarimtTaxReceipts(orgId: string, options: { maxDays?:
     if (!row.syncFrom)
       await db.update(ebarimtTpiConnections).set({ syncFrom, updatedAt: new Date() }).where(eq(ebarimtTpiConnections.id, row.id));
     const days = taxSyncDays({ syncFrom, syncedThrough, todayUb, maxDays: options.maxDays });
+    if (!isTpiSalesWindowOpen(session.env, ulaanbaatarHour()))
+      throw new ItcError(
+        ITC_ERRORS.config,
+        `ТЕГ-ийн борлуулалтын задаргааны сервис зөвхөн ${TPI_SALES_WINDOW_UB.fromHour}:00–${TPI_SALES_WINDOW_UB.toHour}:00 (УБ) цагт ажилладаг — хуваарьт татлага тэр цагт автоматаар явна`
+      );
+    const done: string[] = [];
     for (const day of days) {
+      // Цонх хаагдвал явцаа хадгалаад зогсоно (алдаа биш — маргааш үргэлжилнэ).
+      if (!isTpiSalesWindowOpen(session.env, ulaanbaatarHour())) break;
       const invoices = await fetchDayRows(session, day, TPI_SALES_STATUS.invoice);
       const all = await fetchDayRows(session, day, TPI_SALES_STATUS.all);
       const payments = all.rows.filter((entry) => !!entry.parentDdtd);
@@ -206,6 +222,7 @@ export async function syncEbarimtTaxReceipts(orgId: string, options: { maxDays?:
         syncedThrough = day;
         await db.update(ebarimtTpiConnections).set({ syncedThrough: day }).where(eq(ebarimtTpiConnections.id, row.id));
       }
+      done.push(day);
     }
     const { summary } = await loadEbarimtTaxChecks(orgId);
     const now = new Date();
@@ -220,7 +237,7 @@ export async function syncEbarimtTaxReceipts(orgId: string, options: { maxDays?:
         updatedAt: now,
       })
       .where(eq(ebarimtTpiConnections.id, row.id));
-    return { days, ...totals, caughtUp: syncedThrough === todayUb, summary };
+    return { days: done, ...totals, caughtUp: syncedThrough === todayUb, summary };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await db
@@ -233,12 +250,17 @@ export async function syncEbarimtTaxReceipts(orgId: string, options: { maxDays?:
 
 /**
  * Холболт шалгах — нэвтэрч өнөөдрийн нэхэмжлэхийг (status 3) нэг хуудсаар
- * асууна. Юу ч хадгалахгүй. Шидэнэ (action `{ error }` болгоно).
+ * асууна. Бодит орчинд 01:00–07:00-оос гадуур бол ЗӨВХӨН нэвтрэлтийг шалгана
+ * (`invoicesToday: null`). Юу ч хадгалахгүй. Шидэнэ (action `{ error }` болгоно).
  */
-export async function testTpiConnection(orgId: string): Promise<{ invoicesToday: number; skipped: number }> {
+export async function testTpiConnection(orgId: string): Promise<{ invoicesToday: number | null; skipped: number }> {
   const row = await loadTpiConnectionRow(orgId);
   if (!row) throw new ItcError(ITC_ERRORS.config, "Эхлээд ТЕГ-ийн TPI холболтоо хадгална уу");
   const session = sessionOf(row);
+  if (!isTpiSalesWindowOpen(session.env, ulaanbaatarHour())) {
+    await session.token();
+    return { invoicesToday: null, skipped: 0 };
+  }
   const [year, month, day] = ulaanbaatarToday().split("-").map(Number);
   const result = await tpiSalesTotalData(
     session.env,
@@ -480,10 +502,11 @@ export async function runDueEbarimtTaxSyncs(now = new Date()): Promise<{ synced:
     });
     if (rows.length === 0) return { synced, errors };
     const todayUb = ulaanbaatarToday(now);
-    const hourUb = Number(now.toLocaleString("en-GB", { timeZone: "Asia/Ulaanbaatar", hour: "2-digit", hour12: false }));
+    const hourUb = ulaanbaatarHour(now);
     const { getEntitlements } = await import("@/lib/billing/load");
     for (const row of rows) {
       const due = isTaxSyncDue({
+        environment: row.environment === "staging" ? "staging" : "production",
         lastSyncAt: row.lastSyncAt,
         lastSyncDateUb: row.lastSyncAt ? ulaanbaatarToday(row.lastSyncAt) : null,
         lastSyncError: row.lastSyncError,

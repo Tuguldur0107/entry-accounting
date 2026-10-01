@@ -4,11 +4,15 @@
 // компанийн худалдан авалт (`getSaleListERP`) ↔ АП баримтын оролтын НӨАТ.
 // Сүлжээ `client.ts`-д. tests/itc-tpi.test.ts.
 //
-// Хариуны талбарын нэр албан тайлбараас (posRno, posRdate, posRamt, posVamt,
-// cityTax, netAmt, csmrRegNo, csmrName, posNo, districtCode, prParentRno;
-// receiptBuyModelList[]: prPosRno, regNo, name, amountVat, amountCityTax,
-// amountTotal, amountNet, fromType, receiptType). Parser нь ТАНИГДАХГҮЙ мөрийг
-// алгасаж тоолно — дүн зохиохгүй.
+// Талбарын нэрийг developer.itc.gov.mn-ийн албан хуудастай тулгав (2026-10-02,
+// Монголын IP-ээс): getSalesTotalData — body {year, month, day: string; status,
+// startCount, endCount: number}, хариу data.content[] (схемд data.list) +
+// data.pageModel.totalElements; мөр posRno, posRdate, posRamt, citytax, posVamt,
+// netAmt, csmrRegNo, csmrName, posNo, districtCode, prParentRno. getSaleListERP —
+// body {pin (регистр), subPin[], startDate, endDate}, хариу data[] →
+// receiptBuyModelList[]: prPosRno, name/regNo (борлуулагч — ДАЛДЛАГДСАН), buyerRegNo,
+// date, amountVat, amountCitytax, amountTotal, amountNet, fromType, receiptType.
+// Parser нь ТАНИГДАХГҮЙ мөрийг алгасаж тоолно — дүн зохиохгүй.
 
 import { ITC_ERRORS, TPI_SALES_STATUS, type TpiSalesStatus } from "./constants";
 import { ItcError } from "./auth";
@@ -29,11 +33,11 @@ export interface SalesTotalDataRequest {
 }
 
 /**
- * `getSalesTotalData` body. ⚠ Талбарын WIRE нэр («ETAX API documentation» /
- * ebarimt-api хуудаснаас) энд албан тайлбарын нэрээр — staging тестээр
- * баталгаажуулна (docs §4.4 №3); шалгалт нь утгын хүрээ л.
+ * `getSalesTotalData` body — албан хуудас: `year`, `month`, `day` нь STRING
+ * (`month` ЗААВАЛ), `status`, `startCount`, `endCount` нь number (заавал).
+ * Сар/өдрийн тэргүүлэх тэгийн хэлбэр албан хуудсанд жишээгүй — staging-д батална.
  */
-export function salesTotalDataBody(input: SalesTotalDataRequest): Record<string, number> {
+export function salesTotalDataBody(input: SalesTotalDataRequest): Record<string, string | number> {
   if (!Number.isInteger(input.year) || input.year < 2000 || input.year > 2100)
     throw new ItcError(ITC_ERRORS.tpi, "Жил буруу (YYYY)");
   if (input.month != null && (!Number.isInteger(input.month) || input.month < 1 || input.month > 12))
@@ -46,40 +50,52 @@ export function salesTotalDataBody(input: SalesTotalDataRequest): Record<string,
   const status = input.status ?? TPI_SALES_STATUS.all;
   if (!(Object.values(TPI_SALES_STATUS) as number[]).includes(status))
     throw new ItcError(ITC_ERRORS.tpi, "status 0–4 байна");
-  const body: Record<string, number> = { year: input.year, status };
-  if (input.month != null) body.month = input.month;
-  if (input.day != null) body.day = input.day;
-  if (input.startCount != null) body.startCount = Math.max(0, Math.trunc(input.startCount));
-  if (input.endCount != null) body.endCount = Math.max(0, Math.trunc(input.endCount));
+  if (input.month == null) throw new ItcError(ITC_ERRORS.tpi, "Сар заавал (албан хуудас: month required)");
+  const startCount = Math.max(0, Math.trunc(input.startCount ?? 0));
+  const body: Record<string, string | number> = {
+    year: String(input.year),
+    month: String(input.month),
+    status,
+    startCount,
+    endCount: Math.max(startCount, Math.trunc(input.endCount ?? startCount + TPI_PAGE_SIZE)),
+  };
+  if (input.day != null) body.day = String(input.day);
   return body;
 }
 
 export interface SaleListErpRequest {
-  /** Толгой татвар төлөгчийн ТТД/PIN (албан: `Pin`). */
+  /** Компанийн РЕГИСТРИЙН дугаар (албан: `pin` — «Толгой компанийн регистрийн дугаар»). */
   pin: string;
-  /** Охин компаниудын ТТД (албан: `subPin[]`). */
+  /** Охин компаниудын регистр (албан: `subPin[]`) — хоосон бол `pin`-ий ӨӨРИЙН худалдан авалт. */
   subPins?: string[];
   /** YYYY-MM-DD. */
   startDate: string;
   endDate: string;
 }
 
-/** `getSaleListERP` body — албан талбар `Pin`, `subPin`, `StartDate`, `EndDate`. */
+/** Регистр — хуулийн этгээд 7 оронтой тоо; иргэн/бусад нь 2 үсэг + 8 орон эсвэл 8 орон (staging 99119911). */
+const REGISTER_RE = /^(\d{7,8}|[А-ЯӨҮЁ]{2}\d{8})$/u;
+
+/**
+ * `getSaleListERP` body — албан хуудас: `pin`, `subPin`, `startDate`, `endDate`
+ * (жижиг үсгээр). Огноо «YYYY-MM-DD HH:mm:ss» хэлбэрээр (хариуны жишээтэй ижил);
+ * эхлэл 00:00:00, төгсгөл 23:59:59.
+ */
 export function saleListErpBody(input: SaleListErpRequest): {
-  Pin: string;
+  pin: string;
   subPin: string[];
-  StartDate: string;
-  EndDate: string;
+  startDate: string;
+  endDate: string;
 } {
-  const pin = input.pin.trim();
-  if (!/^\d{11,14}$/.test(pin)) throw new ItcError(ITC_ERRORS.tpi, "Pin (ТТД) 11–14 оронтой тоо байна");
+  const pin = input.pin.trim().toUpperCase();
+  if (!REGISTER_RE.test(pin)) throw new ItcError(ITC_ERRORS.tpi, "pin — байгууллагын регистрийн дугаар (7 орон) байна");
   if (!DATE_RE.test(input.startDate) || !DATE_RE.test(input.endDate))
     throw new ItcError(ITC_ERRORS.tpi, "Огноо YYYY-MM-DD хэлбэртэй байна");
   if (input.startDate > input.endDate) throw new ItcError(ITC_ERRORS.tpi, "Эхлэх огноо дуусахаас хойш байж болохгүй");
-  const subPin = (input.subPins ?? []).map((s) => s.trim()).filter(Boolean);
+  const subPin = (input.subPins ?? []).map((s) => s.trim().toUpperCase()).filter(Boolean);
   for (const s of subPin)
-    if (!/^\d{11,14}$/.test(s)) throw new ItcError(ITC_ERRORS.tpi, `subPin «${s}» 11–14 оронтой тоо байна`);
-  return { Pin: pin, subPin, StartDate: input.startDate, EndDate: input.endDate };
+    if (!REGISTER_RE.test(s)) throw new ItcError(ITC_ERRORS.tpi, `subPin «${s}» — регистрийн дугаар байна`);
+  return { pin, subPin, startDate: `${input.startDate} 00:00:00`, endDate: `${input.endDate} 23:59:59` };
 }
 
 /** Нэг хуудасны мөр (startCount/endCount). */
@@ -98,11 +114,17 @@ export function tpiPageWindow(page: number, size = TPI_PAGE_SIZE): { startCount:
 }
 
 /**
- * Дараагийн хуудас бий эсэх: дүүрэн хуудас (size−1 … size+1 — төгсгөл орох/үл
- * орох тайлбарын зөрүү) л үргэлжилнэ. Үүнээс их бол сервер хуудаслалтыг үл
- * тоож бүгдийг өгсөн — дахин асуухгүй.
+ * Дараагийн хуудас бий эсэх. Хариунд `pageModel.totalElements` ирвэл ҮҮГЭЭР
+ * (дараагийн `startCount` < нийт); ирээгүй бол дүүрэн хуудас (size−1 … size+1 —
+ * төгсгөл орох/үл орох тайлбарын зөрүү) л үргэлжилнэ. Үүнээс их бол сервер
+ * хуудаслалтыг үл тоож бүгдийг өгсөн — дахин асуухгүй.
  */
-export function tpiHasMorePages(rowsInPage: number, size = TPI_PAGE_SIZE): boolean {
+export function tpiHasMorePages(
+  rowsInPage: number,
+  size = TPI_PAGE_SIZE,
+  progress?: { nextStart: number; totalElements: number | null }
+): boolean {
+  if (progress && progress.totalElements !== null) return rowsInPage > 0 && progress.nextStart < progress.totalElements;
   return rowsInPage >= size - 1 && rowsInPage <= size + 1;
 }
 
@@ -131,8 +153,13 @@ export interface TpiSaleRow {
 export interface TpiPurchaseRow {
   /** ДДТД (prPosRno). */
   ddtd: string;
+  /** Баримт хэвлэсэн огноо (date) — эх текст «YYYY-MM-DD HH:mm:ss». */
+  date: string;
+  /** Борлуулагчийн регистр / нэр — ТЕГ ДАЛДАЛЖ өгдөг («57***85») тул тааруулахад ХЭРЭГЛЭХГҮЙ. */
   sellerRegNo: string;
   sellerName: string;
+  /** Худалдан авагчийн регистр (далдлагдсан байж болно). */
+  buyerRegNo: string;
   vat: number;
   cityTax: number;
   total: number;
@@ -146,6 +173,8 @@ export interface TpiParseResult<T> {
   rows: T[];
   /** Танигдахгүй (ДДТД-гүй / дүнгүй) мөрийн тоо — ИЛ хэлнэ, зохиохгүй. */
   skipped: number;
+  /** `data.pageModel.totalElements` — хуудаслалтын эх (ирээгүй бол null). */
+  totalElements?: number | null;
 }
 
 function pick(record: Record<string, unknown>, keys: string[]): unknown {
@@ -198,7 +227,7 @@ export function parseSalesTotalData(json: unknown): TpiParseResult<TpiSaleRow> {
   assertTpiStatus(json);
   const rows: TpiSaleRow[] = [];
   let skipped = 0;
-  for (const item of listOf(json, ["data", "list", "receipts", "salesList"])) {
+  for (const item of listOf(json, ["data", "content", "list", "receipts", "salesList"])) {
     const ddtd = str(pick(item, ["posRno", "ddtd", "id"]));
     const total = num(pick(item, ["posRamt", "totalAmount", "amountTotal"]));
     if (!ddtd || total === null) {
@@ -210,7 +239,7 @@ export function parseSalesTotalData(json: unknown): TpiParseResult<TpiSaleRow> {
       date: str(pick(item, ["posRdate", "date"])),
       total,
       vat: num(pick(item, ["posVamt", "totalVAT", "vat"])) ?? 0,
-      cityTax: num(pick(item, ["cityTax", "totalCityTax"])) ?? 0,
+      cityTax: num(pick(item, ["citytax", "cityTax", "totalCityTax"])) ?? 0,
       net: num(pick(item, ["netAmt", "netAmount"])) ?? total,
       buyerRegNo: str(pick(item, ["csmrRegNo", "customerTin", "customerNo"])),
       buyerName: str(pick(item, ["csmrName", "customerName"])),
@@ -219,14 +248,32 @@ export function parseSalesTotalData(json: unknown): TpiParseResult<TpiSaleRow> {
       parentDdtd: str(pick(item, ["prParentRno", "parentRno"])) || null,
     });
   }
-  return { rows, skipped };
+  return { rows, skipped, totalElements: pageTotalOf(json) };
+}
+
+/** `data.pageModel.totalElements` (эсвэл `pageModel.totalElements`). */
+function pageTotalOf(json: unknown): number | null {
+  if (!json || typeof json !== "object") return null;
+  const record = json as Record<string, unknown>;
+  const data = record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>) : record;
+  const page = data.pageModel && typeof data.pageModel === "object" ? (data.pageModel as Record<string, unknown>) : null;
+  return page ? num(page.totalElements) : null;
 }
 
 export function parseSaleListErp(json: unknown): TpiParseResult<TpiPurchaseRow> {
   assertTpiStatus(json);
   const rows: TpiPurchaseRow[] = [];
   let skipped = 0;
-  for (const item of listOf(json, ["receiptBuyModelList", "data", "list"])) {
+  // Албан хариу: data[] — компани бүрд {startDate, endDate, regNo, receiptBuyModelList[]}.
+  // Мөр нь receiptBuyModelList дотор (wrapper-ийг мөр гэж ХАРАХГҮЙ).
+  const record = json && typeof json === "object" && !Array.isArray(json) ? (json as Record<string, unknown>) : {};
+  const wrappers = Array.isArray(record.data) ? (record.data as unknown[]) : Array.isArray(json) ? (json as unknown[]) : [record.data ?? json];
+  const items = wrappers.flatMap((wrapper) => {
+    if (!wrapper || typeof wrapper !== "object") return [];
+    const list = (wrapper as Record<string, unknown>).receiptBuyModelList;
+    return Array.isArray(list) ? (list.filter((x) => x && typeof x === "object") as Record<string, unknown>[]) : [];
+  });
+  for (const item of items) {
     const ddtd = str(pick(item, ["prPosRno", "posRno", "ddtd"]));
     const total = num(pick(item, ["amountTotal", "totalAmount"]));
     if (!ddtd || total === null) {
@@ -235,10 +282,12 @@ export function parseSaleListErp(json: unknown): TpiParseResult<TpiPurchaseRow> 
     }
     rows.push({
       ddtd,
+      date: str(pick(item, ["date", "posRdate"])),
       sellerRegNo: str(pick(item, ["regNo", "sellerRegNo", "tin"])),
       sellerName: str(pick(item, ["name", "sellerName"])),
+      buyerRegNo: str(pick(item, ["buyerRegNo"])),
       vat: num(pick(item, ["amountVat", "totalVAT"])) ?? 0,
-      cityTax: num(pick(item, ["amountCityTax", "totalCityTax"])) ?? 0,
+      cityTax: num(pick(item, ["amountCitytax", "amountCityTax", "totalCityTax"])) ?? 0,
       total,
       net: num(pick(item, ["amountNet", "netAmount"])) ?? total,
       fromType: str(pick(item, ["fromType"])),
