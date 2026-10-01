@@ -4,7 +4,10 @@ import {
   BankStatementImport,
   type BankStatementSummary,
 } from "@/components/cash/bank-statement-import";
+import { loadEntityKinds } from "@/lib/arap/entity-kinds";
+import { loadArApSegmentData } from "@/lib/arap/load-data";
 import { getActiveOrg } from "@/lib/auth";
+import { loadStatementDraft } from "@/lib/cash/statement-draft";
 import {
   loadGolomtConnectionRow,
   loadGolomtPendingPulls,
@@ -27,7 +30,7 @@ import { fmtDateTimeUb } from "@/lib/format/datetime";
 import { roleAtLeast } from "@/lib/permissions";
 
 export default async function BankStatementsPage() {
-  const { orgId, role } = await getActiveOrg();
+  const { orgId, role, userId } = await getActiveOrg();
 
   const [
     accounts,
@@ -71,6 +74,12 @@ export default async function BankStatementsPage() {
       columns: { registerNo: true },
     }),
     loadGolomtPendingPulls(orgId),
+  ]);
+  // «+ Шинэ харилцагч» (хуулгын дэлгэцээс гаралгүй) + хадгалаагүй хуулгын ноорог.
+  const [entityKinds, arapSegmentData, draft] = await Promise.all([
+    loadEntityKinds(orgId),
+    loadArApSegmentData(orgId),
+    loadStatementDraft(orgId, userId),
   ]);
 
   const balanceMap = await loadCashBalancesFast(orgId, accounts);
@@ -144,6 +153,11 @@ export default async function BankStatementsPage() {
         canManage: roleAtLeast(role, "admin"),
         pendingPulls,
       }}
+      counterpartyCreate={{
+        entityKinds,
+        defaultAccountNumbers: arapSegmentData.defaultAccountNumbers,
+      }}
+      draft={draft}
     />
   );
 }

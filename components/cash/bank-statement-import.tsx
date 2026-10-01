@@ -47,6 +47,15 @@ import {
 } from "@/lib/bank/golomt/constants";
 import { dismissGolomtPull, openGolomtPull } from "@/lib/actions/bank-api";
 import { getAdvanceSettings } from "@/lib/actions/arap-advances";
+import { createCounterparty } from "@/lib/actions/arap";
+import {
+  CounterpartyDialog,
+  blankCounterpartyForm,
+  counterpartyPayload,
+  type CounterpartyFormState,
+} from "@/components/arap/arap-workspace";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import type { EntityKindOption } from "@/lib/arap/counterparty-kind";
 import {
   AdvanceSettingsDialog,
   type AdvanceSettingsView,
@@ -54,6 +63,7 @@ import {
 import type {
   ParsedBankStatement,
   ParsedBankStatementRow,
+  StatementDraft,
 } from "@/lib/cash/bank-statement-types";
 import {
   firstMatchingRule,
@@ -123,6 +133,13 @@ interface Props {
     /** Өдрийн автомат татлагаар ирсэн, хянагдаагүй хуулга (docs/dev/bank-api.md §7). */
     pendingPulls: GolomtPendingPull[];
   } | null;
+  /** «+ Шинэ харилцагч» — хуулгын дэлгэцээс гаралгүй (docs/dev/arap.md §5l). */
+  counterpartyCreate?: {
+    entityKinds: EntityKindOption[];
+    defaultAccountNumbers: { receivable: string; payable: string };
+  };
+  /** Хадгалаагүй хуулгын ноорог — хуудсанд буцаж ороход сэргэнэ. */
+  draft?: StatementDraft | null;
 }
 
 type AssignmentSide = "debit" | "credit";
@@ -143,6 +160,9 @@ type ImportContext = MatchContext & {
     supplierAdvanceAccountNumber: string;
   };
 };
+
+/** Харилцагч сонгогчийн «+ Шинэ харилцагч» сонголтын утга (бодит ID биш). */
+const NEW_COUNTERPARTY = "__new_counterparty__";
 
 const COUNTERPARTY_TYPE_HINTS: Record<string, string> = {
   customer: "Авлага",
@@ -199,13 +219,35 @@ export function BankStatementImport({
   defaultSegments,
   statements,
   golomt,
+  counterpartyCreate,
+  draft,
 }: Props) {
   const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  // «+ Шинэ харилцагч» — тухайн мөрөнд үүсгээд шууд холбоно.
+  const [newCounterparty, setNewCounterparty] = useState<{
+    rowId: string;
+    form: CounterpartyFormState;
+  } | null>(null);
+  const [newCounterpartyError, setNewCounterpartyError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const gridRef = useRef<DataGridHandle>(null);
-  const [cashAccountId, setCashAccountId] = useState("");
-  const [parsed, setParsed] = useState<ParsedBankStatement | null>(null);
-  const [rows, setRows] = useState<ParsedBankStatementRow[]>([]);
+  // Хадгалаагүй хуулгын ноорог (§5l) — идэвхтэй банкны данстай бол анхны
+  // төлөв болж сэргэнэ (хуудсанд буцаж ороход ажил алга болохгүй).
+  const [initialDraft] = useState(() =>
+    draft &&
+    draft.rows.length > 0 &&
+    accounts.some(
+      (item) => item.id === draft.cashAccountId && item.isActive && item.accountType === "bank"
+    )
+      ? draft
+      : null
+  );
+  const [cashAccountId, setCashAccountId] = useState(initialDraft?.cashAccountId ?? "");
+  const [parsed, setParsed] = useState<ParsedBankStatement | null>(
+    initialDraft ? { ...initialDraft.statement, rows: initialDraft.rows } : null
+  );
+  const [rows, setRows] = useState<ParsedBankStatementRow[]>(initialDraft?.rows ?? []);
   const [quickFilter, setQuickFilter] = useState("");
   const [selectedCount, setSelectedCount] = useState(0);
   const [error, setError] = useState("");
@@ -360,9 +402,71 @@ export function BankStatementImport({
     [activeSegIds, defaultSegments, matchContext, parsed]
   );
 
+  // «+ Шинэ харилцагч» — нэр, харьцсан данс хуулгын мөрөөс; орлого → авлага,
+  // зарлага → өглөгийн харилцагч. Хадгалмагц тухайн мөрөнд шууд холбоно.
+  const openNewCounterparty = useCallback(
+    (row: ParsedBankStatementRow) => {
+      if (!counterpartyCreate) return;
+      const original = parsed?.rows.find((item) => item.id === row.id);
+      const form = blankCounterpartyForm({
+        counterpartyType: row.income > 0 ? "customer" : "supplier",
+        defaultAccountNumbers: counterpartyCreate.defaultAccountNumbers,
+        activeSegIds,
+        defaultSegments,
+      });
+      setNewCounterpartyError("");
+      setNewCounterparty({
+        rowId: row.id,
+        form: {
+          ...form,
+          name: (original?.counterparty ?? row.counterparty ?? "").trim(),
+          bankAccountNo: (row.counterAccount ?? "").trim(),
+        },
+      });
+    },
+    [counterpartyCreate, parsed, activeSegIds, defaultSegments]
+  );
+
+  function saveNewCounterparty() {
+    if (!newCounterparty) return;
+    const { rowId, form } = newCounterparty;
+    setNewCounterpartyError("");
+    startTransition(async () => {
+      const result = await createCounterparty(counterpartyPayload(form));
+      if (result.error || !result.id) {
+        setNewCounterpartyError(result.error ?? "Харилцагч үүсгэж чадсангүй");
+        return;
+      }
+      const created = { id: result.id, name: form.name.trim(), counterpartyType: form.counterpartyType };
+      setMatchContext((current) =>
+        current
+          ? { ...current, counterparties: [...(current.counterparties ?? []), created] }
+          : current
+      );
+      setRows((current) =>
+        current.map((row) =>
+          row.id === rowId ? { ...row, counterpartyId: created.id, counterparty: created.name } : row
+        )
+      );
+      setNewCounterparty(null);
+      feedback.saved(`${created.name} үүсч мөрөнд холбогдлоо`);
+    });
+  }
+
   const handleCellValueChanged = useCallback(
     (event: CellValueChangedEvent<ParsedBankStatementRow>) => {
       const field = event.colDef.field;
+      if (field === "counterpartyId" && event.newValue === NEW_COUNTERPARTY) {
+        // Grid утгыг шууд өөрчилсөн — хуучнаар нь сэргээгээд үүсгэх цонх нээнэ.
+        const rowId = event.data.id;
+        setRows((current) =>
+          current.map((row) =>
+            row.id === rowId ? { ...row, counterpartyId: (event.oldValue as string | null) ?? null } : row
+          )
+        );
+        openNewCounterparty(event.data);
+        return;
+      }
       if (
         field === "counterpartyId" ||
         field === "rowAction" ||
@@ -413,18 +517,23 @@ export function BankStatementImport({
         )
       );
     },
-    [applyBookingEdit]
+    [applyBookingEdit, openNewCounterparty]
   );
 
   // Мөрийн харилцагч / нэхэмжлэх сонгогчийн жагсаалт (docs/dev/arap.md §5l).
   const counterpartyOptions = useMemo<SearchSelectOption[]>(
-    () =>
-      (matchContext?.counterparties ?? []).map((item) => ({
+    () => [
+      // Бүртгэлгүй харилцагчийг хуулгын дэлгэцээс гаралгүй үүсгэнэ.
+      ...(counterpartyCreate
+        ? [{ value: NEW_COUNTERPARTY, label: "+ Шинэ харилцагч үүсгэх…" }]
+        : []),
+      ...(matchContext?.counterparties ?? []).map((item) => ({
         value: item.id,
         label: item.name,
         hint: COUNTERPARTY_TYPE_HINTS[item.counterpartyType] ?? "",
       })),
-    [matchContext]
+    ],
+    [matchContext, counterpartyCreate]
   );
   const invoiceLabelById = useMemo(
     () => new Map((matchContext?.openInvoices ?? []).map((item) => [item.id, item.documentNo])),
@@ -1327,6 +1436,56 @@ export function BankStatementImport({
     }
   }
 
+  // ── Хадгалаагүй хуулгын ноорог (docs/dev/arap.md §5l) ─────────────────────
+  // Хуудаснаас гарахад данс оноолт, харилцагч, бүртгэлийн сонголт алга
+  // болохгүй: засвар бүрээс 1.5 сек-ийн дараа сервер дээр хадгална, хуудсанд
+  // буцаж ороход сэргээнэ. GL-д юу ч бичихгүй; «Хадгалах» / «Хаях»-аар устна.
+  // Сэргээсэн ноорогт саналын лавлах (харилцагч, нэхэмжлэх, урьдчилгааны
+  // данс) ачаална — мөрүүд аль хэдийн засварлагдсан тул авто дүрэм дахин хэрэглэхгүй.
+  useEffect(() => {
+    if (!initialDraft) return;
+    void fetch("/api/cash/statements/suggestions")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: (ImportContext & { error?: string }) | null) => {
+        if (data && !data.error) setMatchContext(data);
+      })
+      .catch(() => {});
+    feedback.saved(
+      `Хадгалаагүй хуулга сэргээгдлээ — ${initialDraft.statement.fileName} (${initialDraft.rows.length} мөр)`
+    );
+  }, [initialDraft]);
+
+  useEffect(() => {
+    if (!parsed || rows.length === 0 || !cashAccountId) return;
+    const timer = setTimeout(() => {
+      void fetch("/api/cash/statements/draft", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cashAccountId, statement: { ...parsed, rows: [] }, rows }),
+      }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [parsed, rows, cashAccountId]);
+
+  function discardDraft() {
+    void fetch("/api/cash/statements/draft", { method: "DELETE" }).catch(() => {});
+  }
+
+  async function discardStatement() {
+    const ok = await confirm({
+      title: "Хуулгыг хаях уу?",
+      description:
+        "Хадгалаагүй хуулга, түүн дээрх данс оноолт, харилцагч, бүртгэлийн сонголт устна. GL-д юу ч бичигдээгүй тул өөр нөлөөгүй.",
+      confirmText: "Хаях",
+      danger: true,
+    });
+    if (!ok) return;
+    setParsed(null);
+    setRows([]);
+    setSelectedCount(0);
+    discardDraft();
+  }
+
   function saveStatement() {
     if (!parsed || !cashAccount) return;
     if (totals.invalid > 0) {
@@ -1355,6 +1514,7 @@ export function BankStatementImport({
         setParsed(null);
         setRows([]);
         setSelectedCount(0);
+        discardDraft();
         router.refresh();
       } catch (caught) {
         setError(
@@ -1448,10 +1608,25 @@ export function BankStatementImport({
             <select
               value={cashAccountId}
               onChange={(event) => {
-                setCashAccountId(event.target.value);
-                setParsed(null);
-                setRows([]);
-                setTriageFilter("all");
+                const next = event.target.value;
+                const switchAccount = () => {
+                  setCashAccountId(next);
+                  setParsed(null);
+                  setRows([]);
+                  setTriageFilter("all");
+                  discardDraft();
+                };
+                // Хадгалаагүй хуулгатай үед данс солих нь түүнийг хаяна — асууна.
+                if (rows.length === 0) return switchAccount();
+                void confirm({
+                  title: "Данс солих уу?",
+                  description:
+                    "Хянаж буй хуулга хадгалагдаагүй байна. Данс солибол хуулга, түүн дээрх сонголтууд устна.",
+                  confirmText: "Солих",
+                  danger: true,
+                }).then((ok) => {
+                  if (ok) switchAccount();
+                });
               }}
               className="ea-form-select sm:w-64"
               aria-label="Банкны мөнгөн хөрөнгийн данс"
@@ -1716,6 +1891,15 @@ export function BankStatementImport({
               </span>
             </div>
             <Button
+              variant="outline"
+              onClick={() => void discardStatement()}
+              disabled={isPending}
+              title="Хадгалаагүй хуулгыг хаях (GL-д юу ч бичигдээгүй)"
+            >
+              <Icon name="delete" />
+              Хаях
+            </Button>
+            <Button
               onClick={saveStatement}
               disabled={isPending || totals.invalid > 0}
             >
@@ -1872,6 +2056,34 @@ export function BankStatementImport({
           onChecked={setGolomtConnection}
         />
       )}
+      {newCounterparty && counterpartyCreate && (
+        <CounterpartyDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setNewCounterparty(null);
+          }}
+          title="Харилцагч үүсгэх"
+          form={newCounterparty.form}
+          setForm={(update) =>
+            setNewCounterparty((current) =>
+              current
+                ? {
+                    ...current,
+                    form: typeof update === "function" ? update(current.form) : update,
+                  }
+                : current
+            )
+          }
+          entityKinds={counterpartyCreate.entityKinds}
+          activeSegIds={activeSegIds}
+          segmentOptions={segmentOptions}
+          defaultSegments={defaultSegments}
+          isPending={isPending}
+          error={newCounterpartyError}
+          onSave={saveNewCounterparty}
+        />
+      )}
+      {confirmDialog}
       {advanceSettings && (
         <AdvanceSettingsDialog
           open

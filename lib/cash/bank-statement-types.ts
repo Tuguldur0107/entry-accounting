@@ -57,3 +57,12 @@ export type ParsedBankStatement = {
   periodEnd: string;
   rows: ParsedBankStatementRow[];
 };
+
+/** Хянаж буй (хадгалаагүй) хуулгын ноорог — lib/cash/statement-draft.ts. */
+export type StatementDraft = {
+  cashAccountId: string;
+  /** Эх хуулгын толгой (мөргүй — засварласан мөрүүд `rows`-д). */
+  statement: ParsedBankStatement;
+  rows: ParsedBankStatementRow[];
+  updatedAt: string;
+};

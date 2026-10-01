@@ -16,6 +16,7 @@ import type {
 } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { col } from "@/lib/grid/columnTypes";
 import { clickableAmountCell } from "@/components/datagrid/clickable-amount";
 import { Button } from "@/components/ui/button";
 import {
@@ -719,41 +720,15 @@ export function CashReconciliationWorkspace({
     [adjustment, fxPostBlockReason, isPending, postFx]
   );
 
+  // Стандарт column kind (lib/grid/columnTypes.ts) — мөнгөн дүн readonly-money.
   const bankApiColumns = useMemo<ColDef<BankApiBalanceRow>[]>(
     () => [
-      { headerName: "Данс", field: "accountName", minWidth: 200, flex: 1 },
-      { headerName: "Валют", field: "currency", width: 84 },
-      { headerName: "Огноо", field: "asOfDate", width: 112 },
-      {
-        headerName: "Банкны үлдэгдэл",
-        field: "bankBalance",
-        width: 170,
-        cellClass: "ag-right-aligned-cell font-mono",
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
-      },
-      {
-        headerName: "Entry-ийн үлдэгдэл",
-        field: "entryBalance",
-        width: 170,
-        cellClass: "ag-right-aligned-cell font-mono",
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
-      },
-      {
-        headerName: "Зөрүү",
-        field: "difference",
-        width: 150,
-        cellClass: (params) =>
-          cn(
-            "ag-right-aligned-cell font-mono font-semibold",
-            Math.abs(Number(params.value ?? 0)) > 0.005
-              ? "text-[var(--ea-danger-fg)]"
-              : "text-[var(--ea-success-fg)]"
-          ),
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
-      },
+      col<BankApiBalanceRow>({ eaType: "readonly-text", headerName: "Данс", field: "accountName", minWidth: 200, flex: 1 }),
+      col<BankApiBalanceRow>({ eaType: "readonly-text", headerName: "Валют", field: "currency", width: 84 }),
+      col<BankApiBalanceRow>({ eaType: "readonly-text", headerName: "Огноо", field: "asOfDate", width: 112 }),
+      col<BankApiBalanceRow>({ eaType: "readonly-money", headerName: "Банкны үлдэгдэл", field: "bankBalance", width: 170 }),
+      col<BankApiBalanceRow>({ eaType: "readonly-money", headerName: "Entry-ийн үлдэгдэл", field: "entryBalance", width: 170 }),
+      col<BankApiBalanceRow>({ eaType: "readonly-money", headerName: "Зөрүү", field: "difference", width: 150 }),
     ],
     []
   );
