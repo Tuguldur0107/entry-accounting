@@ -4487,10 +4487,15 @@ async function runCreateCash(
   if (applyTo.length > 0) {
     if (input.documentType === "transfer")
       throw new Error("Шилжүүлэгт applyTo хэрэглэхгүй — орлого/зарлагад л нэхэмжлэх холбоно");
+    // Цонхгүй — applyTo-гийн лавлагаагаар шууд (сүүлийн 1000 баримтаас хайдаг байсан).
+    const refColumns = { id: arApDocuments.id, documentNo: arApDocuments.documentNo, externalRef: arApDocuments.externalRef };
     const documents = await db.query.arApDocuments.findMany({
-      where: eq(arApDocuments.organizationId, orgId),
+      where: and(
+        eq(arApDocuments.organizationId, orgId),
+        or(...applyTo.map((alloc) => refCondition(refColumns, String(alloc.documentId ?? ""))))
+      ),
       orderBy: [desc(arApDocuments.createdAt)],
-      limit: 1000,
+      limit: 50 * applyTo.length,
     });
     for (const alloc of applyTo) {
       if (!(alloc.amount > 0))
@@ -4955,6 +4960,13 @@ function refCondition(
   return conditions.length > 0 ? or(...conditions)! : sql`false`;
 }
 
+/** Шүүлтийн огноо YYYY-MM-DD — эс бөгөөс ил алдаа (SQL-д буруу утга дамжуулахгүй). */
+function assertIsoDate(value: string, field: string): string {
+  const trimmed = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) throw new Error(`${field}: огноог YYYY-MM-DD хэлбэрээр өгнө үү`);
+  return trimmed;
+}
+
 function resolveByIdPrefix<
   T extends { id: string; documentNo?: string | null; externalRef?: string | null },
 >(rows: T[], idOrPrefix: string, what: string): T {
@@ -5014,17 +5026,19 @@ async function runPostJournal(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const vouchers = await db.query.journalVouchers.findMany({
-    where: eq(journalVouchers.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (сүүлийн 500 журналаас хайдаг байсан).
+    where: and(eq(journalVouchers.organizationId, orgId), refCondition({ id: journalVouchers.id, documentNo: journalVouchers.documentNo, externalRef: journalVouchers.externalRef }, input.voucherId)),
     columns: {
       id: true,
       documentNo: true,
+      externalRef: true,
       status: true,
       description: true,
       date: true,
     },
     with: { lines: { columns: { debit: true } } },
     orderBy: [desc(journalVouchers.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const voucher = resolveVoucherRef(vouchers, input.voucherId);
   if (voucher.status !== "draft")
@@ -5049,16 +5063,18 @@ async function runDeleteJournal(
   input: { voucherId: string }
 ): Promise<AiToolResult> {
   const vouchers = await db.query.journalVouchers.findMany({
-    where: eq(journalVouchers.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (сүүлийн 500 журналаас хайдаг байсан).
+    where: and(eq(journalVouchers.organizationId, orgId), refCondition({ id: journalVouchers.id, documentNo: journalVouchers.documentNo, externalRef: journalVouchers.externalRef }, input.voucherId)),
     columns: {
       id: true,
       documentNo: true,
+      externalRef: true,
       status: true,
       description: true,
       date: true,
     },
     orderBy: [desc(journalVouchers.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const voucher = resolveVoucherRef(vouchers, input.voucherId);
   // SIM2-046: батлагдсан журнал устгагдахгүй — буцаалтаар залруулна.
@@ -6277,13 +6293,18 @@ async function runReverseFaDepreciation(
 
 // ── GL нэмэлт гүйцэтгэгчид ──────────────────────────────────────────────────
 
-async function loadVouchers(orgId: string) {
-  return db.query.journalVouchers.findMany({
-    where: eq(journalVouchers.organizationId, orgId),
+/** Журналыг мөртэй нь лавлагаагаар (дугаар, externalRef, ID угтвар) — цонхгүй, DB-ээс шууд. */
+async function findVoucherWithLines(orgId: string, ref: string) {
+  const rows = await db.query.journalVouchers.findMany({
+    where: and(
+      eq(journalVouchers.organizationId, orgId),
+      refCondition({ id: journalVouchers.id, documentNo: journalVouchers.documentNo, externalRef: journalVouchers.externalRef }, ref)
+    ),
     with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
     orderBy: [desc(journalVouchers.createdAt)],
-    limit: 500,
+    limit: 50,
   });
+  return resolveVoucherRef(rows, ref);
 }
 
 async function runGetJournal(
@@ -6291,7 +6312,7 @@ async function runGetJournal(
   input: { voucherId: string }
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
-  const voucher = resolveVoucherRef(await loadVouchers(orgId), input.voucherId);
+  const voucher = await findVoucherWithLines(orgId, input.voucherId);
   const statusLabels: Record<string, string> = {
     draft: "ноорог",
     posted: "батлагдсан",
@@ -6319,7 +6340,7 @@ async function runUpdateJournal(
   }
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
-  const voucher = resolveVoucherRef(await loadVouchers(orgId), input.voucherId);
+  const voucher = await findVoucherWithLines(orgId, input.voucherId);
   if (voucher.status !== "draft")
     throw new Error(`Зөвхөн ноорог журналыг засна (төлөв: ${voucher.status})`);
 
@@ -6362,7 +6383,7 @@ async function runReverseJournal(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
-  const voucher = resolveVoucherRef(await loadVouchers(orgId), input.voucherId);
+  const voucher = await findVoucherWithLines(orgId, input.voucherId);
   if (voucher.status !== "posted")
     throw new Error(`Зөвхөн батлагдсан журналыг буцаана (төлөв: ${voucher.status})`);
   const total = voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0);
@@ -6907,27 +6928,35 @@ async function runListArapDocuments(
   }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
-  const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+  // Шүүлт DB-д — сүүлийн 400 баримтын цонхонд шүүдэг байсан тул том
+  // байгууллагад хуучин нээлттэй нэхэмжлэх «олдсонгүй» гардаг байв.
+  const cpQuery = input.counterparty?.trim().toLowerCase();
+  const conditions: SQL[] = [eq(arApDocuments.organizationId, orgId)];
+  if (input.documentType) conditions.push(eq(arApDocuments.documentType, input.documentType));
+  if (input.status) conditions.push(eq(arApDocuments.status, input.status));
+  if (cpQuery)
+    conditions.push(
+      inArray(
+        arApDocuments.counterpartyId,
+        db
+          .select({ id: counterparties.id })
+          .from(counterparties)
+          .where(and(eq(counterparties.organizationId, orgId), sql`strpos(lower(${counterparties.name}), ${cpQuery}) > 0`))
+      )
+    );
+  if (input.from) conditions.push(gte(arApDocuments.date, assertIsoDate(input.from, "from")));
+  if (input.to) conditions.push(lte(arApDocuments.date, assertIsoDate(input.to, "to")));
+  if (input.openOnly)
+    conditions.push(
+      sql`${arApDocuments.totalAmount} - ${arApDocuments.paidAmount} > 0.01`,
+      notInArray(arApDocuments.status, ["draft", "reversed"])
+    );
+  const filtered = await db.query.arApDocuments.findMany({
+    where: and(...conditions),
     with: { counterparty: { columns: { name: true } } },
     orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
-    limit: 400,
+    limit,
   });
-  const cpQuery = input.counterparty?.trim().toLowerCase();
-  const filtered = documents
-    .filter((doc) => {
-      const balance = Number(doc.totalAmount) - Number(doc.paidAmount);
-      if (input.documentType && doc.documentType !== input.documentType) return false;
-      if (input.status && doc.status !== input.status) return false;
-      if (cpQuery && !(doc.counterparty?.name ?? "").toLowerCase().includes(cpQuery))
-        return false;
-      if (input.from && doc.date < input.from) return false;
-      if (input.to && doc.date > input.to) return false;
-      if (input.openOnly && !(balance > 0.01 && doc.status !== "draft" && doc.status !== "reversed"))
-        return false;
-      return true;
-    })
-    .slice(0, limit);
   if (filtered.length === 0) return { resultText: "Тохирох нэхэмжлэх олдсонгүй" };
   return {
     resultText: filtered
@@ -7921,22 +7950,27 @@ async function runListFixedAssets(
   orgId: string,
   input: { status?: string }
 ): Promise<AiToolResult> {
-  const assets = await db.query.fixedAssets.findMany({
-    where: eq(fixedAssets.organizationId, orgId),
+  // Төлөвийн шүүлт DB-д (сүүлийн 200-гийн цонхонд шүүдэг байсан).
+  const pageSize = 200;
+  const filtered = await db.query.fixedAssets.findMany({
+    where: and(
+      eq(fixedAssets.organizationId, orgId),
+      input.status ? eq(fixedAssets.status, input.status) : undefined
+    ),
     orderBy: [desc(fixedAssets.createdAt)],
-    limit: 200,
+    limit: pageSize + 1,
   });
-  const filtered = assets.filter(
-    (asset) => !input.status || asset.status === input.status
-  );
   if (filtered.length === 0) return { resultText: "Хөрөнгө олдсонгүй" };
+  const truncated = filtered.length > pageSize;
   return {
-    resultText: filtered
-      .map(
-        (asset) =>
-          `${asset.code} · ${asset.name} · өртөг ${fmt(Number(asset.cost))} · ${asset.usefulLifeMonths} сар · ${asset.status}`
-      )
-      .join("\n"),
+    resultText:
+      filtered
+        .slice(0, pageSize)
+        .map(
+          (asset) =>
+            `${asset.code} · ${asset.name} · өртөг ${fmt(Number(asset.cost))} · ${asset.usefulLifeMonths} сар · ${asset.status}`
+        )
+        .join("\n") + (truncated ? `\n… сүүлийн ${pageSize} хөрөнгө харуулав — status-аар нарийсгана уу` : ""),
   };
 }
 
@@ -9878,21 +9912,20 @@ async function runListAuditEvents(
   input: { entityType?: string; action?: string; from?: string; to?: string; limit?: number }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
-  const rows = await db.query.auditEvents.findMany({
-    where: eq(auditEvents.organizationId, orgId),
+  // Шүүлт DB-д — сүүлийн 400 бичлэгийн цонхонд шүүдэг байсан тул хуучин
+  // үйлдэл (жишээ нь өнгөрсөн жилийн устгалт) олдохгүй байв. Огноо UTC-аар (өмнөхтэй ижил).
+  const conditions: SQL[] = [eq(auditEvents.organizationId, orgId)];
+  if (input.entityType) conditions.push(eq(auditEvents.entityType, input.entityType));
+  if (input.action) conditions.push(eq(auditEvents.action, input.action));
+  if (input.from)
+    conditions.push(sql`(${auditEvents.createdAt} at time zone 'UTC')::date >= ${assertIsoDate(input.from, "from")}::date`);
+  if (input.to)
+    conditions.push(sql`(${auditEvents.createdAt} at time zone 'UTC')::date <= ${assertIsoDate(input.to, "to")}::date`);
+  const filtered = await db.query.auditEvents.findMany({
+    where: and(...conditions),
     orderBy: [desc(auditEvents.createdAt)],
-    limit: 400,
+    limit,
   });
-  const filtered = rows
-    .filter((row) => {
-      const date = row.createdAt.toISOString().slice(0, 10);
-      if (input.entityType && row.entityType !== input.entityType) return false;
-      if (input.action && row.action !== input.action) return false;
-      if (input.from && date < input.from) return false;
-      if (input.to && date > input.to) return false;
-      return true;
-    })
-    .slice(0, limit);
   if (filtered.length === 0) return { resultText: "Тохирох аудитын бичлэг олдсонгүй" };
   return {
     resultText: filtered
@@ -10614,7 +10647,11 @@ function poActionStatus(status: string): AiAction["status"] {
 /** Захиалгыг дугаар, externalRef эсвэл ID-гаар олно (findArapDocument-тай ижил). */
 async function findPurchaseOrder(orgId: string, idOrNo: string) {
   const orders = await db.query.purchaseOrders.findMany({
-    where: eq(purchaseOrders.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (сүүлийн 1000 захиалгаас хайдаг байсан).
+    where: and(
+      eq(purchaseOrders.organizationId, orgId),
+      refCondition({ id: purchaseOrders.id, documentNo: purchaseOrders.documentNo, externalRef: purchaseOrders.externalRef }, String(idOrNo ?? ""))
+    ),
     columns: {
       id: true,
       documentNo: true,
@@ -10625,7 +10662,7 @@ async function findPurchaseOrder(orgId: string, idOrNo: string) {
       totalAmount: true,
     },
     orderBy: [desc(purchaseOrders.createdAt)],
-    limit: 1000,
+    limit: 50,
   });
   const raw = String(idOrNo ?? "");
   const query = raw.trim().toLowerCase();
@@ -10644,10 +10681,14 @@ async function findPurchaseOrder(orgId: string, idOrNo: string) {
 /** Хүлээн авалтыг дугаар (GR-…) эсвэл ID-гаар олно. */
 async function findGoodsReceipt(orgId: string, idOrNo: string) {
   const receipts = await db.query.goodsReceipts.findMany({
-    where: eq(goodsReceipts.organizationId, orgId),
-    columns: { id: true, documentNo: true, status: true, date: true },
+    // Цонхгүй — лавлагаагаар шууд (сүүлийн 1000 хүлээн авалтаас хайдаг байсан).
+    where: and(
+      eq(goodsReceipts.organizationId, orgId),
+      refCondition({ id: goodsReceipts.id, documentNo: goodsReceipts.documentNo, externalRef: goodsReceipts.externalRef }, String(idOrNo ?? ""))
+    ),
+    columns: { id: true, documentNo: true, externalRef: true, status: true, date: true },
     orderBy: [desc(goodsReceipts.createdAt)],
-    limit: 1000,
+    limit: 50,
   });
   const raw = String(idOrNo ?? "");
   const byNo = receipts.filter(
@@ -10660,16 +10701,21 @@ async function findGoodsReceipt(orgId: string, idOrNo: string) {
 /** Хуваарилалтыг дугаар (ALLOC-…) эсвэл ID-гаар олно. */
 async function findCostAllocation(orgId: string, idOrNo: string) {
   const rows = await db.query.costAllocations.findMany({
-    where: eq(costAllocations.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (сүүлийн 1000 хуваарилалтаас хайдаг байсан).
+    where: and(
+      eq(costAllocations.organizationId, orgId),
+      refCondition({ id: costAllocations.id, documentNo: costAllocations.documentNo, externalRef: costAllocations.externalRef }, String(idOrNo ?? ""))
+    ),
     columns: {
       id: true,
       documentNo: true,
+      externalRef: true,
       date: true,
       totalAmount: true,
       allocationBase: true,
     },
     orderBy: [desc(costAllocations.createdAt)],
-    limit: 1000,
+    limit: 50,
   });
   const raw = String(idOrNo ?? "");
   const byNo = rows.filter(
@@ -11789,11 +11835,16 @@ async function runCreateCostAllocation(
     throw new Error("Зорилт бүрд movementId хэрэгтэй");
   if (targets.length > 0) {
     // Угтвар ID-г бүтэн болгоно — server action бүтэн UUID шаарддаг.
+    // Цонхгүй — зорилтын лавлагаагаар шууд (сүүлийн 1000 хөдөлгөөнөөс хайдаг байсан).
+    const refColumns = { id: inventoryMovements.id, documentNo: inventoryMovements.documentNo, externalRef: inventoryMovements.externalRef };
     const movements = await db.query.inventoryMovements.findMany({
-      where: eq(inventoryMovements.organizationId, orgId),
-      columns: { id: true },
+      where: and(
+        eq(inventoryMovements.organizationId, orgId),
+        or(...targets.map((target) => refCondition(refColumns, String(target.movementId))))
+      ),
+      columns: { id: true, documentNo: true, externalRef: true },
       orderBy: [desc(inventoryMovements.createdAt)],
-      limit: 1000,
+      limit: 50 * targets.length,
     });
     targets = targets.map((target) => ({
       ...target,
@@ -11996,21 +12047,27 @@ async function findPosSale(orgId: string, idOrNo: string) {
   const query = idOrNo.trim();
   if (!query) throw codedError("SALE_NOT_FOUND", "Борлуулалтын дугаар эсвэл ID өгнө үү");
   const rows = await db.query.posSales.findMany({
-    where: eq(posSales.organizationId, orgId),
-    columns: { id: true, documentNo: true, isReturn: true, status: true, total: true, date: true },
+    // Цонхгүй — лавлагаагаар шууд (сүүлийн 1000 борлуулалтаас хайдаг байсан).
+    where: and(
+      eq(posSales.organizationId, orgId),
+      refCondition({ id: posSales.id, documentNo: posSales.documentNo, externalRef: posSales.externalRef }, query)
+    ),
+    columns: { id: true, documentNo: true, externalRef: true, isReturn: true, status: true, total: true, date: true },
     orderBy: [desc(posSales.soldAt)],
-    limit: 1000,
+    limit: 50,
   });
   const lower = query.toLowerCase();
   const byNo = rows.filter((row) => row.documentNo.toLowerCase() === lower);
   if (byNo.length === 1) return byNo[0];
+  const byRef = rows.filter((row) => row.externalRef?.toLowerCase() === lower);
+  if (byRef.length === 1) return byRef[0];
   if (query.length >= 6) {
     const byId = rows.filter((row) => row.id.startsWith(lower));
     if (byId.length === 1) return byId[0];
     if (byId.length > 1)
       throw codedError("SALE_AMBIGUOUS", `"${query}" угтвартай ${byId.length} борлуулалт таарлаа — бүтэн ID өгнө үү`);
   }
-  throw codedError("SALE_NOT_FOUND", `"${query}" борлуулалт олдсонгүй (сүүлийн 1000 баримтаас хайв) — list_pos_sales-ээр шалгана уу`);
+  throw codedError("SALE_NOT_FOUND", `"${query}" борлуулалт олдсонгүй — list_pos_sales-ээр шалгана уу`);
 }
 
 async function posShiftFor(orgId: string, warehouseCode?: string, shiftRef?: string) {

@@ -546,6 +546,8 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
   таамаглахгүй; `externalRef`-ээр idempotent — мөнгө/бараа/tenant үүсгэдэг ШИНЭ
   tool бүр externalRef авч `lib/idempotency.ts`-ийн хэв маягаар (runner-т урьдчилж
   хайх + `_org_external_ref_uq` + `isExternalRefConflict`) давхардлыг барина
+- Баримт хайх, жагсаалтын шүүлт ЦОНХГҮЙ — DB-д шууд (`refCondition`); «сүүлийн N-ийг
+  ачаалаад JS-д хайх» ХОРИОТОЙ (хуучин баримт «олдсонгүй» → AI давхар үүсгэнэ)
 - Бичилт ноорог-first + батлах хязгаар (§9); бичилтийн горим `ai_settings.write_mode`
 - Бүх нууц (OAuth code/access/refresh, PAT) зөвхөн sha256 hash
 - Анхны туршилтын карт, `STARTER_PROMPTS` НЭГ эх (`lib/onboarding/first-run.ts`);
