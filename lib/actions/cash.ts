@@ -1,5 +1,6 @@
 "use server";
 
+import { stateChangedError, unchangedSince } from "@/lib/state-guard";
 import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
@@ -1064,6 +1065,23 @@ async function isOpeningMirror(orgId: string, voucherId: string) {
   return !!voucher && cashOpeningAccountIdOf(voucher) !== null;
 }
 
+/**
+ * Батлах claim-ийн нөхцөл (C4): журнал/settlement-ийг бүрдүүлдэг талбарууд
+ * транзакцаас гадна уншсанаасаа өөрчлөгдөөгүй байх — зэрэгцээ
+ * updateCashDocument дүн/огноо/дансыг сольсон бол хуучин утгаар батлахгүй.
+ */
+function cashDocumentUnchanged(document: typeof cashDocuments.$inferSelect) {
+  return unchangedSince([
+    [cashDocuments.date, document.date],
+    [cashDocuments.amount, document.amount],
+    [cashDocuments.baseAmount, document.baseAmount],
+    [cashDocuments.exchangeRate, document.exchangeRate],
+    [cashDocuments.counterAccountNumber, document.counterAccountNumber],
+    [cashDocuments.counterpartyId, document.counterpartyId],
+    [cashDocuments.description, document.description],
+  ]);
+}
+
 async function postCashDocumentCore(
   id: string,
   options?: { exchangeRate?: number }
@@ -1117,13 +1135,14 @@ async function postCashDocumentCore(
         and(
           eq(cashDocuments.id, id),
           eq(cashDocuments.organizationId, orgId),
-          eq(cashDocuments.status, "draft")
+          eq(cashDocuments.status, "draft"),
+          cashDocumentUnchanged(document)
         )
       )
       .returning({ id: cashDocuments.id });
     // Lost race (someone else already posted it): report it instead of
     // pretending this caller's rate was applied.
-    if (!claimed) throw new Error("Баримтын төлөв өөрчлөгдсөн байна");
+    if (!claimed) throw stateChangedError();
     await logAuditEvent({
       userId,
       organizationId: orgId,
@@ -1227,12 +1246,13 @@ async function postCashDocumentCore(
         and(
           eq(cashDocuments.id, id),
           eq(cashDocuments.organizationId, orgId),
-          eq(cashDocuments.status, "draft")
+          eq(cashDocuments.status, "draft"),
+          // Журнал транзакцаас ГАДНА уншсан утгаар бичигдэнэ (C4).
+          cashDocumentUnchanged(document)
         )
       )
       .returning({ id: cashDocuments.id });
-    if (!claimed)
-      throw new Error("Баримтын төлөв өөрчлөгдсөн байна");
+    if (!claimed) throw stateChangedError();
 
     const [voucher] = await tx
       .insert(journalVouchers)
@@ -1575,11 +1595,18 @@ async function deleteCashDocumentCore(id: string) {
   assertNotPosSourced(document, "устгах");
 
   if (document.status === "draft") {
-    await db
+    // Ноорог хэвээр үед л (C4) — зэрэгцээ батлалтын журнал GL-д өнчин үлдэхгүй.
+    const [removedDraft] = await db
       .delete(cashDocuments)
       .where(
-        and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId))
-      );
+        and(
+          eq(cashDocuments.id, id),
+          eq(cashDocuments.organizationId, orgId),
+          eq(cashDocuments.status, "draft")
+        )
+      )
+      .returning({ id: cashDocuments.id });
+    if (!removedDraft) throw stateChangedError();
     await logAuditEvent({
       userId,
       organizationId: orgId,
@@ -1623,6 +1650,25 @@ async function deleteCashDocumentCore(id: string) {
     // транзакц-доторх шалгалт; QPay-ийн холбоосыг ч дахин шалгана.
     await assertPeriodOpenInTx(tx, orgId, document.date);
     await assertNotQpaySettlement(tx, orgId, id);
+    // Мөрийг түгжиж уншсан төлөв/журналуудтай тулгана (C4): хооронд нь
+    // буцаалт орсон бол түүний журнал устгах жагсаалтад байхгүй — GL-д өнчин үлдэнэ.
+    const [locked] = await tx
+      .select({ id: cashDocuments.id })
+      .from(cashDocuments)
+      .where(
+        and(
+          eq(cashDocuments.id, id),
+          eq(cashDocuments.organizationId, orgId),
+          unchangedSince([
+            [cashDocuments.status, document.status],
+            [cashDocuments.voucherId, document.voucherId],
+            [cashDocuments.reversalVoucherId, document.reversalVoucherId],
+            [cashDocuments.sourceVoucherId, document.sourceVoucherId],
+          ])
+        )
+      )
+      .for("update");
+    if (!locked) throw stateChangedError();
 
     // 1. Нэхэмжлэхийн төлөлт байсан бол буцаана — үлдэгдэл, төлөв сэргэнэ.
     const settlements = await tx.query.arApSettlements.findMany({
@@ -2458,7 +2504,9 @@ export async function updateCashDocument(
           counterparty: document.counterparty,
         };
 
-  await db
+  // Ноорог хэвээр үед л (C4) — зэрэгцээ батлалт commit хийсэн бол
+  // батлагдсан баримтын дүнг GL журналаас салгаж өөрчлөхгүй.
+  const [written] = await db
     .update(cashDocuments)
     .set({
       date,
@@ -2470,7 +2518,15 @@ export async function updateCashDocument(
       counterparty: counterpartyLink.counterparty,
       counterpartyId: counterpartyLink.counterpartyId,
     })
-    .where(and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId)));
+    .where(
+      and(
+        eq(cashDocuments.id, id),
+        eq(cashDocuments.organizationId, orgId),
+        eq(cashDocuments.status, "draft")
+      )
+    )
+    .returning({ id: cashDocuments.id });
+  if (!written) throw stateChangedError();
 
   revalidateCash();
   return { documentNo: document.documentNo };

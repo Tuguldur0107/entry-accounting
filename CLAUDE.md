@@ -137,6 +137,11 @@ entry-accounting/
   дүнгийн хэв маягтай панелийн loader-ууд (тестийн KNOWN_UNGUARDED-д ил
   бүртгэлтэй). Server талын дуудагч (lib/ai/tools.ts) `unwrapAction`-оор
   шидэлтээ хадгална.
+- **Зэрэгцээ үйлдэл (C4):** баримтыг уншаад засах/устгах/батлах бичилт бүр уншсан
+  төлөвтөө НӨХЦӨЛТЭЙ — `WHERE status = <уншсан>` (+ батлалтад журнал бүрдүүлэх
+  талбар өөрчлөгдөөгүй, `unchangedSince`) + `RETURNING`, 0 мөр → `stateChangedError()`
+  (`lib/state-guard.ts`); `where id = …` дангаараа ХОРИОТОЙ. Тест
+  `tests/concurrent-state-guards.test.ts` (уралдааныг түгжээгээр тодорхой давтана)
 - **Нэмэх модулиуд:** periods/, vat/, payroll/ — тус бүрийн үед `app/(dashboard)/` доор нэмнэ
 - **Гишүүний эрх — ХОЁР давхарга** (`lib/permissions.ts` цэвэр, `lib/auth.ts` DB):
   - **Route guard:** модулийн хавтас бүрийн `layout.tsx`-д

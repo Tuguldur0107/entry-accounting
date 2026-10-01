@@ -1,5 +1,6 @@
 "use server";
 
+import { stateChangedError, unchangedSince } from "@/lib/state-guard";
 import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePathSafe } from "@/lib/next/revalidate";
 
@@ -1667,6 +1668,26 @@ export async function createArApDocument(
 
 // Ноорог АР/АП баримтыг батлах: create(postNow)-тэй ижил журналын бичилтийг
 // хадгалагдсан мөрүүдээс үүсгэнэ (base дүнг баримтын ханшаар дахин тооцно).
+/** Мөрүүдийн тулгалтын түлхүүр (C4) — дараалал хамаарахгүй. */
+function arapLinesSignature(
+  lines: { id: string; accountNumber: string; amount: string; itemId: string | null; quantity: string | null; warehouseId: string | null }[]
+): string {
+  // Тоог ТООГООР (numeric-ийн "10000.00" ба "10000" ижил).
+  return lines
+    .map((line) =>
+      [
+        line.id,
+        line.accountNumber,
+        Number(line.amount),
+        line.itemId,
+        line.quantity == null ? null : Number(line.quantity),
+        line.warehouseId,
+      ].join("|")
+    )
+    .sort()
+    .join("\n");
+}
+
 async function postArApDocumentCore(id: string) {
   const { orgId, userId } = await getActiveOrg();
   const document = await db.query.arApDocuments.findFirst({
@@ -1782,6 +1803,9 @@ async function postArApDocumentCore(id: string) {
       );
       if (overrun) throw new Error(overrun);
     }
+    // Claim нь баримтыг ТРАНЗАКЦААС ГАДНА уншсан утгатай нь тулгана (C4):
+    // хооронд нь зэрэгцээ засвар дүн/огноо/данс/мөрийг сольсон бол журнал
+    // хуучин утгаар бичигдэж дэд дэвтэр ↔ GL зөрнө — ил алдаагаар буцаана.
     const [claimed] = await tx
       .update(arApDocuments)
       .set({ status: "posted", postedAt: new Date() })
@@ -1789,11 +1813,27 @@ async function postArApDocumentCore(id: string) {
         and(
           eq(arApDocuments.id, id),
           eq(arApDocuments.organizationId, orgId),
-          eq(arApDocuments.status, "draft")
+          eq(arApDocuments.status, "draft"),
+          unchangedSince([
+            [arApDocuments.date, document.date],
+            [arApDocuments.totalAmount, document.totalAmount],
+            [arApDocuments.exchangeRate, document.exchangeRate],
+            [arApDocuments.controlAccountNumber, document.controlAccountNumber],
+            [arApDocuments.counterpartyId, document.counterpartyId],
+            [arApDocuments.description, document.description],
+          ])
         )
       )
       .returning({ id: arApDocuments.id });
-    if (!claimed) throw new Error("Баримтын төлөв өөрчлөгдсөн байна");
+    if (!claimed) throw stateChangedError();
+    // Мөр солих засвар баримтын мөрийг ч түгждэг тул claim түүнийг хүлээсэн —
+    // одоо харагдах мөрүүд уншсантай ИЖИЛ байх ёстой.
+    const currentLines = await tx.query.arApDocumentLines.findMany({
+      where: eq(arApDocumentLines.documentId, id),
+      columns: { id: true, accountNumber: true, amount: true, itemId: true, quantity: true, warehouseId: true },
+    });
+    if (arapLinesSignature(currentLines) !== arapLinesSignature(document.lines))
+      throw stateChangedError();
 
     const [voucher] = await tx
       .insert(journalVouchers)
@@ -2318,9 +2358,24 @@ async function deleteArApDocumentCore(id: string) {
             )
           );
       }
-      await tx
+      // Уншсан төлөв, төлөлт, журналуудтай нь ИЖИЛ үед л (C4) — хооронд нь
+      // төлөлт/буцаалт орсон бол тэдгээрийн журнал GL-д өнчин үлдэнэ.
+      const [removed] = await tx
         .delete(arApDocuments)
-        .where(and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)));
+        .where(
+          and(
+            eq(arApDocuments.id, id),
+            eq(arApDocuments.organizationId, orgId),
+            unchangedSince([
+              [arApDocuments.status, document.status],
+              [arApDocuments.paidAmount, document.paidAmount],
+              [arApDocuments.voucherId, document.voucherId],
+              [arApDocuments.reversalVoucherId, document.reversalVoucherId],
+            ])
+          )
+        )
+        .returning({ id: arApDocuments.id });
+      if (!removed) throw stateChangedError();
       for (const voucherId of voucherIds) {
         await tx
           .delete(journalVouchers)
@@ -2354,9 +2409,18 @@ async function deleteArApDocumentCore(id: string) {
   }
 
   // Мөрүүд FK cascade-аар хамт устна; ноорогт settlement/journal холбоос байхгүй.
-  await db
+  // Ноорог хэвээр үед л (C4) — зэрэгцээ батлалтын журнал GL-д өнчин үлдэхгүй.
+  const [removedDraft] = await db
     .delete(arApDocuments)
-    .where(and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)));
+    .where(
+      and(
+        eq(arApDocuments.id, id),
+        eq(arApDocuments.organizationId, orgId),
+        eq(arApDocuments.status, "draft")
+      )
+    )
+    .returning({ id: arApDocuments.id });
+  if (!removedDraft) throw stateChangedError();
   await deleteAttachmentsFor(orgId, "arap", id);
 
   await logAuditEvent({
@@ -2571,12 +2635,20 @@ export async function updateArApDocument(
         lines: newLines,
         excludeDocumentId: id,
       });
-    await tx
+    // Ноорог хэвээр байгаа үед л (C4) — зэрэгцээ батлалт commit хийсэн бол
+    // батлагдсан баримтын дүн/мөрийг журналаас салгаж өөрчлөхгүй.
+    const [written] = await tx
       .update(arApDocuments)
       .set(updateValues)
       .where(
-        and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId))
-      );
+        and(
+          eq(arApDocuments.id, id),
+          eq(arApDocuments.organizationId, orgId),
+          eq(arApDocuments.status, "draft")
+        )
+      )
+      .returning({ id: arApDocuments.id });
+    if (!written) throw stateChangedError();
     if (newLines) {
       await tx
         .delete(arApDocumentLines)

@@ -122,6 +122,13 @@ tests/gl-currency.test.ts Хөрвүүлэлт, шингээлт, тэнцэл, 
   шинэ зам НЭМЭХГҮЙ (ноорог байх зуур л — `postVoucherCore`-ийн валютын
   дахин бодолт г.м.); тестийн fixture хуучин өгөгдөл дуурайхдаа
   `set local session_replication_role = replica`. Тест `tests/ledger-invariants.test.ts`
+- **Зэрэгцээ засвар/батлалт** (2026-10-01, ontology-audit C4, `lib/state-guard.ts`):
+  `updateVoucher` журналын мөрийг транзакцын эхэнд `FOR UPDATE` түгжиж ноорог эсэхийг
+  ДОТРОО шалгана, эцсийн бичилт `status = 'draft'`-тай — зэрэгцээ `postVoucher`
+  батлагдсан журналыг ноорог болгож дарж бичигдэхгүй. АР/АП, кассын засах/устгах ба
+  батлах замууд ижил хэв маягтай (claim нь транзакцаас гадна уншсан дүн/огноо/данс,
+  АР/АП-д мөрийн түлхүүрийг тулгана); 0 мөр → `[STATE_CHANGED]`. Тест
+  `tests/concurrent-state-guards.test.ts`
 - Sim harness: `tests/sim/README.md` — засварын дараа `compare.py` 0 зөрүү
 
 ### 3a. Сегментийн утгын стандарт жагсаалт + компанийн автомат сегмент

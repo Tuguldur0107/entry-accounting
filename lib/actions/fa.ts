@@ -1,5 +1,6 @@
 "use server";
 
+import { stateChangedError } from "@/lib/state-guard";
 import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
@@ -567,9 +568,19 @@ async function deleteFixedAssetCore(id: string) {
       );
   }
 
-  await db
+  // Уншсан төлөвтэй ИЖИЛ үед л (C4): хооронд нь идэвхжүүлж элэгдүүлсэн
+  // картыг шалгалтгүй устгахгүй. Элэгдлийн бичилт FK-аар хамгаалагдана.
+  const [removed] = await db
     .delete(fixedAssets)
-    .where(and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)));
+    .where(
+      and(
+        eq(fixedAssets.id, id),
+        eq(fixedAssets.organizationId, orgId),
+        eq(fixedAssets.status, asset.status)
+      )
+    )
+    .returning({ id: fixedAssets.id });
+  if (!removed) throw stateChangedError("Хөрөнгийн карт");
   if (capitalization?.status === "draft")
     await db
       .delete(journalVouchers)
@@ -999,11 +1010,18 @@ async function deleteDepreciationEntryCore(id: string) {
   if (!entry) return {};
   if (entry.status !== "draft")
     throw new Error("Зөвхөн ноорог бичилтийг устгана");
-  await db
+  // Ноорог хэвээр үед л (C4) — зэрэгцээ батлалтын журнал GL-д өнчин үлдэхгүй.
+  const [removed] = await db
     .delete(faDepreciationEntries)
     .where(
-      and(eq(faDepreciationEntries.id, id), eq(faDepreciationEntries.organizationId, orgId))
-    );
+      and(
+        eq(faDepreciationEntries.id, id),
+        eq(faDepreciationEntries.organizationId, orgId),
+        eq(faDepreciationEntries.status, "draft")
+      )
+    )
+    .returning({ id: faDepreciationEntries.id });
+  if (!removed) throw stateChangedError("Элэгдлийн бичилт");
   revalidateFa();
   return {};
 }
