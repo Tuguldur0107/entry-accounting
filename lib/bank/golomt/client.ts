@@ -28,7 +28,7 @@ export type GolomtCredentials = {
   registerNo: string;
 };
 
-type Grant = { clientId: string; state: string; scope: string };
+export type GolomtGrant = { clientId: string; state: string; scope: string };
 type Json = Record<string, unknown>;
 
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -48,13 +48,62 @@ export class GolomtApiError extends Error {
   }
 }
 
-/** SPEC §4.3 — client_id/state/scope хоосон үед ирэх OAuth grant хариу. */
+/**
+ * SPEC §4.3 — client_id/state/scope хоосон үед ирэх OAuth grant хариу:
+ * `{clientId, responseType, redirectUri, state, scope}` эсвэл зарим
+ * үйлчилгээнд `{url: "…?response_type=code&client_id=…&state=…&scope=…"}`.
+ */
 export function isGolomtGrantResponse(value: unknown): value is Json {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Json;
   return (
     typeof record.redirectUri === "string" ||
-    (record.responseType === "code" && typeof record.state === "string")
+    (record.responseType === "code" && typeof record.state === "string") ||
+    (typeof record.url === "string" && /[?&]response_type=code\b/.test(record.url))
+  );
+}
+
+/** Grant хариунаас дараагийн хүсэлтийн client_id/state/scope. */
+export function golomtGrantParams(record: Json): GolomtGrant {
+  let fromUrl: URLSearchParams | null = null;
+  if (typeof record.url === "string") {
+    try {
+      fromUrl = new URL(record.url).searchParams;
+    } catch {
+      fromUrl = null;
+    }
+  }
+  const pick = (key: string, urlKey: string) => {
+    const direct = record[key];
+    if (typeof direct === "string" && direct.trim()) return direct.trim();
+    return fromUrl?.get(urlKey)?.trim() ?? "";
+  };
+  return {
+    clientId: pick("clientId", "client_id"),
+    state: pick("state", "state"),
+    scope: pick("scope", "scope"),
+  };
+}
+
+/** Алдааны мессежид аль алхам унасныг хэрэглэгчид нэрлэнэ. */
+const STEP_LABELS: Record<string, string> = {
+  LGIN: "нэвтрэх",
+  ACCTLST: "дансны жагсаалт",
+  ACCTBALINQ: "дансны үлдэгдэл",
+  OPERACCSTAINQ: "хуулга татах",
+};
+
+function stepLabel(service: string): string {
+  return STEP_LABELS[service] ?? service;
+}
+
+/**
+ * Банкны алдааг серверийн логт бичнэ — алхам, HTTP статус, банкны алдааны
+ * код/текст л. Нууц (нууц үг, түлхүүр, токен) болон хариуны өгөгдөл ОРОХГҮЙ.
+ */
+function logBankFailure(service: string, status: number | null, message: string) {
+  console.warn(
+    `[golomt] ${service} (${stepLabel(service)}) амжилтгүй — HTTP ${status ?? "-"}: ${message.slice(0, 300)}`
   );
 }
 
@@ -70,7 +119,7 @@ function stringField(record: Json, ...keys: string[]): string {
  * Банкны алдааны хариунаас ойлгомжтой мессеж. Голомтын ерөнхий
  * «Please contact bank administrator…» мессежийг статусаар нь тайлбарлана.
  */
-function describeFailure(status: number, body: string): string {
+function describeFailure(service: string, status: number, body: string): string {
   let message = "";
   try {
     const parsed = JSON.parse(body) as Json;
@@ -78,19 +127,21 @@ function describeFailure(status: number, body: string): string {
   } catch {
     // шифрлэгдсэн эсвэл хоосон
   }
+  logBankFailure(service, status, message || body.slice(0, 120));
+  const step = stepLabel(service);
   if (!message || /contact bank administrator/i.test(message)) {
     if (status === 401 || status === 403)
-      return `Голомт банк хандалтыг зөвшөөрсөнгүй (HTTP ${status}) — нэвтрэх нэр, нууц үг, түлхүүрээ шалгана уу`;
-    return `Голомт банкны сервис алдаа буцаалаа (HTTP ${status}) — дахин оролдох эсвэл банкны менежертэй холбогдоно уу`;
+      return `Голомт банк ${step} алхамд хандалтыг зөвшөөрсөнгүй (HTTP ${status}) — нэвтрэх нэр, нууц үг, түлхүүрээ шалгана уу`;
+    return `Голомт банкны сервис ${step} алхамд алдаа буцаалаа (HTTP ${status}) — дахин оролдох эсвэл банкны менежертэй холбогдоно уу`;
   }
-  return `Голомт банк: ${message}`;
+  return `Голомт банк (${step}, HTTP ${status}): ${message}`;
 }
 
 export class GolomtClient {
   private token: string | null = null;
   private refreshToken: string | null = null;
   private tokenIssuedAt = 0;
-  private grant: Grant | null = null;
+  private grant: GolomtGrant | null = null;
   private readonly base: string;
 
   constructor(
@@ -155,12 +206,15 @@ export class GolomtClient {
 
   private acceptToken(payload: Json) {
     const token = stringField(payload, "token", "Token", "accessToken");
-    if (!token)
+    if (!token) {
+      const message = stringField(payload, "errDesc", "message");
+      logBankFailure("LGIN", 200, message || "token ирээгүй");
       throw new GolomtApiError(
-        stringField(payload, "errDesc", "message")
-          ? `Голомт банк: ${stringField(payload, "errDesc", "message")}`
+        message
+          ? `Голомт банк (нэвтрэх): ${message}`
           : "Голомт банкинд нэвтэрч чадсангүй — нэвтрэх нэр, нууц үгээ шалгана уу"
       );
+    }
     this.token = token;
     this.refreshToken =
       stringField(payload, "refreshToken", "RefreshToken") || null;
@@ -182,7 +236,7 @@ export class GolomtClient {
       body,
     });
     if (status < 200 || status >= 300)
-      throw new GolomtApiError(describeFailure(status, text), status);
+      throw new GolomtApiError(describeFailure("LGIN", status, text), status);
     this.acceptToken(this.decode(text));
   }
 
@@ -219,12 +273,14 @@ export class GolomtClient {
     return this.token;
   }
 
+  /**
+   * SPEC §5 (алхам 2): эхний хүсэлтэд client_id, state, scope ГУРВУУЛАА хоосон —
+   * банк grant буцаасны дараа түүний утгуудаар дахин илгээнэ (алхам 7).
+   * Тохиргооны Client ID-г энд хэрэглэхгүй (2026-10-01 UAT: client_id-тай
+   * эхний хүсэлт `merchant.details.not.present` буцаасан).
+   */
   private query(): string {
-    const grant = this.grant ?? {
-      clientId: this.credentials.clientId ?? "",
-      state: "",
-      scope: "",
-    };
+    const grant = this.grant ?? { clientId: "", state: "", scope: "" };
     const params = new URLSearchParams({
       client_id: grant.clientId,
       state: grant.state,
@@ -241,6 +297,7 @@ export class GolomtClient {
   async call(service: string, path: string, payload: Json): Promise<Json> {
     const body = JSON.stringify(payload);
     const checksum = golomtChecksum(body, this.keys);
+    let consentUrl = "";
     for (let attempt = 0; attempt < 2; attempt++) {
       const token = await this.ensureToken();
       const { status, text } = await this.send(`${path}${this.query()}`, {
@@ -254,20 +311,26 @@ export class GolomtClient {
         body,
       });
       if (status < 200 || status >= 300)
-        throw new GolomtApiError(describeFailure(status, text), status);
+        throw new GolomtApiError(describeFailure(service, status, text), status);
       const decoded = this.decode(text);
+      // 200 хариутай ч банкны бизнес алдаа (status FAILED / errDesc) — чимээгүй
+      // хоосон үр дүн болгохгүй.
+      const bankError = stringField(decoded, "errDesc", "errorDesc");
+      if (bankError || decoded.status === "FAILED") {
+        const message = bankError || stringField(decoded, "message") || "FAILED";
+        logBankFailure(service, status, message);
+        throw new GolomtApiError(`Голомт банк (${stepLabel(service)}): ${message}`, status);
+      }
       if (!isGolomtGrantResponse(decoded)) return decoded;
+      consentUrl = typeof decoded.url === "string" ? decoded.url : consentUrl;
       if (attempt === 0) {
-        this.grant = {
-          clientId: stringField(decoded, "clientId") || (this.credentials.clientId ?? ""),
-          state: stringField(decoded, "state"),
-          scope: stringField(decoded, "scope"),
-        };
+        this.grant = golomtGrantParams(decoded);
         continue;
       }
     }
+    logBankFailure(service, null, "OAuth grant давтагдсан — харилцагчийн зөвшөөрөл дутуу");
     throw new GolomtApiError(
-      `Голомт банк ${service} үйлчилгээнд нэмэлт зөвшөөрөл (OAuth) шаардаж байна — банкны менежерээр энэ үйлчилгээг байгууллагын эрхэд нээлгэнэ үү`
+      `Голомт банк ${stepLabel(service)} (${service}) үйлчилгээнд харилцагчийн зөвшөөрөл (OAuth) шаардаж байна — ${consentUrl ? `зөвшөөрлийн холбоос: ${consentUrl}` : "банкны менежерээр энэ үйлчилгээг байгууллагын эрхэд нээлгэнэ үү"}`
     );
   }
 

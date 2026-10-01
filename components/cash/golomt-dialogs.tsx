@@ -77,9 +77,12 @@ export function GolomtConnectionDialog({
   const [error, setError] = useState("");
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
+  // Нууц утга client руу ХЭЗЭЭ Ч буцаж ирэхгүй (write-only) — хадгалагдсан
+  // гэдгийг placeholder-оор ил харуулна, хоосон талбар = хуучнаа хадгална.
   const secretHint = connection?.hasSecrets
-    ? "Хадгалагдсан — солих бол л шинээр бичнэ"
+    ? "Хадгалагдсан (аюулгүй байдлын үүднээс харагдахгүй) — солих бол л шинээр бичнэ"
     : null;
+  const secretPlaceholder = connection?.hasSecrets ? "•••••••• хадгалагдсан" : "";
 
   function save() {
     setError("");
@@ -196,6 +199,7 @@ export function GolomtConnectionDialog({
               <Input
                 id="golomt-password"
                 type="password"
+                placeholder={secretPlaceholder}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete="new-password"
@@ -205,6 +209,7 @@ export function GolomtConnectionDialog({
               <Input
                 id="golomt-session"
                 type="password"
+                placeholder={secretPlaceholder}
                 value={sessionKey}
                 onChange={(event) => setSessionKey(event.target.value)}
                 autoComplete="off"
@@ -214,6 +219,7 @@ export function GolomtConnectionDialog({
               <Input
                 id="golomt-iv"
                 type="password"
+                placeholder={secretPlaceholder}
                 value={ivKey}
                 onChange={(event) => setIvKey(event.target.value)}
                 autoComplete="off"
@@ -221,7 +227,7 @@ export function GolomtConnectionDialog({
             </FormField>
             <FormField
               label="Client ID"
-              hint="Банкнаас өгсөн бол — хоосон бол банкны хариунаас авна"
+              hint="Лавлагаанд — хүсэлтэд банкны OAuth хариунаас ирсэн client_id хэрэглэгдэнэ (SPEC §5)"
               htmlFor="golomt-client"
               className="sm:col-span-2"
             >
