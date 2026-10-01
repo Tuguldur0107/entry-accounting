@@ -565,6 +565,114 @@ async function deleteFixedAssetCore(id: string) {
  * GL журналыг нь АВТОМАТААР буцаагаад (аудитын мөр бүрэн) шинээр бодно —
  * ингэснээр журнал хэзээ ч ДАВХАРДАХГҮЙ.
  */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Тухайн сарын БАТЛАГДСАН элэгдлийн бичилтүүдийг ЖУРНАЛ тус бүрээр буцаана —
+ * ЦОРЫН ГАНЦ буцаалтын зам (дахин бодолт ба `reverseDepreciationMonth`).
+ *
+ * Сарын бүх элэгдэл НЭГ журналд нэгтгэгддэг (`postDepreciationMonth`) тул
+ * буцаалт бичилтээр БИШ журналаар явна: журнал бүрд нэг улаан сторно, тэр
+ * журналын БҮХ бичилт «буцаагдсан» болно — GL ба дэд дэвтэр хамт хөдөлнө.
+ * Журнал аль хэдийн буцаагдсан бол (2026-09-30-ны засвараас өмнөх бичилт
+ * бүрийн буцаалт ийм зөрчил үлдээдэг байв) ДАХИН сторно хийхгүй — байгаа
+ * буцаалтын журналд бичилтүүдийг холбож дэд дэвтрийг л засна.
+ */
+async function reverseDepreciationVouchersInTx(
+  tx: Tx,
+  input: { orgId: string; userId: string; month: string; description: string }
+): Promise<{ vouchers: number; entries: number; repaired: number; amount: number }> {
+  const { orgId, userId, month } = input;
+  const posted = await tx.query.faDepreciationEntries.findMany({
+    where: and(
+      eq(faDepreciationEntries.organizationId, orgId),
+      eq(faDepreciationEntries.periodMonth, month),
+      eq(faDepreciationEntries.status, "posted")
+    ),
+    columns: { id: true, voucherId: true, amount: true },
+  });
+  const voucherIds = [...new Set(posted.map((entry) => entry.voucherId))];
+  if (voucherIds.includes(null))
+    throw new Error("Батлагдсан элэгдлийн бичилт GL журналгүй байна — Entry багтай холбогдоно уу");
+
+  let vouchers = 0;
+  let repaired = 0;
+  let entries = 0;
+  for (const voucherId of voucherIds as string[]) {
+    const voucher = await tx.query.journalVouchers.findFirst({
+      where: and(eq(journalVouchers.id, voucherId), eq(journalVouchers.organizationId, orgId)),
+      with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
+    });
+    if (!voucher) throw new Error("Элэгдлийн GL журнал олдсонгүй");
+
+    let reversalId: string;
+    if (voucher.status === "posted") {
+      const [claimed] = await tx
+        .update(journalVouchers)
+        .set({ status: "reversed" })
+        .where(and(eq(journalVouchers.id, voucher.id), eq(journalVouchers.status, "posted")))
+        .returning({ id: journalVouchers.id });
+      if (!claimed) throw new Error("GL журналын төлөв өөрчлөгдсөн байна — дахин оролдоно уу");
+      const [reversal] = await tx
+        .insert(journalVouchers)
+        .values({
+          userId,
+          organizationId: orgId,
+          date: voucher.date,
+          description: input.description,
+          documentNo: await nextVoucherNo(tx, orgId, moduleOfVoucherNo(voucher.documentNo, "fa"), voucher.date),
+          status: "posted",
+          // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
+          reversalOfVoucherId: voucher.id,
+        })
+        .returning({ id: journalVouchers.id });
+      await tx.insert(journalLines).values(
+        voucher.lines.map((line, index) => ({
+          voucherId: reversal.id,
+          accountNumber: line.accountNumber,
+          // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+          ...stornoOf({ debit: line.debit, credit: line.credit }),
+          description: `Буцаалт: ${line.description ?? ""}`.trim(),
+          sortOrder: index,
+        }))
+      );
+      reversalId = reversal.id;
+      vouchers += 1;
+    } else if (voucher.status === "reversed") {
+      const existing = await tx.query.journalVouchers.findFirst({
+        where: and(
+          eq(journalVouchers.organizationId, orgId),
+          eq(journalVouchers.reversalOfVoucherId, voucher.id),
+          eq(journalVouchers.status, "posted")
+        ),
+        columns: { id: true },
+      });
+      if (!existing)
+        throw new Error("GL журнал буцаагдсан ч буцаалтын журнал нь олдсонгүй — Entry багтай холбогдоно уу");
+      reversalId = existing.id;
+    } else {
+      throw new Error("Элэгдлийн GL журнал ноорог төлөвтэй байна — Entry багтай холбогдоно уу");
+    }
+
+    const marked = await tx
+      .update(faDepreciationEntries)
+      .set({ status: "reversed", reversalVoucherId: reversalId })
+      .where(
+        and(
+          eq(faDepreciationEntries.organizationId, orgId),
+          eq(faDepreciationEntries.periodMonth, month),
+          eq(faDepreciationEntries.voucherId, voucher.id),
+          eq(faDepreciationEntries.status, "posted")
+        )
+      )
+      .returning({ id: faDepreciationEntries.id });
+    entries += marked.length;
+    if (voucher.status === "reversed") repaired += marked.length;
+  }
+  const amount = round2(posted.reduce((sum, entry) => sum + Number(entry.amount), 0));
+  return { vouchers, entries, repaired, amount };
+}
+
 export async function runDepreciation(data: {
   month: string;
 }): Promise<ActionResult<{ created: number; reversed: number }>> {
@@ -608,62 +716,14 @@ async function runDepreciationCore(data: { month: string }) {
         }),
       ]);
 
-      // ── Тухайн сарын байгаа бичилтийг цэвэрлэнэ ──────────────────────
-      const thisMonth = entries.filter((e) => e.periodMonth === data.month);
-      const postedVoucherIds = new Set(
-        thisMonth
-          .filter((e) => e.status === "posted" && e.voucherId)
-          .map((e) => e.voucherId as string)
-      );
-      let reversed = 0;
-
-      for (const voucherId of postedVoucherIds) {
-        const voucher = await tx.query.journalVouchers.findFirst({
-          where: and(
-            eq(journalVouchers.id, voucherId),
-            eq(journalVouchers.organizationId, orgId)
-          ),
-          with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
-        });
-        if (!voucher) continue;
-        const [reversal] = await tx
-          .insert(journalVouchers)
-          .values({
-            userId,
-            organizationId: orgId,
-            date: voucher.date,
-            description: `Элэгдлийн буцаалт (дахин бодолт) — ${data.month}`,
-            status: "posted",
-            reversalOfVoucherId: voucher.id,
-          })
-          .returning({ id: journalVouchers.id });
-        await tx.insert(journalLines).values(
-          voucher.lines.map((line, index) => ({
-            voucherId: reversal.id,
-            accountNumber: line.accountNumber,
-            // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
-            ...stornoOf({ debit: line.debit, credit: line.credit }),
-            description: `Буцаалт: ${line.description}`,
-            sortOrder: index,
-          }))
-        );
-        await tx
-          .update(journalVouchers)
-          .set({ status: "reversed" })
-          .where(eq(journalVouchers.id, voucher.id));
-        await tx
-          .update(faDepreciationEntries)
-          .set({ status: "reversed", reversalVoucherId: reversal.id })
-          .where(
-            and(
-              eq(faDepreciationEntries.organizationId, orgId),
-              eq(faDepreciationEntries.periodMonth, data.month),
-              eq(faDepreciationEntries.voucherId, voucher.id),
-              eq(faDepreciationEntries.status, "posted")
-            )
-          );
-        reversed += 1;
-      }
+      // ── Тухайн сарын батлагдсан элэгдлийг журналаар буцаана ──────────
+      // (нэгдсэн зам — буцаагдсан журналыг ДАХИН сторно хийхгүй).
+      const { vouchers: reversed } = await reverseDepreciationVouchersInTx(tx, {
+        orgId,
+        userId,
+        month: data.month,
+        description: `Элэгдлийн буцаалт (дахин бодолт) — ${data.month}`,
+      });
 
       // Ноорог бичилтийг устгана (дарж бичих).
       await tx
@@ -930,6 +990,20 @@ async function reverseDepreciationEntryCore(id: string) {
     with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
   });
   if (!voucher) throw new Error("Холбоотой GL журнал олдсонгүй");
+  // Сарын нэгтгэсэн журнал (postDepreciationMonth) олон хөрөнгийнх — нэг бичилтээр
+  // буцаавал журнал БҮТНЭЭРЭЭ буцаагдаж бусад бичилт «батлагдсан» үлдэнэ (GL ≠ дэд дэвтэр).
+  const siblings = await db.query.faDepreciationEntries.findMany({
+    where: and(
+      eq(faDepreciationEntries.organizationId, orgId),
+      eq(faDepreciationEntries.voucherId, voucher.id),
+      eq(faDepreciationEntries.status, "posted")
+    ),
+    columns: { id: true },
+  });
+  if (siblings.length > 1)
+    throw new Error(
+      `Энэ элэгдэл ${entry.periodMonth} сарын нэгтгэсэн журналд (${siblings.length} хөрөнгө) орсон тул нэг хөрөнгөөр буцаахгүй — сарын элэгдлийг бүхэлд нь буцаана уу (reverseDepreciationMonth)`
+    );
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
@@ -1006,6 +1080,59 @@ async function reverseDepreciationEntryCore(id: string) {
 
   revalidateFa();
   return {};
+}
+
+/**
+ * Тухайн сарын БАТЛАГДСАН элэгдлийг бүхэлд нь буцаана (AI `reverse_fa_depreciation`).
+ * Журнал тус бүрд нэг буцаалт, тэр журналын бүх бичилт «буцаагдсан» —
+ * `reverseDepreciationVouchersInTx`. Хуучин зөрчилтэй төлөвийг (журнал буцаагдсан,
+ * бичилт «батлагдсан») GL хөндөлгүй засна (`repaired`).
+ */
+export async function reverseDepreciationMonth(
+  month: string
+): Promise<ActionResult<{ vouchers: number; entries: number; repaired: number; amount: number }>> {
+  try {
+    return await reverseDepreciationMonthCore(month);
+  } catch (caught) {
+    return actionError("reverseDepreciationMonth", caught, "Элэгдэл буцаагдсангүй");
+  }
+}
+
+async function reverseDepreciationMonthCore(month: string) {
+  const { orgId, userId } = await requireModuleAction("fa", "post");
+  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("Сар (YYYY-MM) буруу байна");
+  const postingDate = `${month}-28`;
+  await assertPeriodOpen(orgId, postingDate);
+
+  const result = await db.transaction(async (tx) => {
+    // Дахин бодолттой ижил түгжээ — зэрэг ажиллахгүй.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 3)`);
+    await assertPeriodOpenInTx(tx, orgId, postingDate);
+    const reversed = await reverseDepreciationVouchersInTx(tx, {
+      orgId,
+      userId,
+      month,
+      description: `Элэгдлийн буцаалт — ${month}`,
+    });
+    if (reversed.entries === 0) throw new Error(`${month} сард батлагдсан элэгдлийн бичилт алга`);
+    await logAuditEvent(
+      {
+        userId,
+        organizationId: orgId,
+        action: "reverse",
+        entityType: "fa",
+        entityId: month,
+        summary:
+          `Элэгдэл буцаагдав — ${month}, ${reversed.entries} бичилт, ${reversed.vouchers} журнал, нийт ${reversed.amount.toLocaleString("en-US")}₮` +
+          (reversed.repaired > 0 ? ` (${reversed.repaired} бичилтийн өмнө буцаагдсан журналтай зөрүүг засав)` : ""),
+      },
+      tx
+    );
+    return reversed;
+  });
+
+  revalidateFa();
+  return result;
 }
 
 // ─── GL тулгалтын задаргаа (самбарын drill-down) ─────────────────────────────
