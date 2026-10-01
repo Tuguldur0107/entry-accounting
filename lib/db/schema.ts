@@ -4101,8 +4101,18 @@ export const posSettings = pgTable(
     // PosAPI-ийн нэхэмжлэхийн урсгал албан баталгаажаагүй (05 §3 Q1–Q2) тул
     // байгууллага өөрөө асаана; зөвхөн "server" горимд илгээгдэнэ.
     ebarimtArapEnabled: boolean("ebarimt_arap_enabled").notNull().default(false),
-    /** Төлөгдөөгүй дүнгийн eBarimt төлбөрийн код (05 Q2) — хоосон бол илгээхгүй (ил алдаа). */
+    /**
+     * Нэхэмжлэхийн төлбөрийн АЛБАН код (CASH / PAYMENT_CARD / BANK_TRANSFER /
+     * BANK_TRANSFER_QPAY, PAID) — хоосон/жагсаалтад байхгүй бол илгээхгүй (ил алдаа).
+     */
     ebarimtArapPaymentCode: text("ebarimt_arap_payment_code").notNull().default(""),
+    /**
+     * Нэхэмжлэхийн `receipts[].bankAccountNo` — мерчантад ТЕГ-д бүртгэлтэй данс
+     * (албан спек 3.0.1: нэхэмжлэхэд ЗААВАЛ; жагсаалт `/rest/bankAccounts?tin=`).
+     */
+    ebarimtArapBankAccountNo: text("ebarimt_arap_bank_account_no").notNull().default(""),
+    /** Тэр дансны IBAN (`receipts[].iBan`) — шилжилтийн үед заавал биш. */
+    ebarimtArapIban: text("ebarimt_arap_iban").notNull().default(""),
     /** Бараагүй (үйлчилгээний) мөрийн анхдагч ангиллын код (7 орон). */
     ebarimtArapClassificationCode: text("ebarimt_arap_classification_code").notNull().default(""),
     /** Орлогын үндсэн данс (S3) → ангиллын код; анхдагчаас түрүүлнэ. */
@@ -4337,6 +4347,12 @@ export const posSales = pgTable(
     ebarimtConsumerNo: text("ebarimt_consumer_no"),
     ebarimtCustomerTin: text("ebarimt_customer_tin"),
     /**
+     * B2B худалдан авагчийн регистр (кассчин оруулсан бол) ба НЭР — баримтад
+     * хэвлэнэ (ХСН шаардлага №16). Нэр ТЕГ-ийн лавлахаас; олдоогүй бол null (зохиохгүй).
+     */
+    ebarimtCustomerRegNo: text("ebarimt_customer_reg_no"),
+    ebarimtCustomerName: text("ebarimt_customer_name"),
+    /**
      * НӨАТ-гүй борлуулалт (кассын «НӨАТ» унтраалттай): НӨАТ задлахгүй, eBarimt
      * ҮҮСГЭХГҮЙ (дараа нь илгээх ч боломжгүй), GL-д pos_settings.nonVat*-ийн
      * орлого/авлагын дансаар. Шалтгаан ЗААВАЛ, эрх pos:post (lib/pos/non-vat.ts).
@@ -4513,6 +4529,13 @@ export const posEbarimtSubmissions = pgTable(
     saleId: uuid("sale_id").references(() => posSales.id, { onDelete: "cascade" }),
     /** АР нэхэмжлэх (docs/pos/05 Шат 1–2) — эсвэл `saleId`. */
     arapDocumentId: uuid("arap_document_id").references(() => arApDocuments.id, { onDelete: "cascade" }),
+    /**
+     * kind = "payment": ТӨЛӨЛТ (касс/банк/QPay-ийн settlement) → `invoiceId`-тай
+     * төлбөрийн баримт (docs/pos/05 Шат 3). Settlement бүрд НЭГ л submission
+     * (`pos_ebarimt_submissions_settlement_ux`). Төлөлт устгагдвал (касс буцаасан)
+     * null болж мөр үлдэнэ — илгээгдсэн бол «ТЕГ-д бүртгэгдсэн ч Entry-д буцаагдсан» ил.
+     */
+    arapSettlementId: uuid("arap_settlement_id").references(() => arApSettlements.id, { onDelete: "set null" }),
     kind: text("kind").notNull().default("send"),
     status: text("status").notNull().default("pending"),
     /** PosAPI-д илгээх JSON (receipt.ts-ээр үүссэн) — дахин илгээхэд ижил. */
@@ -4533,6 +4556,9 @@ export const posEbarimtSubmissions = pgTable(
     uniqueIndex("pos_ebarimt_submissions_arap_active_ux")
       .on(t.arapDocumentId, t.kind)
       .where(sql`${t.status} in ('pending', 'claimed') and ${t.arapDocumentId} is not null`),
+    uniqueIndex("pos_ebarimt_submissions_settlement_ux")
+      .on(t.arapSettlementId)
+      .where(sql`${t.arapSettlementId} is not null`),
     index("pos_ebarimt_submissions_org_status_ix").on(t.organizationId, t.status, t.nextAttemptAt),
   ]
 );

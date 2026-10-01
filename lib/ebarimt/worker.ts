@@ -11,7 +11,7 @@ import { arApDocuments, posEbarimtSubmissions, posSales, posSettings } from "@/l
 
 import { posApiDeleteReceipt, posApiPutReceipt, posApiSendData } from "./client";
 import { EBARIMT_ALERT_AFTER_ATTEMPTS, EBARIMT_ERRORS, EBARIMT_MAX_ATTEMPTS } from "./constants";
-import { claimDueSubmissions, markFailed, markSent, prepareSubmission, targetOf, type EbarimtTarget, type PreparedSubmission } from "./queue";
+import { claimDueSubmissions, enqueueArapInvoicePayments, markFailed, markSent, prepareSubmission, targetOf, type EbarimtTarget, type PreparedSubmission } from "./queue";
 import { EbarimtError, receiptResponseOutcome } from "./receipt";
 import type { EbarimtReceiptResponse, EbarimtSaleResult } from "./types";
 
@@ -195,9 +195,32 @@ export async function processSubmission(
 }
 
 /**
+ * Шууд илгээлтийн үр дүн: `sent` бол сугалаа/QR-тай түр `result`; үгүй бол
+ * `pending` (хугацаа хэтэрсэн / ард дахин оролдоно / worker барьж байна) эсвэл
+ * `failed` + ТЕГ/PosAPI-ийн алдааны текст — кассчин «Дахин илгээх» дарахад.
+ */
+export interface InlineSendOutcome {
+  status: "sent" | "pending" | "failed";
+  result: EbarimtSaleResult | null;
+  error: string | null;
+}
+
+async function submissionState(submissionId: string): Promise<InlineSendOutcome> {
+  const row = await db.query.posEbarimtSubmissions.findFirst({
+    where: eq(posEbarimtSubmissions.id, submissionId),
+    columns: { status: true, lastError: true },
+  });
+  return {
+    status: row?.status === "failed" ? "failed" : "pending",
+    result: null,
+    error: row?.lastError ? row.lastError.replace(/^\[[A-Z_]+\]\s*/, "") : null,
+  };
+}
+
+/**
  * Борлуулалт батлагдмагц ШУУД илгээж, хариуг (сугалаа/QR-тай) баримт хэвлэхэд
  * ТҮР буцаана — DB-д хадгалахгүй тул зөвхөн энэ мөчид л гарна. `timeoutMs`
- * хэтэрвэл null (баримт QR-гүй хэвлэгдэнэ); илгээлт нь ард үргэлжилж дуусна,
+ * хэтэрвэл `pending` (баримт QR-гүй); илгээлт нь ард үргэлжилж дуусна,
  * дуусахгүй бол claim 10 минутын дараа чөлөөлөгдөж worker дахин оролдоно.
  * Хэзээ ч шидэхгүй — борлуулалт илгээлтээс болж унахгүй (§4.4).
  */
@@ -205,10 +228,10 @@ export async function sendSubmissionNow(
   submissionId: string,
   settingsRow: typeof posSettings.$inferSelect,
   timeoutMs: number
-): Promise<EbarimtSaleResult | null> {
+): Promise<InlineSendOutcome> {
   try {
     const submission = await db.query.posEbarimtSubmissions.findFirst({ where: eq(posEbarimtSubmissions.id, submissionId) });
-    if (!submission) return null;
+    if (!submission) return { status: "pending", result: null, error: null };
     const work = processSubmission(submission, settingsRow).catch((error) => {
       console.error("[ebarimt] шууд илгээлт:", error);
       return { outcome: "failed", result: null } as ProcessOutcome;
@@ -219,10 +242,13 @@ export async function sendSubmissionNow(
     });
     const winner = await Promise.race([work, timeout]);
     if (timer) clearTimeout(timer);
-    return winner && winner.outcome === "sent" ? winner.result : null;
+    if (winner && winner.outcome === "sent") return { status: "sent", result: winner.result, error: null };
+    // Хугацаа хэтэрсэн бол ард үргэлжилж байна — алдаа биш. Бусад үед DB-ийн төлөв + алдаа.
+    if (!winner) return { status: "pending", result: null, error: null };
+    return await submissionState(submissionId);
   } catch (error) {
     console.error("[ebarimt] шууд илгээлт:", error);
-    return null;
+    return { status: "pending", result: null, error: null };
   }
 }
 
@@ -232,6 +258,8 @@ export async function processPendingEbarimt(limit = 50): Promise<EbarimtWorkerRe
   if (running) return result;
   running = true;
   try {
+    // ТЕГ-д бүртгэлтэй нэхэмжлэхийн шинэ төлөлтүүд (docs/pos/05 Шат 3) — шидэхгүй.
+    await enqueueArapInvoicePayments(limit);
     const due = await claimDueSubmissions(limit);
     for (const { submission, settings } of due) {
       result.claimed += 1;

@@ -119,6 +119,24 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
 өдөр бүр 23:30 УБ ──▶ GET /rest/sendData; scheduler: /rest/info → сугалаа/хоцролт/хүрэлцээ
 ```
 
+- **Баримтын цонх ↔ eBarimt (2026-09-28):** шууд илгээлт амжилтгүй / хугацаа хэтэрвэл
+  (server горим) баримт `ebarimtStatus` pending|failed + `ebarimtError` (ТЕГ/PosAPI-ийн
+  текст) ирнэ — цонх АВТОМАТААР ХЭВЛЭХГҮЙ, шалтгааныг ЗӨВХӨН дэлгэцэнд харуулж
+  «Дахин илгээх» (`sendPosSaleEbarimtNow` — backoff хүлээхгүй, claimed бол давхар
+  дуудахгүй) → амжвал сугалаа/QR ТҮР ирж хэвлэнэ. eBarimt-гүй хэвлэх нь ил
+  баталгаажуулалттай; хэвлэмэл дээр «eBarimt: баримт олгогдоогүй» (дахин хэвлэхэд
+  гарна гэж АМЛАХГҮЙ — 80мм касс дахин хэвлэдэггүй). `sendSubmissionNow` нь
+  `{status, result, error}` буцаана.
+- **Хэвлэх горим (төхөөрөмжийн тохиргоо, хуучин «Автоматаар хэвлэх»):** «Алхамаар» —
+  цонхонд ① Борлуулалт батлагдсан → ② eBarimt олгогдсон (ДДТД, сугалаа) / олгохгүй /
+  алдаа + «Дахин илгээх» → ③ Хэвлэх (`lib/pos/receipt-steps.ts` ЦЭВЭР, тест
+  `tests/pos-receipt-steps.test.ts`); хэвлэх алхам eBarimt шийдэгдсэний дараа л
+  идэвхжинэ. «Шууд хэвлэх» — батлагдмагц хэвлэж хаагдана, eBarimt олгогдоогүй бол зогсоно.
+- **B2B худалдан авагч баримтад (ХСН №16):** ТТД + НЭР (+ кассчин РД оруулсан бол РД)
+  — `pos_sales.ebarimtCustomerRegNo/Name` (борлуулах мөчид ТЕГ-ийн лавлахаас, ≤3 сек;
+  амжихгүй бол нэргүй, ЗОХИОХГҮЙ) → дахин хэвлэхэд ч гарна. Иргэний eBarimt дугаар
+  ХЭВЛЭХГҮЙ. «Харилцагч:» мөр зөвхөн бэлэн худалдан авагч биш үед. Тест
+  `tests/pos-receipt-ebarimt-retry-flow.test.ts`.
 - **Нэгдсэн жагсаалт `/tax/ebarimt`** (Татвар → eBarimt баримт): eBarimt төлөвтэй
   POS борлуулалт + АР нэхэмжлэх НЭГ grid-д — эх/төлөвийн chip (эх солиход төлөвийн
   шүүлтүүр цэвэрлэгдэнэ), «Анхаарах» (алдаатай + илгээгээгүй + хүлээгдэж буй),
@@ -182,7 +200,9 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
 - **АР нэхэмжлэх** (docs/pos/05, анхнаасаа унтраалттай) мөн энэ дараалал/worker-ээр:
   submission-д `arapDocumentId` (saleId NULL), queue/worker `EbarimtTarget`-аар төлөвийг
   эх дээр бичнэ; хөрвүүлэлт `lib/ebarimt/arap-receipt.ts` (ЦЭВЭР), ачаалагч `arap-load.ts`;
-  browser горимд зөвхөн POS
+  browser горимд зөвхөн POS; нэхэмжлэхийн ТӨЛӨЛТ — `kind "payment"` (`arapSettlementId`,
+  `invoiceId`-тай *_RECEIPT, `invoice-payment.ts`), сканнер `enqueueArapInvoicePayments` worker-ийн
+  тик бүрд; payment-ийн `markSent/markFailed` эх нэхэмжлэхийг ХӨНДӨХГҮЙ (docs/dev/arap.md §5g)
 - **Идемпотент:** `pos_ebarimt_submissions` дээр (saleId, kind) partial unique
   (`pending`/`claimed`); аль хэдийн `sent` борлуулалт PosAPI-г дахин дуудахгүй;
   worker `pending → claimed` атомик шилжилтээр нэг мөрийг хоёр instance зэрэг

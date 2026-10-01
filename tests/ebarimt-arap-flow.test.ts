@@ -1,8 +1,10 @@
-// АР нэхэмжлэх → eBarimt НЭХЭМЖЛЭХ (docs/pos/05 Шат 2) — батлахад дараалалд орж,
-// worker хуурамч PosAPI руу B2B_INVOICE (төлбөр PAY) илгээж, ДДТД-г нэхэмжлэх дээр
-// бичнэ. Тохиргоо унтраалттай бол юу ч явахгүй; ТТД-гүй байгууллагад ил алдаа
-// (failed + шалтгаан), ТТД нэмээд «Дахин илгээх» → sent. POS-ийн дараалал
-// хөндөгдөхгүй. DATABASE_URL байхгүй бол алгасна.
+// АР нэхэмжлэх → eBarimt НЭХЭМЖЛЭХ (docs/pos/05 Шат 2–3, албан спек 3.0.1) — батлахад
+// дараалалд орж, worker хуурамч PosAPI руу B2B_INVOICE (данс + IBAN, төлбөр албан код
+// PAID) илгээж, ДДТД-г нэхэмжлэх дээр бичнэ. Кассын модульд бүртгэсэн төлөлт бүр
+// `invoiceId`-тай B2B_RECEIPT болж явна (нэг нэхэмжлэхэд нэг удаад нэг), касс
+// буцаавал ТЕГ-д очсон төлөлт ил тэмдэглэгдэнэ. Тохиргоо унтраалттай бол юу ч
+// явахгүй; ТТД-гүй байгууллагад ил алдаа (failed + шалтгаан), ТТД нэмээд «Дахин
+// илгээх» → sent. POS-ийн дараалал хөндөгдөхгүй. DATABASE_URL байхгүй бол алгасна.
 
 import "./helpers/load-env";
 
@@ -27,10 +29,12 @@ import { syncStandardAccounts } from "../lib/actions/gl";
 import { getPosSettings } from "../lib/actions/pos";
 import { resendArapEbarimt } from "../lib/actions/arap";
 import { processPendingEbarimt } from "../lib/ebarimt/worker";
+import { loadArapPaymentEbarimt } from "../lib/ebarimt/queue";
 import { loadEbarimtDocuments } from "../lib/ebarimt/list-data";
 import { db } from "../lib/db";
 import {
   arApDocuments,
+  arApSettlements,
   counterparties,
   memberships,
   organizationProfile,
@@ -134,7 +138,7 @@ test.after(async () => {
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
 });
 
-test("АР нэхэмжлэх → eBarimt B2B_INVOICE (PAY), ТТД-гүй бол ил алдаа → засаад дахин илгээх", { skip: !DB_READY }, async () => {
+test("АР нэхэмжлэх → eBarimt B2B_INVOICE (данс, PAID) + төлөлт бүр invoiceId-тай баримт; ТТД-гүй бол ил алдаа → дахин илгээх", { skip: !DB_READY }, async () => {
   await startFakePosApi();
   const [user] = await db
     .insert(users)
@@ -177,10 +181,16 @@ test("АР нэхэмжлэх → eBarimt B2B_INVOICE (PAY), ТТД-гүй бо�
   assert.equal(offAfter?.ebarimtStatus, null, "тохиргоо унтраалттай — илгээхгүй");
   assert.equal(received.length, 0);
 
-  // Асаана: төлбөрийн код + анхдагч ангиллын код.
+  // Асаана: албан төлбөрийн код + бүртгэлтэй данс + анхдагч ангиллын код.
   await db
     .update(posSettings)
-    .set({ ebarimtArapEnabled: true, ebarimtArapPaymentCode: "INVOICE", ebarimtArapClassificationCode: "8311100" })
+    .set({
+      ebarimtArapEnabled: true,
+      ebarimtArapPaymentCode: "BANK_TRANSFER",
+      ebarimtArapBankAccountNo: "5000123456",
+      ebarimtArapIban: "MN120005005000123456",
+      ebarimtArapClassificationCode: "8311100",
+    })
     .where(eq(posSettings.organizationId, orgId));
 
   const sent = await invoice("B2B", `Тест ХХК ${STAMP}`);
@@ -193,8 +203,59 @@ test("АР нэхэмжлэх → eBarimt B2B_INVOICE (PAY), ТТД-гүй бо�
   assert.equal(request.customerTin, "61200064714");
   assert.equal(request.totalAmount, 1_100_000);
   assert.equal(request.totalVAT, 100_000);
-  assert.deepEqual(request.payments, [{ code: "INVOICE", status: "PAY", paidAmount: 1_100_000 }]);
+  assert.deepEqual(request.payments, [{ code: "BANK_TRANSFER", status: "PAID", paidAmount: 1_100_000 }]);
+  const invoiceReceipts = request.receipts as { bankAccountNo?: string; iBan?: string }[];
+  assert.deepEqual(invoiceReceipts.map((r) => [r.bankAccountNo, r.iBan]), [["5000123456", "MN120005005000123456"]]);
   assert.match(String(request.billIdSuffix), /^8\d{7}$/);
+
+  // ── ТӨЛӨЛТ (Шат 3): банк 400 000 + касс 700 000 → тус бүр invoiceId-тай B2B_RECEIPT ──
+  ok(await tool("create_cash_account", { name: "Банк", accountType: "bank", currency: "MNT", glAccount: "11000001" }));
+  ok(await tool("create_cash_account", { name: "Касс", accountType: "cash", currency: "MNT", glAccount: "10000001" }));
+  ok(await tool("pay_arap_document", { documentId: sent.documentNo, cashAccount: "Банк", date: "2026-09-15", amount: 400_000 }, "post"));
+  ok(await tool("pay_arap_document", { documentId: sent.documentNo, cashAccount: "Касс", date: "2026-09-20", amount: 700_000 }, "post"));
+  const before = received.length;
+  for (let i = 0; i < 20 && received.length < before + 2; i += 1) {
+    await processPendingEbarimt(10);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const paymentRequests = received.slice(before);
+  assert.equal(paymentRequests.length, 2, "төлөлт бүрд нэг баримт");
+  for (const payment of paymentRequests) {
+    assert.equal(payment.type, "B2B_RECEIPT");
+    assert.equal(payment.invoiceId, sentAfter?.ebarimtId);
+    assert.equal(payment.customerTin, "61200064714");
+    assert.match(String(payment.billIdSuffix), /^7\d{7}$/);
+  }
+  assert.deepEqual(
+    paymentRequests.map((payment) => payment.payments),
+    [
+      [{ code: "BANK_TRANSFER", status: "PAID", paidAmount: 400_000 }],
+      [{ code: "CASH", status: "PAID", paidAmount: 700_000 }],
+    ]
+  );
+  assert.deepEqual(paymentRequests.map((payment) => payment.totalAmount), [400_000, 700_000]);
+  // НӨАТ нэхэмжлэхийн харьцаагаар (100 000 / 1 100 000), нийлбэр нь нэхэмжлэхийнхтэй тэнцүү.
+  assert.equal(Math.round(paymentRequests.reduce((sum, payment) => sum + Number(payment.totalVAT), 0) * 100) / 100, 100_000);
+  // Нэхэмжлэхийн ДДТД/дүн хөндөгдөөгүй; дахин тик → давхар илгээхгүй.
+  const afterPayments = await db.query.arApDocuments.findFirst({ where: eq(arApDocuments.id, sent.id) });
+  assert.equal(afterPayments?.ebarimtId, sentAfter?.ebarimtId);
+  assert.equal(afterPayments?.ebarimtStatus, "sent");
+  assert.equal(Number(afterPayments?.ebarimtTotal), 1_100_000);
+  await processPendingEbarimt(10);
+  assert.equal(received.length, before + 2);
+  const panel = await loadArapPaymentEbarimt(orgId, sent.id);
+  assert.equal(panel.unqueued, 0);
+  assert.deepEqual(panel.payments.map((p) => [p.status, p.amount, p.orphaned]), [["sent", 400_000, false], ["sent", 700_000, false]]);
+  assert.ok(panel.payments.every((p) => /^\d{33}$/.test(p.ddtd ?? "")));
+
+  // Банкны төлөлтийг буцаавал → ТЕГ-д очсон баримт ЧИМЭЭГҮЙ үлдэхгүй (orphaned).
+  const [bankSettlement] = await db
+    .select({ cashDocumentId: arApSettlements.cashDocumentId })
+    .from(arApSettlements)
+    .where(and(eq(arApSettlements.documentId, sent.id), eq(arApSettlements.amount, "400000.00")));
+  ok(await tool("reverse_cash_document", { documentId: bankSettlement.cashDocumentId }, "post"));
+  const orphan = await loadArapPaymentEbarimt(orgId, sent.id);
+  assert.deepEqual(orphan.payments.map((p) => p.orphaned), [true, false]);
 
   // ТТД-гүй байгууллага → failed + шалтгаан (ЗОХИОХГҮЙ), батлалт өөрөө амжилттай.
   const noTin = await invoice("NOTIN", `ТТДгүй ХХК ${STAMP}`);

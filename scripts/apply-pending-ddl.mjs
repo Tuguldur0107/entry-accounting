@@ -789,6 +789,11 @@ async function main() {
     ["pos_sales", "ebarimt_type", "text"],
     ["pos_sales", "ebarimt_consumer_no", "text"],
     ["pos_sales", "ebarimt_customer_tin", "text"],
+    ["pos_sales", "ebarimt_customer_reg_no", "text"],
+    ["pos_sales", "ebarimt_customer_name", "text"],
+    // АР нэхэмжлэх → eBarimt: мерчантын бүртгэлтэй данс (албан спек 3.0.1, docs/pos/05)
+    ["pos_settings", "ebarimt_arap_bank_account_no", "text not null default ''"],
+    ["pos_settings", "ebarimt_arap_iban", "text not null default ''"],
     // Харилцагчийн субъектийн төрөл (байгууллага / хувь хүн) — lib/arap/counterparty-kind.ts
     ["counterparties", "entity_kind", "text not null default 'organization'"],
     // QPay (docs/pos/04-qpay-integration-plan.md §3.4) — нууц шифртэй, default-той/null

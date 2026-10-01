@@ -23,8 +23,11 @@ export const EBARIMT_STATUS_LABELS: Record<EbarimtStatus, string> = {
   skipped: "Илгээгээгүй (кассчин)",
 };
 
-/** pos_ebarimt_submissions.kind / status */
-export const SUBMISSION_KINDS = ["send", "cancel"] as const;
+/**
+ * pos_ebarimt_submissions.kind / status. `payment` = АР нэхэмжлэхийн ТӨЛӨЛТ —
+ * `invoiceId`-тай төлбөрийн баримт (settlement бүрд нэг, docs/pos/05 Шат 3).
+ */
+export const SUBMISSION_KINDS = ["send", "cancel", "payment"] as const;
 export type SubmissionKind = (typeof SUBMISSION_KINDS)[number];
 /** "claimed" = worker авсан түр төлөв (10 мин гацвал pending руу буцна). */
 export const SUBMISSION_STATUSES = ["pending", "claimed", "sent", "failed", "cancelled"] as const;
@@ -114,6 +117,8 @@ export const POSAPI_PATHS = {
   receipt: "/rest/receipt",
   info: "/rest/info",
   sendData: "/rest/sendData",
+  /** Мерчантын бүртгэлтэй банкны данс (`?tin=`) — нэхэмжлэхийн `bankAccountNo`-ийн эх (§10). */
+  bankAccounts: "/rest/bankAccounts",
 } as const;
 
 /**

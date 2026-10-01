@@ -288,6 +288,9 @@ export interface PosSaleView {
   ebarimtType: string | null;
   ebarimtConsumerNo: string | null;
   ebarimtCustomerTin: string | null;
+  /** B2B худалдан авагчийн регистр ба нэр (баримтад хэвлэнэ). */
+  ebarimtCustomerRegNo: string | null;
+  ebarimtCustomerName: string | null;
   /** НӨАТ-гүй борлуулалт (НӨАТ задлаагүй, eBarimt үүсээгүй) — lib/pos/non-vat.ts. */
   nonVat: boolean;
   nonVatReason: string | null;
@@ -392,7 +395,11 @@ export interface PosSettingsView {
   ebarimtMode: "server" | "browser";
   /** АР нэхэмжлэх → eBarimt нэхэмжлэх (docs/pos/05 Шат 2) — анхнаасаа унтраалттай. */
   ebarimtArapEnabled: boolean;
+  /** Нэхэмжлэхийн төлбөрийн АЛБАН код (CASH / PAYMENT_CARD / BANK_TRANSFER / BANK_TRANSFER_QPAY). */
   ebarimtArapPaymentCode: string;
+  /** Нэхэмжлэхийн `bankAccountNo` — мерчантад ТЕГ-д бүртгэлтэй данс (заавал). */
+  ebarimtArapBankAccountNo: string;
+  ebarimtArapIban: string;
   ebarimtArapClassificationCode: string;
   /** Орлогын үндсэн данс (8 орон) → ангиллын код (7 орон). */
   ebarimtArapAccountCodes: Record<string, string>;

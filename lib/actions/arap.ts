@@ -103,7 +103,7 @@ import { inventoryItems, warehouses } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
-import { enqueueArapInvoiceEbarimt, requeueArapInvoiceEbarimt } from "@/lib/ebarimt/queue";
+import { enqueueArapInvoiceEbarimt, requeueArapInvoiceEbarimt, requeueArapPaymentEbarimt } from "@/lib/ebarimt/queue";
 import { processPendingEbarimt } from "@/lib/ebarimt/worker";
 
 /**
@@ -1819,6 +1819,35 @@ export async function resendArapEbarimt(id: string): Promise<ActionResult<{ stat
     return { status: after.ebarimtStatus };
   } catch (caught) {
     return actionError("resendArapEbarimt", caught, "eBarimt дахин илгээгдсэнгүй");
+  }
+}
+
+/**
+ * Нэхэмжлэхийн ТӨЛӨЛТИЙН eBarimt (invoiceId-тай төлбөрийн баримт) амжилтгүй
+ * болсныг дахин илгээх — тохиргоо/данс засварласны дараа. docs/pos/05 Шат 3.
+ */
+export async function resendArapPaymentEbarimt(submissionId: string): Promise<ActionResult> {
+  try {
+    const { orgId, userId } = await getActiveOrg();
+    await requireModuleAction(permissionModuleOf("ar_invoice"), "post");
+    const { documentId } = await requeueArapPaymentEbarimt(orgId, submissionId);
+    const document = await db.query.arApDocuments.findFirst({
+      where: and(eq(arApDocuments.id, documentId), eq(arApDocuments.organizationId, orgId)),
+      columns: { documentNo: true },
+    });
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "ebarimt_resend",
+      entityType: "arap",
+      entityId: documentId,
+      summary: `eBarimt төлөлтийн баримт дахин илгээх — ${document?.documentNo ?? documentId}`,
+    });
+    void processPendingEbarimt(5).catch(() => undefined);
+    revalidateArAp();
+    return {};
+  } catch (caught) {
+    return actionError("resendArapPaymentEbarimt", caught, "Төлөлтийн eBarimt дахин илгээгдсэнгүй");
   }
 }
 

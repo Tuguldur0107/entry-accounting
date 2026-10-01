@@ -8,6 +8,8 @@ import { db } from "@/lib/db";
 import { baseKindOf, entityKindName } from "@/lib/arap/counterparty-kind";
 import { activeInvoiceLinkUrl } from "@/lib/arap/invoice-link";
 import { qrSvgPath } from "@/lib/qr/matrix";
+import { loadArapPaymentEbarimt } from "@/lib/ebarimt/queue";
+import type { ArapPaymentEbarimtRow } from "@/lib/ebarimt/types";
 import { loadEntityKinds } from "@/lib/arap/entity-kinds";
 import {
   arApDocuments,
@@ -92,6 +94,10 @@ export type ArApDocumentDetail = ArApDocumentView & {
     date: string | null;
     type: string | null;
     lastError: string | null;
+    /** Төлөлт бүрийн `invoiceId`-тай төлбөрийн баримт (docs/pos/05 Шат 3). */
+    payments: ArapPaymentEbarimtRow[];
+    /** Дараалалд хараахан ороогүй кассын төлөлт (сканнер дараагийн тикэд авна). */
+    unqueuedPayments: number;
   } | null;
   /**
    * АР нэхэмжлэхийн ХҮЧИНТЭЙ нийтийн линк (хэвлэх хуудасны QR) — линк үүсгээгүй
@@ -422,12 +428,18 @@ export async function loadArApDocumentDetail(
   if (!row) return null;
   const lastSubmission = row.ebarimtStatus
     ? await db.query.posEbarimtSubmissions.findFirst({
-        where: and(eq(posEbarimtSubmissions.organizationId, orgId), eq(posEbarimtSubmissions.arapDocumentId, documentId)),
+        where: and(
+          eq(posEbarimtSubmissions.organizationId, orgId),
+          eq(posEbarimtSubmissions.arapDocumentId, documentId),
+          eq(posEbarimtSubmissions.kind, "send")
+        ),
         orderBy: (submission, { desc }) => [desc(submission.createdAt)],
         columns: { lastError: true },
       })
     : null;
   const publicLinkUrl = row.documentType === "ar_invoice" ? await activeInvoiceLinkUrl(orgId, documentId) : null;
+  const paymentEbarimt =
+    row.ebarimtStatus === "sent" ? await loadArapPaymentEbarimt(orgId, documentId) : { payments: [], unqueued: 0 };
   return {
     ...toDocumentView(row),
     publicLinkUrl,
@@ -439,6 +451,8 @@ export async function loadArApDocumentDetail(
           date: row.ebarimtDate,
           type: row.ebarimtType,
           lastError: row.ebarimtStatus === "sent" ? null : lastSubmission?.lastError ?? null,
+          payments: paymentEbarimt.payments,
+          unqueuedPayments: paymentEbarimt.unqueued,
         }
       : null,
     purchaseOrderNo: row.purchaseOrder?.documentNo ?? null,

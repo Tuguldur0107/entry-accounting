@@ -6,7 +6,7 @@
 // бичнэ). Бүгд ActionResult (§ lib/action-result.ts) — client-д алдаа МОНГОЛООР.
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { requireAnyModuleAction, requireModuleAction } from "@/lib/auth";
@@ -16,8 +16,8 @@ import { organizationProfile, posEbarimtSubmissions, posSales } from "@/lib/db/s
 import { POS_MODULE_KEY } from "@/lib/pos/constants";
 import { ensurePosSettings } from "@/lib/pos/load-data";
 import { todayInUlaanbaatar } from "@/lib/periods/selection";
-import { posApiInfo, posApiSendData } from "@/lib/ebarimt/client";
-import { EBARIMT_ERRORS } from "@/lib/ebarimt/constants";
+import { posApiBankAccounts, posApiInfo, posApiSendData } from "@/lib/ebarimt/client";
+import { EBARIMT_ERRORS, EBARIMT_INLINE_SEND_TIMEOUT_MS } from "@/lib/ebarimt/constants";
 import {
   lookupTaxpayerByTin,
   lookupTinByRegNo,
@@ -34,9 +34,10 @@ import {
   requeueEbarimt,
   settingsInputOf,
 } from "@/lib/ebarimt/queue";
-import { applyPosApiResponse, processPendingEbarimt } from "@/lib/ebarimt/worker";
+import { applyPosApiResponse, processPendingEbarimt, sendSubmissionNow } from "@/lib/ebarimt/worker";
 import type { EbarimtReadiness } from "@/lib/ebarimt/readiness";
 import type {
+  PosApiBankAccount,
   EbarimtReceiptResponse,
   EbarimtStatusSummary,
   EbarimtSubmissionView,
@@ -97,6 +98,93 @@ export async function testEbarimtConnection(): Promise<
     return { info };
   } catch (caught) {
     return actionError("testEbarimtConnection", caught, "PosAPI-тай холбогдсонгүй");
+  }
+}
+
+/**
+ * Мерчантын ТЕГ-д бүртгэлтэй банкны данс (PosAPI `/rest/bankAccounts?tin=`) —
+ * «АР нэхэмжлэх»-ийн данс сонгоход. Server горимд л (серверээс PosAPI-д хүрнэ).
+ */
+export async function listEbarimtBankAccounts(): Promise<ActionResult<{ accounts: PosApiBankAccount[] }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "post");
+    const settings = await ensurePosSettings(orgId, userId);
+    if (settings.ebarimtMode !== "server") throw new Error("Данс татах нь «Сервер» горимд л — кассын PC-ийн PosAPI-аас гараар хуулна уу");
+    if (!MERCHANT_TIN_RE.test(settings.ebarimtMerchantTin.trim())) throw new Error("Эхлээд мерчантын ТТД-г тохируулна уу");
+    const accounts = await posApiBankAccounts(settings.ebarimtPosApiUrl, settings.ebarimtMerchantTin);
+    if (accounts.length === 0)
+      throw new Error("PosAPI-д бүртгэлтэй данс алга — Цахим татварын системд дансаа бүртгээд, PosAPI-аас баримт илгээж (sendData) шинэчилнэ үү");
+    return { accounts };
+  } catch (caught) {
+    return actionError("listEbarimtBankAccounts", caught, "Банкны данс татагдсангүй");
+  }
+}
+
+/**
+ * Баримтын цонхны «Дахин илгээх» (server горим): борлуулалт дөнгөж батлагдаад
+ * eBarimt амжилтгүй / хүлээгдэж байхад кассчин ХЭВЛЭХЭЭС ӨМНӨ дахин оролдоно.
+ * Амжилттай бол сугалаа/QR-ийг ТҮР буцаана (DB-д хадгалахгүй — албан спек §5),
+ * үгүй бол ТЕГ/PosAPI-ийн алдааны текст. Backoff-ыг хүлээхгүй.
+ */
+export async function sendPosSaleEbarimtNow(saleId: string): Promise<
+  ActionResult<{
+    status: "sent" | "pending" | "failed";
+    ebarimtId: string | null;
+    ebarimtLottery: string | null;
+    ebarimtQrData: string | null;
+    /** ТЕГ/PosAPI-ийн алдааны текст (sent биш үед) — `error` нь ActionResult-ийнх. */
+    reason: string | null;
+  }>
+> {
+  try {
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
+    const sale = await db.query.posSales.findFirst({
+      where: and(eq(posSales.id, saleId), eq(posSales.organizationId, orgId)),
+      columns: { id: true, documentNo: true, ebarimtId: true, ebarimtStatus: true, nonVat: true },
+    });
+    if (!sale) throw new Error("Борлуулалт олдсонгүй");
+    if (sale.nonVat) throw new Error("НӨАТ-гүй борлуулалт eBarimt-д илгээгдэхгүй");
+    if (sale.ebarimtStatus === "sent")
+      return { status: "sent", ebarimtId: sale.ebarimtId, ebarimtLottery: null, ebarimtQrData: null, reason: null };
+    const settings = await ensurePosSettings(orgId, userId);
+    if (!settings.ebarimtEnabled) throw new EbarimtError(EBARIMT_ERRORS.disabled, "eBarimt унтраалттай байна");
+    if (settings.ebarimtMode === "browser")
+      throw new Error("Browser горимд кассын компьютер PosAPI-д өөрөө илгээнэ — PosAPI ажиллаж байгаа эсэхийг шалгана уу");
+    // Failed бол pending болгоно (байхгүй бол шинээр) — дараа нь ШУУД илгээнэ.
+    await requeueEbarimt(orgId, saleId, "send");
+    const submission = await db.query.posEbarimtSubmissions.findFirst({
+      where: and(
+        eq(posEbarimtSubmissions.organizationId, orgId),
+        eq(posEbarimtSubmissions.saleId, saleId),
+        eq(posEbarimtSubmissions.kind, "send")
+      ),
+      orderBy: [desc(posEbarimtSubmissions.createdAt)],
+      columns: { id: true, status: true },
+    });
+    if (!submission) throw new Error("eBarimt-ийн илгээлт олдсонгүй");
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "ebarimt_resend",
+      entityType: "pos_sale",
+      entityId: saleId,
+      summary: `eBarimt дахин илгээх (баримтын цонх) — ${sale.documentNo}`,
+    });
+    // claimed = ард аль хэдийн илгээж байна — давхар дуудахгүй, хариуг хүлээнэ.
+    const outcome =
+      submission.status === "claimed"
+        ? { status: "pending" as const, result: null, error: "Илгээж байна — хэдэн секундын дараа дахин дарна уу" }
+        : await sendSubmissionNow(submission.id, settings, EBARIMT_INLINE_SEND_TIMEOUT_MS);
+    revalidateEbarimt();
+    return {
+      status: outcome.status,
+      ebarimtId: outcome.result?.ebarimtId ?? null,
+      ebarimtLottery: outcome.result?.ebarimtLottery ?? null,
+      ebarimtQrData: outcome.result?.ebarimtQrData ?? null,
+      reason: outcome.error,
+    };
+  } catch (caught) {
+    return actionError("sendPosSaleEbarimtNow", caught, "eBarimt илгээгдсэнгүй");
   }
 }
 

@@ -18,7 +18,9 @@ const VAT = "01.00.31410000.000.000.000.000.000.000.000";
 const config: ArapEbarimtConfig = {
   isVatPayer: true,
   outputVatAccount: "31410000",
-  paymentCode: "INVOICE",
+  paymentCode: "BANK_TRANSFER",
+  bankAccountNo: "5000123456",
+  iBan: "MN120005005000123456",
   defaultClassificationCode: "8311100",
   accountClassificationCodes: { "51200000": "6810000" },
 };
@@ -50,7 +52,7 @@ function doc(partial: Partial<ArapEbarimtDocument> = {}): ArapEbarimtDocument {
   };
 }
 
-test("B2B нэхэмжлэх: НӨАТ-ын мөр standard мөрт шингэж, төлбөр INVOICE/PAY, төрөл B2B_INVOICE", () => {
+test("B2B нэхэмжлэх (спек 3.0.1): НӨАТ standard мөрт, төрөл ИЛ B2B_INVOICE, данс + IBAN, төлбөр албан код PAID", () => {
   const input = arapInvoiceToEbarimtInput(doc(), config);
   assert.equal(input.customerTin, "61200064714");
   assert.equal(input.total, 1_100_000);
@@ -58,8 +60,21 @@ test("B2B нэхэмжлэх: НӨАТ-ын мөр standard мөрт шингэ�
   const request = buildEbarimtReceipt(input, settings, { billIdSuffix: arapBillIdSuffix(doc().id) });
   assert.equal(request.type, "B2B_INVOICE");
   assert.equal(request.totalVAT, 100_000);
-  assert.deepEqual(request.payments.map((p) => [p.code, p.status, p.paidAmount]), [["INVOICE", "PAY", 1_100_000]]);
+  // PAY = гуравдагч системийн төлбөр («төлөгдөөгүй» БИШ) — нэхэмжлэх албан жишээнийхээр PAID.
+  assert.deepEqual(request.payments.map((p) => [p.code, p.status, p.paidAmount]), [["BANK_TRANSFER", "PAID", 1_100_000]]);
+  assert.deepEqual(request.receipts.map((r) => [r.bankAccountNo, r.iBan]), [["5000123456", "MN120005005000123456"]]);
+  assert.equal(request.invoiceId, undefined);
   assert.equal(request.billIdSuffix, arapBillIdSuffix(doc().id));
+});
+
+test("нэхэмжлэхэд банкны данс ЗААВАЛ; IBAN хоосон бол илгээгдэхгүй, буруу бол алдаа", () => {
+  const noAccount = arapInvoiceToEbarimtInput(doc(), { ...config, bankAccountNo: null });
+  assert.throws(() => buildEbarimtReceipt(noAccount, settings, { billIdSuffix: "80000001" }), /банкны дансны дугаар/);
+  const noIban = buildEbarimtReceipt(arapInvoiceToEbarimtInput(doc(), { ...config, iBan: null }), settings, { billIdSuffix: "80000001" });
+  assert.equal(noIban.receipts[0].bankAccountNo, "5000123456");
+  assert.equal("iBan" in noIban.receipts[0], false);
+  const badIban = arapInvoiceToEbarimtInput(doc(), { ...config, iBan: "ABC" });
+  assert.throws(() => buildEbarimtReceipt(badIban, settings, { billIdSuffix: "80000001" }), /IBAN/);
 });
 
 test("хувь хүн → B2C_INVOICE (ТТД-гүй); байгууллагын ТТД-гүй бол ил алдаа", () => {
@@ -104,6 +119,8 @@ test("НӨАТ төлөгч бус: НӨАТ 0, НӨАТ-ын мөр байва�
 
 test("ЗОХИОХГҮЙ: код, НӨАТ, валют, хасах мөр дутвал ил алдаа", () => {
   assert.throws(() => arapInvoiceToEbarimtInput(doc(), { ...config, paymentCode: " " }), /EBARIMT_UNMAPPED_PAYMENT/);
+  // Албан жагсаалтад байхгүй код (хуучин «INVOICE» санал) → ил алдаа.
+  assert.throws(() => arapInvoiceToEbarimtInput(doc(), { ...config, paymentCode: "INVOICE" }), /албан жагсаалтад алга/);
   assert.throws(() => arapInvoiceToEbarimtInput(doc({ lines: [line({})] }), config), /НӨАТ-ын мөр байхгүй/);
   assert.throws(() => arapInvoiceToEbarimtInput(doc({ currency: "USD" }), config), /валют/);
   assert.throws(() => arapInvoiceToEbarimtInput(doc({ documentType: "ar_credit_note" }), config), /кредит/);

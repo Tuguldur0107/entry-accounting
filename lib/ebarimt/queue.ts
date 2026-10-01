@@ -9,6 +9,9 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from
 import { db } from "@/lib/db";
 import {
   arApDocuments,
+  arApSettlements,
+  cashAccounts,
+  cashDocuments,
   inventoryCategories,
   inventoryItems,
   posEbarimtSubmissions,
@@ -28,8 +31,10 @@ import { lookupTaxpayerByTin } from "./lookup";
 import { isMerchantRegistered } from "./posapi-info";
 import { buildEbarimtReceipt, EbarimtError, stripReceiptSecrets } from "./receipt";
 import { arapBillIdSuffix } from "./arap-receipt";
+import { buildInvoicePaymentReceipt, invoicePaymentBillIdSuffix, invoicePaymentCodeOf } from "./invoice-payment";
 import { loadArapInvoiceForEbarimt } from "./arap-load";
 import type {
+  ArapPaymentEbarimtRow,
   EbarimtDeleteRequest,
   EbarimtReceiptRequest,
   EbarimtSaleInput,
@@ -325,6 +330,167 @@ export async function requeueArapInvoiceEbarimt(orgId: string, documentId: strin
   await enqueueArapInvoiceEbarimt(orgId, documentId);
 }
 
+/**
+ * Нэхэмжлэхийн ТӨЛӨЛТИЙН СКАННЕР (docs/pos/05 Шат 3) — worker-ийн тик бүрд.
+ * Авлагын төлөлт 6 газраас үүсдэг тул газар бүрд hook биш: ТЕГ-д бүртгэлтэй
+ * (`sent`, *_INVOICE) нэхэмжлэхийн КАССЫН баримттай (касс / банк / хуулга / QPay
+ * линк — батлагдсан) settlement бүрийг НЭГ удаа `payment` дараалалд оруулна.
+ * Кассгүй хаалт (харилцан суутгал Q8, ECL хасалт, кредит нэхэмжлэл) ОРОХГҮЙ.
+ * Нэг нэхэмжлэхэд нэг удаад нэг идэвхтэй төлөлт (arap_active_ux) — дараагийнх
+ * нь өмнөх нь дуусмагц дараагийн тикэд. Хэзээ ч шидэхгүй.
+ */
+export async function enqueueArapInvoicePayments(limit = 50): Promise<number> {
+  try {
+    const orgs = await db.query.posSettings.findMany({
+      where: and(eq(posSettings.ebarimtEnabled, true), eq(posSettings.ebarimtArapEnabled, true), eq(posSettings.ebarimtMode, "server")),
+      columns: { organizationId: true },
+    });
+    if (orgs.length === 0) return 0;
+    const { getEntitlements } = await import("@/lib/billing/load");
+    const allowed: string[] = [];
+    for (const org of orgs) if ((await getEntitlements(org.organizationId)).features.ebarimt) allowed.push(org.organizationId);
+    if (allowed.length === 0) return 0;
+
+    const candidates = await db
+      .selectDistinctOn([arApSettlements.documentId], {
+        id: arApSettlements.id,
+        documentId: arApSettlements.documentId,
+        organizationId: arApSettlements.organizationId,
+      })
+      .from(arApSettlements)
+      .innerJoin(arApDocuments, eq(arApDocuments.id, arApSettlements.documentId))
+      .innerJoin(cashDocuments, eq(cashDocuments.id, arApSettlements.cashDocumentId))
+      .where(
+        and(
+          inArray(arApSettlements.organizationId, allowed),
+          eq(arApDocuments.documentType, "ar_invoice"),
+          eq(arApDocuments.ebarimtStatus, "sent"),
+          inArray(arApDocuments.ebarimtType, ["B2B_INVOICE", "B2C_INVOICE"]),
+          eq(cashDocuments.status, "posted"),
+          sql`${arApSettlements.amount} > 0`,
+          sql`not exists (select 1 from pos_ebarimt_submissions p where p.arap_settlement_id = ${arApSettlements.id})`,
+          sql`not exists (select 1 from pos_ebarimt_submissions p
+                           where p.arap_document_id = ${arApSettlements.documentId}
+                             and p.kind = 'payment' and p.status in ('pending', 'claimed'))`
+        )
+      )
+      .orderBy(arApSettlements.documentId, arApSettlements.createdAt, arApSettlements.id)
+      .limit(limit);
+
+    let queued = 0;
+    for (const candidate of candidates) {
+      const [row] = await db
+        .insert(posEbarimtSubmissions)
+        .values({
+          organizationId: candidate.organizationId,
+          arapDocumentId: candidate.documentId,
+          arapSettlementId: candidate.id,
+          kind: "payment",
+          status: "pending",
+          nextAttemptAt: new Date(),
+        })
+        .onConflictDoNothing()
+        .returning({ id: posEbarimtSubmissions.id });
+      if (row) queued += 1;
+    }
+    return queued;
+  } catch (error) {
+    console.error("[ebarimt] төлөлтийн сканнер унав:", error);
+    return 0;
+  }
+}
+
+/**
+ * Амжилтгүй төлөлтийн баримтыг дахин pending (гар «Дахин илгээх»). Тэр
+ * нэхэмжлэхийн өөр төлөлт явж байвал шидэнэ (нэг удаад нэг) — дуудагч action
+ * алдааг `{ error }` болгоно.
+ */
+export async function requeueArapPaymentEbarimt(orgId: string, submissionId: string): Promise<{ documentId: string }> {
+  const row = await db.query.posEbarimtSubmissions.findFirst({
+    where: and(eq(posEbarimtSubmissions.id, submissionId), eq(posEbarimtSubmissions.organizationId, orgId)),
+    columns: { id: true, kind: true, status: true, arapDocumentId: true, arapSettlementId: true },
+  });
+  if (!row || row.kind !== "payment" || !row.arapDocumentId) throw new Error("Төлөлтийн eBarimt илгээлт олдсонгүй");
+  if (row.status !== "failed") throw new Error("Зөвхөн амжилтгүй болсон төлөлтийг дахин илгээнэ");
+  if (!row.arapSettlementId) throw new Error("Төлөлт Entry-д устгагдсан — дахин илгээхгүй");
+  const busy = await db.query.posEbarimtSubmissions.findFirst({
+    where: and(
+      eq(posEbarimtSubmissions.arapDocumentId, row.arapDocumentId),
+      eq(posEbarimtSubmissions.kind, "payment"),
+      inArray(posEbarimtSubmissions.status, ["pending", "claimed"])
+    ),
+    columns: { id: true },
+  });
+  if (busy) throw new Error("Энэ нэхэмжлэхийн өөр төлөлт ТЕГ-д илгээгдэж байна — хэдэн минутын дараа дахин оролдоно уу");
+  await db
+    .update(posEbarimtSubmissions)
+    .set({ status: "pending", nextAttemptAt: new Date(), lastError: null, payload: null, updatedAt: new Date() })
+    .where(eq(posEbarimtSubmissions.id, row.id));
+  return { documentId: row.arapDocumentId };
+}
+
+
+/**
+ * Панель: нэхэмжлэхийн төлөлт бүрийн eBarimt төлөв + ТЕГ-д хараахан ороогүй
+ * (дараалалд ороогүй) кассын төлөлтийн тоо. Шидэхгүй.
+ */
+export async function loadArapPaymentEbarimt(
+  orgId: string,
+  documentId: string
+): Promise<{ payments: ArapPaymentEbarimtRow[]; unqueued: number }> {
+  const rows = await db
+    .select({
+      submissionId: posEbarimtSubmissions.id,
+      status: posEbarimtSubmissions.status,
+      settlementId: posEbarimtSubmissions.arapSettlementId,
+      amount: arApSettlements.amount,
+      settlementDate: arApSettlements.settlementDate,
+      payload: posEbarimtSubmissions.payload,
+      ddtd: sql<string | null>`${posEbarimtSubmissions.response} ->> 'id'`,
+      sentAt: posEbarimtSubmissions.sentAt,
+      lastError: posEbarimtSubmissions.lastError,
+    })
+    .from(posEbarimtSubmissions)
+    .leftJoin(arApSettlements, eq(arApSettlements.id, posEbarimtSubmissions.arapSettlementId))
+    .where(
+      and(
+        eq(posEbarimtSubmissions.organizationId, orgId),
+        eq(posEbarimtSubmissions.arapDocumentId, documentId),
+        eq(posEbarimtSubmissions.kind, "payment")
+      )
+    )
+    .orderBy(posEbarimtSubmissions.createdAt);
+  const [unqueued] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(arApSettlements)
+    .innerJoin(cashDocuments, eq(cashDocuments.id, arApSettlements.cashDocumentId))
+    .where(
+      and(
+        eq(arApSettlements.organizationId, orgId),
+        eq(arApSettlements.documentId, documentId),
+        eq(cashDocuments.status, "posted"),
+        sql`${arApSettlements.amount} > 0`,
+        sql`not exists (select 1 from pos_ebarimt_submissions p where p.arap_settlement_id = ${arApSettlements.id})`
+      )
+    );
+  return {
+    payments: rows.map((row) => {
+      const request = (row.payload as { request?: EbarimtReceiptRequest } | null)?.request;
+      return {
+        submissionId: row.submissionId,
+        status: row.status,
+        amount: row.amount !== null ? Number(row.amount) : typeof request?.totalAmount === "number" ? request.totalAmount : null,
+        settlementDate: row.settlementDate,
+        ddtd: row.status === "sent" ? row.ddtd : null,
+        sentAt: row.sentAt?.toISOString() ?? null,
+        lastError: row.status === "sent" ? null : row.lastError,
+        orphaned: row.status === "sent" && !row.settlementId,
+      };
+    }),
+    unqueued: Number(unqueued?.count ?? 0),
+  };
+}
+
 /** АР нэхэмжлэхийн илгээлтийн түүх (панель) — шинэ нь эхэндээ. */
 export async function loadSubmissionsForArapDocument(orgId: string, documentId: string) {
   const rows = await db.query.posEbarimtSubmissions.findMany({
@@ -429,16 +595,19 @@ export async function prepareSubmission(
     organizationId: string;
     saleId: string | null;
     arapDocumentId?: string | null;
+    arapSettlementId?: string | null;
     kind: string;
     attempts: number;
     createdAt: Date;
   },
   settingsRow: PosSettings
 ): Promise<PreparedSubmission | null> {
+  if (submission.arapDocumentId && submission.kind === "payment")
+    return prepareArapPaymentSubmission({ ...submission, arapDocumentId: submission.arapDocumentId }, settingsRow);
   if (submission.arapDocumentId) return prepareArapSubmission({ ...submission, arapDocumentId: submission.arapDocumentId }, settingsRow);
   const saleId = submission.saleId ?? "";
   const settings = settingsInputOf(settingsRow);
-  const kind: SubmissionKind = submission.kind === "cancel" ? "cancel" : "send";
+  const kind = submission.kind === "cancel" ? "cancel" : "send";
   // PosAPI дуудалгүй хаах — давхар enqueue, эсвэл ТЕГ-д бүртгэх зүйл үлдээгүй.
   const settle = async (saleStatus: "cancelled" | null) => {
     const now = new Date();
@@ -508,8 +677,8 @@ export async function prepareSubmission(
 
 /**
  * АР нэхэмжлэх → eBarimt нэхэмжлэх (docs/pos/05 Шат 2). Зөвхөн «send»:
- * цуцлах/засах (кредит нэхэмжлэл, Q5) болон төлөлт (Q1) албан урсгал
- * тодорхойгүй тул ЭНД ХИЙГДЭХГҮЙ. Аль хэдийн `sent` бол дуудалгүй хаана.
+ * цуцлах/засах (кредит нэхэмжлэл, Q5) ЭНД ХИЙГДЭХГҮЙ; төлөлт — тусдаа
+ * `payment` (prepareArapPaymentSubmission). Аль хэдийн `sent` бол дуудалгүй хаана.
  */
 async function prepareArapSubmission(
   submission: { id: string; organizationId: string; arapDocumentId: string; kind: string; attempts: number; createdAt: Date },
@@ -548,6 +717,101 @@ async function prepareArapSubmission(
   }
 }
 
+/** PosAPI дуудалгүй хаана — төлөлт устгагдсан / нэхэмжлэх ТЕГ-д хүчингүй. */
+async function closeWithoutSending(submissionId: string, reason: string): Promise<null> {
+  const now = new Date();
+  await db
+    .update(posEbarimtSubmissions)
+    .set({ status: "cancelled", lastError: reason, updatedAt: now })
+    .where(eq(posEbarimtSubmissions.id, submissionId));
+  return null;
+}
+
+/**
+ * Нэхэмжлэхийн ТӨЛӨЛТ (docs/pos/05 Шат 3) → `invoiceId`-тай төлбөрийн баримт.
+ * Мөр нь ТЕГ-д ИЛГЭЭГДСЭН нэхэмжлэхийн хүсэлтээс (Entry-ийн одоогийн мөрөөс биш —
+ * ТЕГ-д бүртгэлтэйтэй тулгагдана), дүн нь settlement-ийнх. Төлөлт устгагдсан
+ * (касс буцаасан) бол илгээхгүй хаана.
+ */
+async function prepareArapPaymentSubmission(
+  submission: {
+    id: string;
+    organizationId: string;
+    arapDocumentId: string;
+    arapSettlementId?: string | null;
+    attempts: number;
+  },
+  settingsRow: PosSettings
+): Promise<PreparedSubmission | null> {
+  const target: EbarimtTarget = { saleId: null, arapDocumentId: submission.arapDocumentId };
+  try {
+    if (!submission.arapSettlementId)
+      return closeWithoutSending(submission.id, "Төлөлт Entry-д устгагдсан (касс/хуулга буцаасан) — ТЕГ-д илгээгдээгүй");
+    const [settlement] = await db
+      .select({
+        id: arApSettlements.id,
+        documentId: arApSettlements.documentId,
+        amount: arApSettlements.amount,
+        cashStatus: cashDocuments.status,
+        externalRef: cashDocuments.externalRef,
+        accountType: cashAccounts.accountType,
+      })
+      .from(arApSettlements)
+      .innerJoin(cashDocuments, eq(cashDocuments.id, arApSettlements.cashDocumentId))
+      .leftJoin(cashAccounts, eq(cashAccounts.id, cashDocuments.toCashAccountId))
+      .where(and(eq(arApSettlements.id, submission.arapSettlementId), eq(arApSettlements.organizationId, submission.organizationId)));
+    if (!settlement || settlement.documentId !== submission.arapDocumentId)
+      return closeWithoutSending(submission.id, "Төлөлт олдсонгүй — ТЕГ-д илгээгдээгүй");
+    if (settlement.cashStatus !== "posted")
+      return closeWithoutSending(submission.id, "Кассын баримт батлагдаагүй / буцаагдсан — ТЕГ-д илгээгдээгүй");
+
+    const doc = await db.query.arApDocuments.findFirst({
+      where: and(eq(arApDocuments.id, submission.arapDocumentId), eq(arApDocuments.organizationId, submission.organizationId)),
+      columns: { ebarimtId: true, ebarimtStatus: true },
+    });
+    if (!doc?.ebarimtId || doc.ebarimtStatus !== "sent")
+      throw new EbarimtError(EBARIMT_ERRORS.notSent, "Нэхэмжлэх ТЕГ-д бүртгэгдээгүй — эхлээд нэхэмжлэхийг илгээнэ");
+    // ТЕГ-д бүртгэлтэй нэхэмжлэхийн хүсэлт = сүүлийн амжилттай «send».
+    const invoiceSubmission = await db.query.posEbarimtSubmissions.findFirst({
+      where: and(
+        eq(posEbarimtSubmissions.arapDocumentId, submission.arapDocumentId),
+        eq(posEbarimtSubmissions.kind, "send"),
+        eq(posEbarimtSubmissions.status, "sent")
+      ),
+      orderBy: [desc(posEbarimtSubmissions.sentAt)],
+      columns: { payload: true },
+    });
+    const invoiceRequest = (invoiceSubmission?.payload as { request?: EbarimtReceiptRequest } | null)?.request;
+    if (!invoiceRequest)
+      throw new EbarimtError(EBARIMT_ERRORS.notSent, "ТЕГ-д илгээсэн нэхэмжлэхийн мэдээлэл олдсонгүй — ТЕГ-д гараар бүртгэнэ");
+
+    const request = buildInvoicePaymentReceipt({
+      invoiceRequest,
+      invoiceId: doc.ebarimtId,
+      amount: Number(settlement.amount),
+      paymentCode: invoicePaymentCodeOf({ accountType: settlement.accountType, externalRef: settlement.externalRef }),
+      billIdSuffix: invoicePaymentBillIdSuffix(settlement.id),
+    });
+    await db
+      .update(posEbarimtSubmissions)
+      .set({ payload: { request }, updatedAt: new Date() })
+      .where(eq(posEbarimtSubmissions.id, submission.id));
+    return {
+      id: submission.id,
+      orgId: submission.organizationId,
+      ...target,
+      kind: "payment",
+      attempts: submission.attempts,
+      settings: settingsInputOf(settingsRow),
+      request,
+      cancel: null,
+    };
+  } catch (error) {
+    await markFailed(submission.id, target, error, { terminal: error instanceof EbarimtError });
+    return null;
+  }
+}
+
 /**
  * Амжилт: submission sent + борлуулалтын eBarimt талбарууд. Сугалаа ба QR
  * ХАДГАЛАГДАХГҮЙ (албан спек §5 хориглодог) — хариу jsonb ч
@@ -573,6 +837,9 @@ export async function markSent(
     })
     .where(eq(posEbarimtSubmissions.id, submissionId))
     .returning({ payload: posEbarimtSubmissions.payload });
+  // Төлөлтийн баримт: нэхэмжлэхийн ДДТД/дүн/төлөв ХӨНДӨГДӨХГҮЙ — ТЕГ-д бүртгэлтэй
+  // нэхэмжлэх хэвээр; төлөлтийн ДДТД нь submission-ий response-д.
+  if (kind === "payment") return;
   // Засвар амжсан → засварын төлөв цэвэр (дүн, ДДТД-тэй НЭГ UPDATE-д). Хэрэв засвар
   // явж байх үед дахин буцаалт хийгдсэн бол (дараалалд орж чадаагүй) ТЕГ-ийн дүн
   // Entry-ийн үлдсэн дүнтэй зөрж жагсаалтад «ТЕГ-тэй зөрсөн» болж ил гарна.
@@ -631,7 +898,9 @@ export async function markFailed(
       updatedAt: now,
     })
     .where(eq(posEbarimtSubmissions.id, submissionId));
-  await setTargetEbarimt(target, { ebarimtStatus: stop ? "failed" : "pending" }, true);
+  // Төлөлтийн алдаа нэхэмжлэхийн (ТЕГ-д бүртгэлтэй) төлөвийг ХӨНДӨХГҮЙ — панелийн
+  // төлөлтийн жагсаалт + мэдэгдлээр ил.
+  if (row?.kind !== "payment") await setTargetEbarimt(target, { ebarimtStatus: stop ? "failed" : "pending" }, true);
   // Засварын алдаа: баримт `sent` хэвээр тул дээрх onlyOpen хөндөхгүй — засварын
   // төлөвөөр ил гаргана (чимээгүй үлдэхгүй).
   if (row?.kind === "cancel" && target.saleId) await setSaleCorrection(target.saleId, stop ? "failed" : "pending");
