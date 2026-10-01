@@ -62,7 +62,7 @@ import {
   deleteFixedAsset,
   disposeFixedAsset,
   postDepreciationMonth,
-  reverseDepreciationEntry,
+  reverseDepreciationMonth,
   runDepreciation,
   type FaDisposalType,
 } from "@/lib/actions/fa";
@@ -6132,10 +6132,15 @@ async function runReverseFaDepreciation(
     return { resultText: `${input.month} сард батлагдсан элэгдлийн бичилт алга` };
   const total = entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
   assertPostLimit(total);
-  for (const entry of entries)
-    unwrapAction(await reverseDepreciationEntry(entry.id));
+  // Сарын элэгдэл НЭГ журналд нэгтгэгддэг тул буцаалт ЖУРНАЛААР (бичилт бүрээр биш) —
+  // GL ба дэд дэвтэр хамт буцаагдана (lib/actions/fa.ts reverseDepreciationMonth).
+  const reversed = unwrapAction(await reverseDepreciationMonth(input.month));
   return {
-    resultText: `${input.month} сарын элэгдэл буцаагдлаа: ${entries.length} бичилт, нийт ${fmt(total)}₮`,
+    resultText:
+      `${input.month} сарын элэгдэл буцаагдлаа: ${reversed.entries} бичилт, ${reversed.vouchers} буцаалтын журнал, нийт ${fmt(reversed.amount)}₮` +
+      (reversed.repaired > 0
+        ? `\n${reversed.repaired} бичилтийн GL журнал өмнө нь буцаагдсан байсан — шинэ журнал үүсгээгүй, зөвхөн дэд дэвтрийг тааруулав`
+        : ""),
   };
 }
 
@@ -9138,7 +9143,9 @@ async function runFxRevaluation(
         throw new Error(
           `${account.currency} ханш ${input.valuationDate}-нд олдсонгүй — түүхэн ханшийг Мөнгөн хөрөнгө → Ханшийн түүх хэсгээс татна уу (sync_exchange_rates), эсвэл rate параметрээр гар ханш өгнө үү`
         );
-      await postCashFxRevaluation({
+      // Action алдааг `{ error }` УТГААР буцаадаг — шалгахгүй бол бичигдээгүй
+      // тэгшитгэлийг «тэгшитгэгдэв» гэж худал хэлнэ (ontology аудит §5).
+      unwrapAction(await postCashFxRevaluation({
         cashAccountId: account.id,
         valuationDate: input.valuationDate,
         closingRate: manualRate ?? quote!.rate,
@@ -9153,7 +9160,7 @@ async function runFxRevaluation(
         gainAccountNumber: gainMain,
         lossAccountNumber: lossMain,
         replaceExisting: input.replaceExisting ?? false,
-      });
+      }));
       done += 1;
       lines.push(
         `  ${account.name} (${account.currency}) @ ${fmt(manualRate ?? quote!.rate)} — тэгшитгэгдэв`
@@ -9162,11 +9169,15 @@ async function runFxRevaluation(
       lines.push(`  ${account.name}: АЛДАА — ${errorText(caught)}`);
     }
   }
+  const summary = [`Ханшийн тэгшитгэл ${input.valuationDate}: ${done}/${targets.length} данс`, ...lines];
+  // Нэг ч данс тэгшитгэгдээгүй бол АЛДАА — AI амжилт гэж ойлгохгүй.
+  if (done === 0) throw new Error([...summary, "Журнал бичигдсэнгүй."].join("\n"));
   return {
     resultText: [
-      `Ханшийн тэгшитгэл ${input.valuationDate}: ${done}/${targets.length} данс`,
-      ...lines,
-      "Журналууд шууд бичигдсэн — get_trial_balance-аар 51800001/87000003-ыг шалгаж болно.",
+      ...summary,
+      done < targets.length
+        ? `${done} дансны журнал шууд бичигдсэн, ${targets.length - done} данс АЛДААТАЙ — дээрх шалтгааныг засаад дахин оролдоно уу.`
+        : "Журналууд шууд бичигдсэн — get_trial_balance-аар 51800001/87000003-ыг шалгаж болно.",
     ].join("\n"),
   };
 }
@@ -9200,7 +9211,8 @@ async function runReverseFxRevaluation(
       `${account.name} дансанд ${input.valuationDate}-ны идэвхтэй тэгшитгэл олдсонгүй`
     );
   const latest = rows.sort((a, b) => b.revision - a.revision)[0];
-  await reverseCashFxRevaluation(latest.id);
+  // Action алдааг `{ error }` УТГААР буцаадаг — шалгахгүй бол «буцаагдлаа» гэж худал хэлнэ.
+  unwrapAction(await reverseCashFxRevaluation(latest.id));
   return {
     resultText: `Ханшийн тэгшитгэл буцаагдлаа: ${account.name} · ${input.valuationDate} (буцаалтын журнал үүссэн)`,
   };
