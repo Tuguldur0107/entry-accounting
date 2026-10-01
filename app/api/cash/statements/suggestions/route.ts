@@ -1,16 +1,10 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
 import { loadAdvanceSettings, type AdvanceSettings } from "@/lib/arap/advances";
-import { loadArApSegmentData } from "@/lib/arap/load-data";
 import { requireModuleAction } from "@/lib/auth";
 import type { BankRule, BankRuleMode, BankRuleSide } from "@/lib/cash/bank-rules";
 import type { EwalletSettlementMethod } from "@/lib/cash/ewallet-settlement";
-import {
-  buildInvoiceAccountHints,
-  type InvoiceAccountHints,
-  type PreviewCounterparty,
-  type PreviewVatSettings,
-} from "@/lib/cash/bank-row-preview";
+import { buildInvoiceAccountHints, type InvoiceAccountHints } from "@/lib/cash/bank-row-preview";
 import { loadEwalletSettlementContext } from "@/lib/cash/ewallet-settlement-data";
 import {
   buildHistoricalPatterns,
@@ -40,8 +34,8 @@ const INVOICE_LINE_HISTORY_LIMIT = 3000;
  *   - э-хэтэвчийн (QPay) хэлбэрүүд + түр дансны тулгагдаагүй орлогууд (settlement)
  *   - идэвхтэй харилцагчид + урьдчилгааны дансны роль (мөрийн бүртгэлийн
  *     төрөл, docs/dev/arap.md §5l)
- *   - нэхэмжлэх үүсгэх мөрийн харьцах дансны санал (өмнөх нэхэмжлэхээс) ба
- *     бичилтийн урьдчилсан харагдацын НӨАТ / хяналтын данс (lib/cash/bank-row-preview.ts)
+ *   - нэхэмжлэх үүсгэх мөрийн харьцах дансны санал (өмнөх нэхэмжлэхээс,
+ *     lib/cash/bank-row-preview.ts)
  * Бүгд байгууллагаар (organizationId) хамгаалагдсан. Тулгалтын логик нь
  * client талд цэвэр функцээр (lib/cash/statement-matching.ts) ажиллана.
  */
@@ -64,7 +58,6 @@ export async function GET() {
       advanceSettings,
       invoiceLines,
       vatSettings,
-      segmentData,
     ] = await Promise.all([
       db.query.arApDocuments.findMany({
         where: and(
@@ -105,13 +98,7 @@ export async function GET() {
       loadEwalletSettlementContext(orgId),
       db.query.counterparties.findMany({
         where: and(eq(counterparties.organizationId, orgId), eq(counterparties.isActive, true)),
-        columns: {
-          id: true,
-          name: true,
-          counterpartyType: true,
-          defaultReceivableAccountNumber: true,
-          defaultPayableAccountNumber: true,
-        },
+        columns: { id: true, name: true, counterpartyType: true },
         orderBy: [asc(counterparties.name)],
       }),
       loadAdvanceSettings(orgId),
@@ -134,8 +121,8 @@ export async function GET() {
         )
         .orderBy(desc(arApDocuments.date), desc(arApDocuments.createdAt), asc(arApDocumentLines.sortOrder))
         .limit(INVOICE_LINE_HISTORY_LIMIT),
+      // НӨАТ-ын мөрийг дансны саналаас хасахад.
       loadVatSettings(orgId, userId),
-      loadArApSegmentData(orgId),
     ]);
 
     const rules: BankRule[] = ruleRows.map((row) => ({
@@ -156,11 +143,9 @@ export async function GET() {
     const context: MatchContext & {
       rules: BankRule[];
       ewalletMethods: EwalletSettlementMethod[];
-      counterparties: (PreviewCounterparty & { counterpartyType: string })[];
+      counterparties: { id: string; name: string; counterpartyType: string }[];
       advanceSettings: AdvanceSettings;
       invoiceAccountHints: InvoiceAccountHints;
-      vat: PreviewVatSettings;
-      defaultControl: { receivable: string; payable: string };
     } = {
       rules,
       ewalletMethods: ewallet.methods,
@@ -169,13 +154,6 @@ export async function GET() {
         invoiceLines.filter((line): line is typeof line & { counterpartyId: string } => !!line.counterpartyId),
         [vatSettings.outputVatAccountNumber, vatSettings.inputVatAccountNumber]
       ),
-      vat: {
-        isVatPayer: vatSettings.isVatPayer,
-        vatRatePercent: Number(vatSettings.vatRatePercent),
-        outputVatAccountNumber: vatSettings.outputVatAccountNumber,
-        inputVatAccountNumber: vatSettings.inputVatAccountNumber,
-      },
-      defaultControl: segmentData.defaultAccountNumbers,
       advanceSettings: {
         customerAdvanceAccountNumber: advanceSettings.customerAdvanceAccountNumber,
         supplierAdvanceAccountNumber: advanceSettings.supplierAdvanceAccountNumber,

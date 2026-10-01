@@ -1,5 +1,6 @@
 "use server";
 
+import { reverseVoucherInTx } from "@/lib/gl/reverse-voucher";
 import { stateChangedError } from "@/lib/state-guard";
 import { db } from "@/lib/db";
 import {
@@ -16,6 +17,7 @@ import {
   journalLines,
   moduleConfigs,
   organizationProfile,
+  payrollRuns,
   purchaseOrders,
   segmentConfigs,
   segmentValues,
@@ -1054,6 +1056,7 @@ async function assertNotSubledgerOwned(
     offsetRef,
     poCloseRef,
     receiptRef,
+    payrollRef,
   ] = await Promise.all([
     db.query.cashDocuments.findFirst({
       where: and(
@@ -1142,7 +1145,21 @@ async function assertNotSubledgerOwned(
       ),
       columns: { documentNo: true },
     }),
+    // ЦАЛИН (ontology-audit H5): сарын цалингийн журнал бодолттой
+    // (payroll_runs.voucherId) уялдсан — GL-ээс буцаавал бодолт журналтай
+    // холбоотой хэвээр үлдэж дахин бодох / шинэ журнал үүсгэх зам гацна.
+    db.query.payrollRuns.findFirst({
+      where: and(
+        eq(payrollRuns.organizationId, orgId),
+        eq(payrollRuns.voucherId, id)
+      ),
+      columns: { periodMonth: true },
+    }),
   ]);
+  if (payrollRef)
+    throw new Error(
+      `[PAYROLL_OWNED] ${payrollRef.periodMonth} сарын цалингийн журнал — Цалин модулиас буцаана (Цалин → бодолт → «Журнал буцаах»); бодолт ноорог руу буцаж дахин бодогдоно`
+    );
   // Хангамжийн шалгалтууд нь өртгийн ЕРӨНХИЙ мессежээс ӨМНӨ — хэрэглэгчийг
   // зөв модуль руу (Хангамж) чиглүүлнэ.
   if (poCloseRef)
@@ -1208,61 +1225,7 @@ async function unpostVoucherCore(id: string) {
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
     await assertPeriodOpenInTx(tx, orgId, voucher.date);
-    const [claimed] = await tx
-      .update(journalVouchers)
-      .set({ status: "reversed" })
-      .where(
-        and(
-          eq(journalVouchers.id, id),
-          eq(journalVouchers.organizationId, orgId),
-          eq(journalVouchers.status, "posted")
-        )
-      )
-      .returning({ id: journalVouchers.id });
-    if (!claimed) throw new Error("Бичилтийн төлөв өөрчлөгдсөн байна");
-
-    const [reversal] = await tx
-      .insert(journalVouchers)
-      .values({
-        userId,
-        organizationId: orgId,
-        date: voucher.date,
-        description: `Буцаалт: ${voucher.description}`,
-        // Буцаалт нь эх журналынхаа модульд үлдэнэ (CM-ийн буцаалт CM-).
-        documentNo: await nextVoucherNo(
-          tx,
-          orgId,
-          moduleOfVoucherNo(voucher.documentNo, "gl"),
-          voucher.date
-        ),
-        status: "posted",
-        // Эх журналтайгаа хосолно: эхийг устгавал буцаалт FK cascade-аар
-        // хамт устана; буцаалтыг дангаар устгахыг deleteVoucher хориглоно.
-        reversalOfVoucherId: id,
-      })
-      .returning();
-
-    await tx.insert(journalLines).values(
-      voucher.lines.map((l, i) => ({
-        voucherId: reversal.id,
-        accountNumber: l.accountNumber,
-        debit: String(-Number(l.debit)),
-        credit: String(-Number(l.credit)),
-        description: l.description,
-        sortOrder: i,
-      }))
-    );
-    await logAuditEvent(
-      {
-        userId,
-        organizationId: orgId,
-        action: "unpost",
-        entityType: "journal",
-        entityId: id,
-        summary: `Журнал буцаагдав — ${voucher.date}, ${voucher.description}, дүн ${voucher.lines.reduce((s, l) => s + Number(l.debit), 0).toLocaleString("en-US")}₮`,
-      },
-      tx
-    );
+    await reverseVoucherInTx(tx, { orgId, userId, voucher });
   });
 
   // Эх бичилт нь буцаагдсан тул түүнээс үүссэн бөглөгдөөгүй inventory

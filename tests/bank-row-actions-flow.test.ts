@@ -21,7 +21,6 @@ try {
 
 import { reverseArApOffset } from "../lib/actions/arap";
 import { executeAiTool } from "../lib/ai/tools";
-import { previewBankRowPostings } from "../lib/cash/bank-row-preview";
 import { loadAdvanceBalances } from "../lib/arap/advances";
 import { loadCounterpartyStatement } from "../lib/arap/statement-db";
 import { runAsOrg } from "../lib/auth";
@@ -32,6 +31,7 @@ import {
   arApDocuments,
   arApSettlements,
   arapAdvanceApplications,
+  bankStatements,
   cashDocuments,
   counterparties,
   journalLines,
@@ -189,32 +189,10 @@ test("import_bank_statement: авлага үүсгэж борлуулалтад 
     [["11000001", 220_000, 0], [sale.controlAccountNumber, 0, 220_000]].sort()
   );
 
-  // Урьдчилсан харагдац (suggestions endpoint-ийн өгөгдлөөр) == серверийн бодит
-  // журнал; харьцах дансны санал = энэ харилцагчийн сүүлийн орлогын данс.
+  // Харьцах дансны санал (suggestions endpoint) = энэ харилцагчийн сүүлийн орлогын данс.
   const { GET } = await import("../app/api/cash/statements/suggestions/route");
   const contextData = await asOrg(async () => (await GET()).json());
-  const customerId = await counterpartyId("Номин Худалдан авагч");
-  assert.equal(contextData.invoiceAccountHints.ar[customerId], "51100000");
-  assert.equal(contextData.vat.isVatPayer, true);
-  const bankLine = receiptLines.find((line) => Number(line.debit) > 0)!;
-  const preview = previewBankRowPostings(
-    {
-      id: "p", rowNumber: 1, transactionDate: "2026-09-06", description: "", counterparty: "", counterAccount: "",
-      income: 220_000, expense: 0, exchangeRate: 1, baseAmount: 220_000,
-      debitAccountNumber: bankLine.accountNumber,
-      creditAccountNumber: invoiceLines.find((line) => main(line.accountNumber) === "51100000")!.accountNumber,
-      rowAction: "create_ar_invoice", counterpartyId: customerId, rawData: {},
-    },
-    { vat: contextData.vat, counterparties: contextData.counterparties, defaultControl: contextData.defaultControl }
-  );
-  assert.deepEqual(preview.notes, []);
-  const actual = [...invoiceLines, ...receiptLines]
-    .map((line) => [main(line.accountNumber), Number(line.debit), Number(line.credit)])
-    .sort();
-  assert.deepEqual(
-    preview.lines.map((line) => [line.account, line.debit, line.credit]).sort(),
-    actual
-  );
+  assert.equal(contextData.invoiceAccountHints.ar[await counterpartyId("Номин Худалдан авагч")], "51100000");
 
   // Нийлүүлэгч төрлийн харилцагчид борлуулалт бичигдэхгүй.
   const wrongParty = await tool("import_bank_statement", {
@@ -230,6 +208,76 @@ test("import_bank_statement: авлага үүсгэж борлуулалтад 
     rows: [{ date: "2026-09-06", counterparty: "Номин Худалдан авагч", income: 1_000, counterGlAccount: sale.controlAccountNumber, rowAction: "create_ar_invoice" }],
   });
   assert.match(controlCounter.resultText, /орлогын данс байх ёстой/);
+});
+
+test("өглөг үүсгэх: харилцагчийн картын данс бүтэн сегмент кодоор хадгалагдсан ч хяналтын данс танигдана", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // Вэбийн CounterpartyDialog данс сонгогч нь бүтэн 10 хэсэгт код хадгалдаг.
+  ok(await tool("create_counterparty", { name: "Сегмент Нийлүүлэгч", counterpartyType: "supplier" }, "draft"));
+  await db
+    .update(counterparties)
+    .set({ defaultPayableAccountNumber: "000.000000.31000001.00.0000" })
+    .where(and(eq(counterparties.organizationId, orgId), eq(counterparties.name, "Сегмент Нийлүүлэгч")));
+  ok(
+    await tool("import_bank_statement", {
+      cashAccount: "Голомт банк",
+      statementRef: `bra-${STAMP}-segment-control`,
+      rows: [{ date: "2026-09-07", description: "Шимтгэл", counterparty: "Сегмент Нийлүүлэгч", expense: 1_100, counterGlAccount: "73100001", rowAction: "create_ap_bill" }],
+    })
+  );
+  const bill = await db.query.arApDocuments.findFirst({
+    where: and(
+      eq(arApDocuments.organizationId, orgId),
+      eq(arApDocuments.counterpartyId, await counterpartyId("Сегмент Нийлүүлэгч"))
+    ),
+  });
+  assert.ok(bill);
+  assert.equal(main(bill.controlAccountNumber), "31000001");
+  assert.equal(bill.status, "paid");
+});
+
+test("preview: батлахаас өмнөх бичилт — ноорог горимд ч ажиллаж, ЮУ Ч бичихгүй", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const countOf = async () => ({
+    statements: (await db.query.bankStatements.findMany({ where: eq(bankStatements.organizationId, orgId) })).length,
+    invoices: (await db.query.arApDocuments.findMany({ where: eq(arApDocuments.organizationId, orgId) })).length,
+    cash: (await db.query.cashDocuments.findMany({ where: eq(cashDocuments.organizationId, orgId) })).length,
+  });
+  const before = await countOf();
+  const preview = ok(
+    await tool(
+      "import_bank_statement",
+      {
+        cashAccount: "Голомт банк",
+        statementRef: `bra-${STAMP}-preview`,
+        preview: true,
+        rows: [
+          { date: "2026-09-08", description: "Түрээс", counterparty: "Түрээслүүлэгч ХХК", expense: 220, counterGlAccount: "73100001", rowAction: "create_ap_bill" },
+          { date: "2026-09-08", description: "Хүү", income: 30, counterGlAccount: "51100000" },
+        ],
+      },
+      "draft"
+    )
+  ).resultText;
+  assert.match(preview, /УРЬДЧИЛЖ ХАРАХ — юу ч бичигдээгүй\. 2 мөр → 3 журнал/);
+  assert.match(preview, /тэнцсэн/);
+  assert.match(preview, /Давхар бичилттэй мөр \(1\)/);
+  assert.match(preview, /31000001 .* Дт 220 \/ Кт 220$/m);
+  assert.match(preview, /13620000 .* Дт 20 \/ Кт 0$/m);
+  assert.deepEqual(await countOf(), before);
+  // Урьдчилж харсны дараа жинхэнэ импорт ердийнхөөрөө (дугаарын тоолуур, hash хөндөгдөөгүй).
+  ok(
+    await tool("import_bank_statement", {
+      cashAccount: "Голомт банк",
+      statementRef: `bra-${STAMP}-preview`,
+      rows: [
+        { date: "2026-09-08", description: "Түрээс", counterparty: "Түрээслүүлэгч ХХК", expense: 220, counterGlAccount: "73100001", rowAction: "create_ap_bill" },
+        { date: "2026-09-08", description: "Хүү", income: 30, counterGlAccount: "51100000" },
+      ],
+    })
+  );
+  const after = await countOf();
+  assert.deepEqual([after.statements - before.statements, after.invoices - before.invoices, after.cash - before.cash], [1, 1, 2]);
 });
 
 test("rowAction-ийн буруу хэрэглээ — харилцагчгүй, буруу чиглэл", { skip: !DB_READY }, async () => {

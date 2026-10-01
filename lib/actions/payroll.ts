@@ -37,7 +37,9 @@ import {
   unwrapAction,
   type ActionResult,
 } from "@/lib/action-result";
-import { assertPeriodOpen } from "@/lib/periods/guard";
+import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import { reverseVoucherInTx } from "@/lib/gl/reverse-voucher";
+import { stateChangedError } from "@/lib/state-guard";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { employmentShare, isTerminated, proratedHours } from "@/lib/payroll/employment";
@@ -1283,6 +1285,111 @@ async function createPayrollVoucherCore(
 
   revalidatePayroll();
   return { id };
+}
+
+/**
+ * Сарын цалингийн журналыг ЦАЛИН модулиас буцаана (ontology-audit H5) — GL-ийн
+ * «Буцаах» цалингийн журналд хаалттай (`assertNotSubledgerOwned`), учир нь
+ * бодолт журналтай холбоотой хэвээр үлдэж дахин бодох / шинэ журнал гацдаг.
+ *   • ноорог журнал → устгана;
+ *   • батлагдсан → улаан сторно (`reverseVoucherInTx`, эх огноогоор);
+ *   • аль хэдийн буцаагдсан (засварын өмнө GL-ээс буцаасан) → зөвхөн суллана.
+ * Дараа нь эх журналын externalRef-ийг чөлөөлж (`payroll:YYYY-MM:reversed:…`),
+ * бодолтыг НООРОГ болгоно — шинэ журнал ердийн `createPayrollVoucher`-ээр.
+ * Урьдчилгаа/сүүл цалингийн өглөг үүссэн бол клиринг эвдрэхгүйн тулд эхлээд тэдгээрийг.
+ */
+export async function reversePayrollVoucher(
+  periodMonth: string
+): Promise<ActionResult<{ reversalId: string | null }>> {
+  try {
+    return await reversePayrollVoucherCore(periodMonth);
+  } catch (caught) {
+    return actionError("reversePayrollVoucher", caught, "Цалингийн журнал буцаагдсангүй");
+  }
+}
+
+async function reversePayrollVoucherCore(
+  periodMonth: string
+): Promise<{ reversalId: string | null }> {
+  const { orgId, userId } = await requireModuleAction("payroll", "post");
+  if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
+
+  const run = await db.query.payrollRuns.findFirst({
+    where: and(eq(payrollRuns.organizationId, orgId), eq(payrollRuns.periodMonth, periodMonth)),
+  });
+  if (!run?.voucherId) throw new Error(`${periodMonth} сард цалингийн GL журнал алга`);
+  if (run.advanceDocumentId || run.finalDocumentId)
+    throw new Error(
+      "[PAYROLL_BILLS_EXIST] Урьдчилгаа/сүүл цалингийн өглөгийн нэхэмжлэх үүссэн — клиринг эвдрэхгүйн тулд эхлээд АР/АП-аас тэдгээрийг устгана/буцаана уу"
+    );
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.id, run.voucherId), eq(journalVouchers.organizationId, orgId)),
+    with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
+  });
+  if (!voucher) throw new Error("Цалингийн GL журнал олдсонгүй");
+  if (voucher.status !== "draft") await assertPeriodOpen(orgId, voucher.date);
+
+  let reversalId: string | null = null;
+  await db.transaction(async (tx) => {
+    if (voucher.status !== "draft") await assertPeriodOpenInTx(tx, orgId, voucher.date);
+    // Бодолтыг түгжиж ижил журналтай хэвээр эсэхийг тулгана (C4).
+    const [locked] = await tx
+      .select({ id: payrollRuns.id })
+      .from(payrollRuns)
+      .where(and(eq(payrollRuns.id, run.id), eq(payrollRuns.voucherId, voucher.id)))
+      .for("update");
+    if (!locked) throw stateChangedError("Цалингийн бодолт");
+
+    if (voucher.status === "draft") {
+      const [removed] = await tx
+        .delete(journalVouchers)
+        .where(
+          and(
+            eq(journalVouchers.id, voucher.id),
+            eq(journalVouchers.organizationId, orgId),
+            eq(journalVouchers.status, "draft")
+          )
+        )
+        .returning({ id: journalVouchers.id });
+      if (!removed) throw stateChangedError("Журнал");
+    } else {
+      if (voucher.status === "posted")
+        reversalId = await reverseVoucherInTx(tx, { orgId, userId, voucher });
+      // Эх (одоо буцаагдсан) журнал аудитын мөрд үлдэнэ; сарын externalRef-ийг
+      // шинэ журналд чөлөөлнө.
+      await tx
+        .update(journalVouchers)
+        .set({ externalRef: `${voucherRefOf(periodMonth)}:reversed:${voucher.id.slice(0, 8)}` })
+        .where(
+          and(
+            eq(journalVouchers.id, voucher.id),
+            eq(journalVouchers.organizationId, orgId),
+            eq(journalVouchers.status, "reversed")
+          )
+        );
+    }
+
+    await tx
+      .update(payrollRuns)
+      .set({ voucherId: null, status: "draft", updatedAt: new Date() })
+      .where(eq(payrollRuns.id, run.id));
+    await logAuditEvent(
+      {
+        userId,
+        organizationId: orgId,
+        action: "reverse_voucher",
+        entityType: "payroll",
+        entityId: voucher.id,
+        summary: `Цалингийн журнал ${voucher.status === "draft" ? "устгагдав" : "буцаагдав"} — ${periodMonth}, ${voucher.documentNo ?? voucher.id.slice(0, 8)}; бодолт ноорог руу буцав`,
+      },
+      tx
+    );
+  });
+
+  revalidatePayroll();
+  revalidatePath("/gl/journal");
+  revalidatePath("/gl/reports");
+  return { reversalId };
 }
 
 // ── Цалингийн нэхэмжлэх (урьдчилгаа / сүүл) → АР/АП өглөг ──────────────────

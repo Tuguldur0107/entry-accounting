@@ -65,19 +65,15 @@ import {
 } from "@/components/arap/arap-workspace";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { InvoicePickerDialog } from "@/components/cash/invoice-picker-dialog";
-import {
-  BankRowPreviewDialog,
-  BankRowPreviewStrip,
-} from "@/components/cash/bank-row-preview-dialog";
+import { BankRowPreviewStrip } from "@/components/cash/bank-row-preview-strip";
 import {
   fillInvoiceCounterAccounts,
   mainAccountOfCode,
   suggestInvoiceCounterAccount,
   type InvoiceAccountHints,
-  type PreviewContext,
-  type PreviewCounterparty,
-  type PreviewVatSettings,
 } from "@/lib/cash/bank-row-preview";
+import { StatementPreviewDialog } from "@/components/cash/statement-preview-dialog";
+import type { BankStatementPreview } from "@/lib/cash/statement-preview";
 import type { EntityKindOption } from "@/lib/arap/counterparty-kind";
 import {
   AdvanceSettingsDialog,
@@ -178,12 +174,9 @@ type ImportContext = MatchContext & {
   rules?: BankRule[];
   ewalletMethods?: EwalletSettlementMethod[];
   /** Идэвхтэй харилцагчид — мөрийн харилцагч сонгогч (docs/dev/arap.md §5l). */
-  counterparties?: (PreviewCounterparty & { counterpartyType: string })[];
+  counterparties?: { id: string; name: string; counterpartyType: string }[];
   /** Нэхэмжлэх үүсгэх мөрийн харьцах дансны санал (өмнөх нэхэмжлэхээс). */
   invoiceAccountHints?: InvoiceAccountHints;
-  /** Бичилтийн урьдчилсан харагдацад — НӨАТ, default хяналтын данс. */
-  vat?: PreviewVatSettings;
-  defaultControl?: { receivable: string; payable: string };
   /** Урьдчилгааны дансны роль — «Бүртгэл» сонгоход харьцах тал бөглөгдөнө. */
   advanceSettings?: {
     customerAdvanceAccountNumber: string;
@@ -298,8 +291,6 @@ export function BankStatementImport({
   const [rows, setRows] = useState<ParsedBankStatementRow[]>(initialDraft?.rows ?? []);
   const [quickFilter, setQuickFilter] = useState("");
   const [selectedCount, setSelectedCount] = useState(0);
-  // Бичилтийн урьдчилсан харагдац — сонгосон мөрүүд, эс бөгөөс бүх мөр.
-  const [previewRows, setPreviewRows] = useState<ParsedBankStatementRow[] | null>(null);
   // Хүснэгтийн доорх бичилтийн хэсэг — курсортой (дарсан / гараар шилжсэн) мөр.
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const activeRow = useMemo(
@@ -328,6 +319,8 @@ export function BankStatementImport({
   const [advanceSettings, setAdvanceSettings] = useState<AdvanceSettingsView | null>(null);
   // Нэхэмжлэх сонгох цонх — мөрийн ID.
   const [invoicePicker, setInvoicePicker] = useState<string | null>(null);
+  // Батлахаас өмнөх бичилтийн харагдац (previewBankStatement).
+  const [postingPreview, setPostingPreview] = useState<BankStatementPreview | null>(null);
 
   const cashAccount = accounts.find((account) => account.id === cashAccountId);
   // Мөр бэлэн эсэх: данс бүрэн + (валюттай бол) ханш/MNT дүн.
@@ -493,30 +486,6 @@ export function BankStatementImport({
       );
   }, [activeSegIds, defaultSegments]);
 
-  // Бичилтийн урьдчилсан харагдац (lib/cash/bank-row-preview.ts) — сервертэй
-  // ижил дүрмээр; хадгалахаас өмнө давхар бичилтийг харуулна.
-  const previewContext = useMemo<PreviewContext>(
-    () => ({
-      vat: matchContext?.vat ?? null,
-      counterparties: matchContext?.counterparties ?? [],
-      defaultControl: matchContext?.defaultControl ?? null,
-      invoiceControl: (invoiceId) =>
-        matchContext?.openInvoices.find((invoice) => invoice.id === invoiceId)?.controlAccountNumber ?? null,
-    }),
-    [matchContext]
-  );
-  const accountNameOf = useCallback(
-    (main: string) => segmentOptions[3]?.find((option) => option.code === main)?.name ?? "",
-    [segmentOptions]
-  );
-  const openPreview = useCallback(() => {
-    // Сонгосон мөрийг ID-аар ОДООГИЙН төлвөөс авна (grid-ийн хуучин объект биш).
-    const selectedIds = new Set(
-      ((gridRef.current?.api?.getSelectedRows() ?? []) as ParsedBankStatementRow[]).map((row) => row.id)
-    );
-    const selected = rows.filter((row) => selectedIds.has(row.id));
-    setPreviewRows(selected.length > 0 ? selected : rows);
-  }, [rows]);
 
   // «+ Шинэ харилцагч» — нэр, харьцсан данс хуулгын мөрөөс; орлого → авлага,
   // зарлага → өглөгийн харилцагч. Хадгалмагц тухайн мөрөнд шууд холбоно.
@@ -1651,12 +1620,34 @@ export function BankStatementImport({
     discardDraft();
   }
 
-  function saveStatement() {
+  // «Хуулга хадгалж батлах» — эхлээд бичилтийг харуулна (docs/dev/arap.md §5l):
+  // сервер ЯГ ТЭР хадгалах кодыг ажиллуулаад буцаадаг тул харсан = бичигдэх.
+  function reviewStatement() {
     if (!parsed || !cashAccount) return;
     if (totals.invalid > 0) {
       setError(`${totals.invalid} мөрийн DR/CR данс дутуу байна`);
       return;
     }
+    setError("");
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/cash/statements/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...parsed, cashAccountId: cashAccount.id, rows }),
+        });
+        const result = (await response.json()) as BankStatementPreview & { error?: string };
+        if (!response.ok || result.error)
+          throw new Error(result.error || "Бичилтийг урьдчилж бодож чадсангүй");
+        setPostingPreview(result);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Бичилтийг урьдчилж бодож чадсангүй");
+      }
+    });
+  }
+
+  function saveStatement() {
+    if (!parsed || !cashAccount) return;
     setError("");
     startTransition(async () => {
       try {
@@ -1676,6 +1667,7 @@ export function BankStatementImport({
         };
         if (!response.ok || result.error)
           throw new Error(result.error || "Хуулга хадгалж чадсангүй");
+        setPostingPreview(null);
         setParsed(null);
         setRows([]);
         setSelectedCount(0);
@@ -1683,6 +1675,7 @@ export function BankStatementImport({
         discardDraft();
         router.refresh();
       } catch (caught) {
+        setPostingPreview(null);
         setError(
           caught instanceof Error ? caught.message : "Хуулга хадгалж чадсангүй"
         );
@@ -2040,15 +2033,6 @@ export function BankStatementImport({
             <Button
               variant="ghost"
               size="icon"
-              title="Бичилт харах — сонгосон (эсвэл бүх) мөр хадгалагдахад үүсэх журнал"
-              aria-label="Бичилтийн урьдчилсан харагдац"
-              onClick={openPreview}
-            >
-              <Icon name="journal" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
               title="Сонгосон мөрөөс дүрэм үүсгэх"
               aria-label="Мөрөөс дүрэм үүсгэх"
               onClick={createRuleFromSelection}
@@ -2100,8 +2084,23 @@ export function BankStatementImport({
           {activeRow && (
             <BankRowPreviewStrip
               row={activeRow}
-              context={previewContext}
-              accountName={accountNameOf}
+              statement={{
+                fileName: parsed.fileName,
+                fileHash: parsed.fileHash,
+                bankName: parsed.bankName,
+                periodStart: parsed.periodStart,
+                periodEnd: parsed.periodEnd,
+              }}
+              cashAccountId={cashAccount?.id ?? ""}
+              missing={
+                !cashAccount
+                  ? "Банкны данс сонгоогүй"
+                  : rowReady(activeRow)
+                    ? null
+                    : validationText(activeRow) === "Бэлэн"
+                      ? "Ханш / ₮ дүн дутуу"
+                      : `${validationText(activeRow)} — бөглөхөд бичилт харагдана`
+              }
               onClose={() => setActiveRowId(null)}
             />
           )}
@@ -2137,7 +2136,7 @@ export function BankStatementImport({
               Хаях
             </Button>
             <Button
-              onClick={saveStatement}
+              onClick={reviewStatement}
               disabled={isPending || totals.invalid > 0}
             >
               <Icon name="approve" />
@@ -2173,19 +2172,6 @@ export function BankStatementImport({
           />
         </section>
       )}
-
-      <BankRowPreviewDialog
-        open={previewRows !== null}
-        onOpenChange={(open) => !open && setPreviewRows(null)}
-        rows={previewRows ?? []}
-        context={previewContext}
-        accountName={accountNameOf}
-        scopeLabel={
-          previewRows && previewRows.length !== rows.length
-            ? `Сонгосон ${previewRows.length} мөрийг`
-            : `Бүх ${rows.length} мөрийг`
-        }
-      />
 
       {/* Импортын мөрүүдийн drill — undo зам: мөр → кассын баримт → Буцаах */}
       <Dialog
@@ -2340,6 +2326,14 @@ export function BankStatementImport({
         />
       )}
       {confirmDialog}
+      {postingPreview && (
+        <StatementPreviewDialog
+          preview={postingPreview}
+          isPending={isPending}
+          onConfirm={saveStatement}
+          onClose={() => setPostingPreview(null)}
+        />
+      )}
       {(() => {
         const pickerRow = invoicePicker ? rows.find((row) => row.id === invoicePicker) : undefined;
         if (!pickerRow) return null;
