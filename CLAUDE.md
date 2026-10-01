@@ -362,6 +362,9 @@ POS `docs/pos/00-proposal.md` → `01-implementation-contract.md` (функци�
   (`bankAccountNo`) ЗААВАЛ, төлбөр АЛБАН код PAID (`PAY`/«INVOICE» ХЭРЭГЛЭХГҮЙ — спек 3.0.1);
   кассын төлөлт бүр → `invoiceId`-тай *_RECEIPT (`kind "payment"`, сканнер, settlement бүрд
   НЭГ, эх нэхэмжлэхийн ДДТД хөндөгдөхгүй); кредит нэхэмжлэл Q5-ын хариугүйгээр ИЛГЭЭХГҮЙ;
+  POS «Зээлээр» = мөн НЭХЭМЖЛЭХ (`withCreditInvoice` — нэхэмжлэхийн код + данс, PAID) ба
+  төлөлт бүр *_RECEIPT; `payments[].status` ЗӨВХӨН `PAID`; PosAPI хариу ЗӨВХӨН `SUCCESS`
+  амжилт (`PAYMENT` = бүрэн бус баримт — «Алдаатай»);
   ТЕГ/ITC-д хүрэх ажлууд `docs/deployment/mongolia-network-runbook.md`
 
 **QPay Quick QR**

@@ -66,7 +66,13 @@ ddtd() { jq -r '.id // empty' "$OUT/$1.json"; }
 echo "== $(date -Iseconds) $POSAPI" | tee -a "$OUT/summary.txt"
 curl -sS "$POSAPI/rest/info" | jq '{operatorTIN, posNo, version: .appInfo.version, merchants: [.merchants[]?.tin]}' | tee "$OUT/info.json"
 
-# Q2 — төлөгдөөгүй хэсгийн payments[].code ба status
+# Entry-ийн ОДООГИЙН payload (2026-10-01-ээс): нэхэмжлэх = албан код + PAID бүтэн дүн
+# (АР нэхэмжлэх ба POS «Зээлээр» хоёулаа). Хариуны status SUCCESS байх ёстой —
+# PAYMENT ирвэл Entry «Алдаатай» гэж үзнэ (receiptResponseOutcome).
+base | jq '.payments=[{code:"BANK_TRANSFER",status:"PAID",paidAmount:1100000}]' | post T1e_b2b_invoice_BANK_TRANSFER_PAID
+
+# Q2 — төлөгдөөгүй хэсгийн payments[].code ба status (харьцуулах — PAY нь PDF 3.0.1 §11-ээр
+# гуравдагч төлбөрийн сервисийн төлөв; status PAYMENT буцах эсэхийг тэмдэглэнэ)
 base | post T1a_b2b_invoice_code_INVOICE_PAY
 base | jq '.payments[0].code="BANK_TRANSFER"' | post T1b_b2b_invoice_code_BANK_TRANSFER_PAY
 base | jq '.payments[0].code="CASH"' | post T1c_b2b_invoice_code_CASH_PAY
@@ -74,7 +80,7 @@ base | jq 'del(.payments)' | post T1d_b2b_invoice_no_payments
 
 # Амжилттай болсон анхны нэхэмжлэхийг сонгоно (T1a → T1b → T1c → T1d)
 INV=""; INV_TEST=""
-for t in T1a_b2b_invoice_code_INVOICE_PAY T1b_b2b_invoice_code_BANK_TRANSFER_PAY T1c_b2b_invoice_code_CASH_PAY T1d_b2b_invoice_no_payments; do
+for t in T1e_b2b_invoice_BANK_TRANSFER_PAID T1a_b2b_invoice_code_INVOICE_PAY T1b_b2b_invoice_code_BANK_TRANSFER_PAY T1c_b2b_invoice_code_CASH_PAY T1d_b2b_invoice_no_payments; do
   id=$(ddtd "$t"); if [ -n "$id" ]; then INV=$id; INV_TEST=$t; break; fi
 done
 if [ -z "$INV" ]; then echo "Нэхэмжлэх нэг ч амжилттай үүссэнгүй — T3–T5 алгаслаа" | tee -a "$OUT/summary.txt"; exit 0; fi
@@ -115,5 +121,10 @@ PREV=$(date -d "$(date +%Y-%m-01) -1 day" +%Y-%m-01 2>/dev/null || date -v1d -v-
 [ -n "$I5" ] && jq --arg i "$I5" --arg r "$PREV" '.inactiveId=$i | .reportMonth=$r | .payments=[{code:"BANK_TRANSFER",status:"PAID",paidAmount:1100000}]' "$INV_REQ" \
   | post T6_pay_reportMonth_prev
 
-curl -sS -X GET "$POSAPI/rest/sendData" >/dev/null 2>&1 || true
+# sendData замын зөрүү: developer портал `/rest/sendData`, PDF 3.0.1 §8 `/rest/send` —
+# аль нь 404 биш болохыг тэмдэглэнэ (Entry 404 бол хоёр дахь руу шилждэг).
+for path in /rest/sendData /rest/send; do
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -X GET "$POSAPI$path" 2>>"$OUT/curl-errors.log" || echo "000")
+  echo "send_path $path                   http=$code" | tee -a "$OUT/summary.txt"
+done
 echo "Дууслаа. stg-invoice.ebarimt.mn-д нэвтэрч §4.3-ийн гар шалгалтыг хийгээд $OUT хавтсыг илгээнэ үү." | tee -a "$OUT/summary.txt"

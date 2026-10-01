@@ -24,6 +24,8 @@ export interface ArapEbarimtInfo {
   lastError: string | null;
   payments: ArapPaymentEbarimtRow[];
   unqueuedPayments: number;
+  /** POS «Зээлээр» — нэхэмжлэхийг POS панелиас дахин илгээнэ, энд зөвхөн төлөлт. */
+  posSourced: boolean;
 }
 
 /** Төлөлтийн илгээлтийн төлөв → нэхэмжлэхийн eBarimt-ийн төлвийн шошго/өнгө (claimed = илгээж байна). */
@@ -52,7 +54,7 @@ export function ArapEbarimtField({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const canResend = !reversed && (ebarimt.status === "failed" || ebarimt.status === "pending");
+  const canResend = !ebarimt.posSourced && !reversed && (ebarimt.status === "failed" || ebarimt.status === "pending");
   const [isResendingPayment, startResendPayment] = useTransition();
 
   function resendPayment(submissionId: string) {
@@ -86,6 +88,7 @@ export function ArapEbarimtField({
           {EBARIMT_STATUS_LABELS[ebarimt.status as EbarimtStatus] ?? ebarimt.status}
         </StatusBadge>
         {ebarimt.type && <span className="text-xs text-[var(--ea-text-3)]">{TYPE_LABELS[ebarimt.type] ?? ebarimt.type}</span>}
+        {ebarimt.posSourced && <span className="text-xs text-[var(--ea-text-3)]">POS «Зээлээр» борлуулалт</span>}
         {canResend && (
           <Button size="sm" variant="outline" onClick={resend} disabled={isPending}>
             {isPending ? "Илгээж байна…" : "Дахин илгээх"}
@@ -99,7 +102,7 @@ export function ArapEbarimtField({
         </div>
       )}
       {ebarimt.lastError && <div className="text-xs text-[var(--ea-danger-fg)]">{ebarimt.lastError}</div>}
-      {reversed && ebarimt.status === "sent" && (
+      {reversed && !ebarimt.posSourced && ebarimt.status === "sent" && (
         <div className="text-xs text-[var(--ea-danger-fg)]">
           Нэхэмжлэх буцаагдсан ч ТЕГ-д хүчинтэй хэвээр — цуцлах урсгал баталгаажаагүй (docs/pos/05 Q5), ТЕГ-ийн системд гараар цуцална
         </div>
