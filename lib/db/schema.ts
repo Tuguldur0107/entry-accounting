@@ -78,8 +78,17 @@ export const organizations = pgTable("organizations", {
   registryNo: text("registry_no"),
   /** Фаз 05 (billing)-д ашиглана — одоогоор үргэлж null. */
   planId: text("plan_id"),
+  /**
+   * create_company-ийн idempotency — хэрэглэгчээр нэрийн талбартай
+   * (`user:<userId>:<ref>`, lib/idempotency.ts userScopedExternalRef).
+   */
+  externalRef: text("external_ref"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  uniqueIndex("organizations_external_ref_uq")
+    .on(t.externalRef)
+    .where(sql`${t.externalRef} is not null`),
+]);
 
 // ─── Billing / entitlement (docs/billing/00-proposal.md) ─────────────────────
 // SaaS горимд байгууллага бүрийн багц; мөр байхгүй = trial (үүссэнээс 14 хоног).
@@ -2366,8 +2375,13 @@ export const inventoryMovements = pgTable(
     sourceId: uuid("source_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     confirmedAt: timestamp("confirmed_at"),
+    /** Idempotency түлхүүр (AI/MCP/REST дахин дуудлага) — lib/idempotency.ts. */
+    externalRef: text("external_ref"),
   },
   (t) => [
+    uniqueIndex("inventory_movements_org_external_ref_uq")
+      .on(t.organizationId, t.externalRef)
+      .where(sql`${t.externalRef} is not null`),
     uniqueIndex("inventory_movements_org_id_document_no_ux").on(
       t.organizationId,
       t.documentNo
@@ -3033,8 +3047,13 @@ export const costAllocations = pgTable(
     ),
     createdBy: text("created_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+    /** Idempotency түлхүүр (AI/MCP/REST дахин дуудлага) — lib/idempotency.ts. */
+    externalRef: text("external_ref"),
   },
   (t) => [
+    uniqueIndex("cost_allocations_org_external_ref_uq")
+      .on(t.organizationId, t.externalRef)
+      .where(sql`${t.externalRef} is not null`),
     uniqueIndex("cost_allocations_org_id_document_no_ux").on(
       t.organizationId,
       t.documentNo
@@ -3376,8 +3395,13 @@ export const goodsReceipts = pgTable(
     ),
     confirmedAt: timestamp("confirmed_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+    /** Idempotency түлхүүр (AI/MCP/REST дахин дуудлага) — lib/idempotency.ts. */
+    externalRef: text("external_ref"),
   },
   (t) => [
+    uniqueIndex("goods_receipts_org_external_ref_uq")
+      .on(t.organizationId, t.externalRef)
+      .where(sql`${t.externalRef} is not null`),
     uniqueIndex("goods_receipts_org_id_document_no_ux").on(
       t.organizationId,
       t.documentNo
@@ -3723,8 +3747,13 @@ export const fixedAssets = pgTable(
       { onDelete: "set null" }
     ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+    /** Idempotency түлхүүр (AI/MCP/REST дахин дуудлага) — lib/idempotency.ts. */
+    externalRef: text("external_ref"),
   },
   (t) => [
+    uniqueIndex("fixed_assets_org_external_ref_uq")
+      .on(t.organizationId, t.externalRef)
+      .where(sql`${t.externalRef} is not null`),
     uniqueIndex("fixed_assets_organization_id_code_ux").on(
       t.organizationId,
       t.code
@@ -4430,8 +4459,13 @@ export const posSales = pgTable(
     nonVatReason: text("non_vat_reason"),
     note: text("note").notNull().default(""),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+    /** Idempotency түлхүүр (AI/MCP/REST дахин дуудлага) — lib/idempotency.ts. */
+    externalRef: text("external_ref"),
   },
   (t) => [
+    uniqueIndex("pos_sales_org_external_ref_uq")
+      .on(t.organizationId, t.externalRef)
+      .where(sql`${t.externalRef} is not null`),
     uniqueIndex("pos_sales_org_document_no_ux").on(t.organizationId, t.documentNo),
     index("pos_sales_org_date_ix").on(t.organizationId, t.date),
     index("pos_sales_org_shift_ix").on(t.organizationId, t.shiftId),

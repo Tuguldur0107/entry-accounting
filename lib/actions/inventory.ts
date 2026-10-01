@@ -50,6 +50,7 @@ import {
 } from "@/lib/periods/guard";
 import { logAuditEvent } from "@/lib/audit";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
+import { cleanExternalRef, isExternalRefConflict } from "@/lib/idempotency";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
 import { POS_MOVEMENT_SOURCE_TYPE } from "@/lib/pos/constants";
@@ -919,8 +920,23 @@ async function createInventoryMovementCore(data: {
   /** Зарлагын төрөл — өртгийн дебет чиглэлийг шийднэ (FR-ISSUE-001). */
   issueTypeId?: string;
   confirmNow?: boolean;
+  /** Idempotency түлхүүр — давтан дуудлага анхныхыг буцаана (lib/idempotency.ts). */
+  externalRef?: string;
 }) {
   const { orgId, userId } = await requireModuleAction("inv", "write");
+  const externalRef = cleanExternalRef(data.externalRef);
+  const findByRef = async () =>
+    externalRef
+      ? db.query.inventoryMovements.findFirst({
+          where: and(
+            eq(inventoryMovements.organizationId, orgId),
+            eq(inventoryMovements.externalRef, externalRef)
+          ),
+          columns: { id: true },
+        })
+      : undefined;
+  const existingByRef = await findByRef();
+  if (existingByRef) return { id: existingByRef.id, dedup: true as const };
   if (!MOVEMENT_TYPES.includes(data.movementType))
     throw new Error("Хөдөлгөөний төрөл буруу байна");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
@@ -986,26 +1002,36 @@ async function createInventoryMovementCore(data: {
       .slice(0, 6)
       .toUpperCase()}`;
 
-  const [movement] = await db
-    .insert(inventoryMovements)
-    .values({
-      userId,
-      organizationId: orgId,
-      documentNo,
-      movementType: data.movementType,
-      date: data.date,
-      itemId: data.itemId,
-      warehouseId: data.warehouseId,
-      toWarehouseId: data.movementType === "transfer" ? data.toWarehouseId : null,
-      quantity: String(quantity),
-      description: data.description?.trim() ?? "",
-      issueTypeId: await resolveIssueTypeId(
-        orgId,
-        data.movementType,
-        data.issueTypeId
-      ),
-    })
-    .returning({ id: inventoryMovements.id });
+  const issueTypeId = await resolveIssueTypeId(
+    orgId,
+    data.movementType,
+    data.issueTypeId
+  );
+  let movement: { id: string };
+  try {
+    [movement] = await db
+      .insert(inventoryMovements)
+      .values({
+        userId,
+        organizationId: orgId,
+        documentNo,
+        movementType: data.movementType,
+        date: data.date,
+        itemId: data.itemId,
+        warehouseId: data.warehouseId,
+        toWarehouseId: data.movementType === "transfer" ? data.toWarehouseId : null,
+        quantity: String(quantity),
+        description: data.description?.trim() ?? "",
+        issueTypeId,
+        externalRef,
+      })
+      .returning({ id: inventoryMovements.id });
+  } catch (caught) {
+    // Зэрэгцээ ижил ref — нөгөө нь түрүүлж бичсэн: түүнийг буцаана.
+    const raced = isExternalRefConflict(caught) ? await findByRef() : undefined;
+    if (raced) return { id: raced.id, dedup: true as const };
+    throw caught;
+  }
 
   if (data.confirmNow) {
     try {
@@ -1031,7 +1057,7 @@ async function createInventoryMovementCore(data: {
 
 export async function createInventoryMovement(
   data: Parameters<typeof createInventoryMovementCore>[0]
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: string; dedup?: true }>> {
   try {
     return await createInventoryMovementCore(data);
   } catch (caught) {

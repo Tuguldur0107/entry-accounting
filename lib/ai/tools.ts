@@ -301,6 +301,7 @@ import {
   segmentValues,
   warehouses,
 } from "@/lib/db/schema";
+import { cleanExternalRef } from "@/lib/idempotency";
 import {
   ONBOARDING_INTRO,
   ONBOARDING_LIMITS,
@@ -386,6 +387,14 @@ export interface AiToolResult {
    */
   dedup?: boolean;
 }
+
+/** Мөнгө/бараа/tenant үүсгэдэг tool-уудын idempotency параметр (lib/idempotency.ts). */
+const EXTERNAL_REF_PROPERTY = {
+  type: "string",
+  description:
+    "Idempotency түлхүүр (сонголтоор, ≤200 тэмдэгт) — дахин оролдохдоо ИЖИЛ утга өгвөл давхар бичилт үүсэхгүй, анхныхыг буцаана (ж: гадаад системийн ID)",
+} as const;
+
 
 /**
  * Машинаар боловсруулагдах алдааны код — текстийн эхэнд [CODE] хэлбэрээр
@@ -601,6 +610,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
+        externalRef: EXTERNAL_REF_PROPERTY,
         movementType: {
           type: "string",
           enum: ["receipt", "issue", "transfer", "adjustment", "return_in", "return_out"],
@@ -658,6 +668,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
+        externalRef: EXTERNAL_REF_PROPERTY,
         name: { type: "string", description: "Хөрөнгийн нэр" },
         acquisitionDate: { type: "string", description: "Худалдан авсан огноо YYYY-MM-DD" },
         cost: { type: "number", description: "Өртөг (₮, 0-ээс их)" },
@@ -1477,6 +1488,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
+        externalRef: EXTERNAL_REF_PROPERTY,
         documentId: { type: "string", description: "Нэхэмжлэхийн ID эсвэл дугаар (AR-...)" },
         cashAccount: { type: "string", description: "Кассын/банкны дансны нэр" },
         date: { type: "string", description: "Төлсөн огноо YYYY-MM-DD" },
@@ -2236,7 +2248,7 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         items: {
           type: "array",
-          description: "create_fixed_asset-ийн input-уудын жагсаалт (ижил талбарууд)",
+          description: "create_fixed_asset-ийн input-уудын жагсаалт (ижил талбарууд) — item бүрд externalRef өгвөл дахин илгээхэд давхар карт үүсэхгүй (алгасагдсан гэж тоологдоно)",
           items: { type: "object" },
         },
       },
@@ -2508,6 +2520,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
+        externalRef: EXTERNAL_REF_PROPERTY,
         name: { type: "string", description: "Компанийн нэр" },
         registerNo: { type: "string", description: "Регистр / ТТД (сонголтоор)" },
         vatPayerNo: { type: "string", description: "НӨАТ төлөгчийн дугаар (сонголтоор)" },
@@ -3046,6 +3059,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
+        externalRef: EXTERNAL_REF_PROPERTY,
         purchaseOrderId: {
           type: "string",
           description: "Захиалгын дугаар, externalRef эсвэл ID (бүтэн/6+ тэмдэгт)",
@@ -3209,6 +3223,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
+        externalRef: EXTERNAL_REF_PROPERTY,
         allocationBase: {
           type: "string",
           enum: ["value", "quantity", "manual"],
@@ -3432,6 +3447,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
+        externalRef: EXTERNAL_REF_PROPERTY,
         lines: {
           type: "array",
           description: "Борлуулсан бараанууд",
@@ -4635,9 +4651,27 @@ async function runCreateMovement(
     quantity: number;
     description?: string;
     issueType?: string;
+    externalRef?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
+  const externalRef = cleanExternalRef(input.externalRef);
+  const existingMovement = async () => {
+    if (!externalRef) return null;
+    const existing = await db.query.inventoryMovements.findFirst({
+      where: and(eq(inventoryMovements.organizationId, orgId), eq(inventoryMovements.externalRef, externalRef)),
+    });
+    return existing
+      ? dedupResult(`Хөдөлгөөн ${existing.documentNo}, ${existing.date}, тоо ${existing.quantity}, төлөв: ${existing.status}`, {
+          kind: "inventory",
+          id: existing.id,
+          title: existing.documentNo,
+          status: existing.status === "confirmed" ? "confirmed" : "draft",
+        })
+      : null;
+  };
+  const prior = await existingMovement();
+  if (prior) return prior;
   const [items, whList, issueTypes] = await Promise.all([
     db.query.inventoryItems.findMany({
       where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
@@ -4675,7 +4709,8 @@ async function runCreateMovement(
     issueTypeId = resolveIssueType(issueTypes, input.issueType).id;
 
   const confirmNow = mode === "post";
-  const { id } = unwrapAction(await createInventoryMovement({
+  const created = unwrapAction(await createInventoryMovement({
+    externalRef: externalRef ?? undefined,
     movementType: input.movementType,
     date: input.date,
     itemId: item.id,
@@ -4686,6 +4721,9 @@ async function runCreateMovement(
     issueTypeId,
     confirmNow,
   }));
+  // Зэрэгцээ дуудлага — нөгөө нь түрүүлж бичсэн.
+  if (created.dedup) return (await existingMovement()) ?? dedupResult(`Хөдөлгөөн ID ${created.id}`);
+  const { id } = created;
 
   const typeLabels: Record<string, string> = {
     receipt: "Орлого",
@@ -4724,9 +4762,27 @@ async function runCreateFixedAsset(
     accumDepAccountNumber?: string;
     depExpenseAccountNumber?: string;
     capitalizeFrom?: string;
+    externalRef?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
+  const externalRef = cleanExternalRef(input.externalRef);
+  const existingAsset = async () => {
+    if (!externalRef) return null;
+    const existing = await db.query.fixedAssets.findFirst({
+      where: and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.externalRef, externalRef)),
+    });
+    return existing
+      ? dedupResult(`Үндсэн хөрөнгө ${existing.code} · ${existing.name}, өртөг ${fmt(Number(existing.cost))}₮, төлөв: ${existing.status}`, {
+          kind: "fa",
+          id: existing.id,
+          title: `${existing.code} · ${existing.name}`,
+          status: existing.status === "draft" ? "draft" : "active",
+        })
+      : null;
+  };
+  const prior = await existingAsset();
+  if (prior) return prior;
   const ctx = await accountContext(orgId);
   const asDraft = mode !== "post";
   const capitalizeFrom = input.capitalizeFrom?.trim()
@@ -4751,7 +4807,7 @@ async function runCreateFixedAsset(
       return next;
     })();
 
-  const { id, code, voucherNo } = unwrapAction(
+  const createdAsset = unwrapAction(
     await createFixedAsset(
       {
         name: input.name,
@@ -4772,9 +4828,12 @@ async function runCreateFixedAsset(
           ctx
         ).main,
       },
-      { asDraft, capitalizeFrom }
+      { asDraft, capitalizeFrom, externalRef: externalRef ?? undefined }
     )
   );
+  // Зэрэгцээ дуудлага — нөгөө нь түрүүлж бичсэн.
+  if (createdAsset.dedup) return (await existingAsset()) ?? dedupResult(`Үндсэн хөрөнгө ${createdAsset.code}`);
+  const { id, code, voucherNo } = createdAsset;
 
   const opening = Number(input.openingAccumulatedDepreciation ?? 0);
   // SIM2-037: GL-тэй холбоо ИЛ — журнал үүссэн эсэх, үгүй бол яагаад.
@@ -6819,6 +6878,14 @@ async function runListArapDocuments(
   };
 }
 
+// ── Idempotency (externalRef) — AI-ийн retry-д давхар бичилт үүсэхгүй ───────
+// Runner-ийн ЭХЭНД урьдчилж хайна (үлдэгдэл/ээлж/лимитийн шалгалт давтан
+// дуудлагад алдаа өгөхөөс ӨМНӨ); зэрэгцээ дуудлагыг action-ий unique index
+// барина (lib/idempotency.ts).
+function dedupResult(detail: string, action?: AiToolResult["action"]): AiToolResult {
+  return { resultText: `Аль хэдийн үүссэн байна (externalRef таарсан). ${detail}`, action, dedup: true };
+}
+
 async function runPayArap(
   orgId: string,
   input: {
@@ -6827,9 +6894,21 @@ async function runPayArap(
     date: string;
     amount?: number;
     exchangeRate?: number;
+    externalRef?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
+  const externalRef = cleanExternalRef(input.externalRef);
+  if (externalRef) {
+    const existing = await db.query.cashDocuments.findFirst({
+      where: and(eq(cashDocuments.organizationId, orgId), eq(cashDocuments.externalRef, externalRef)),
+    });
+    if (existing)
+      return dedupResult(
+        `Төлбөрийн баримт ${existing.documentNo}, ${existing.date}, ${fmt(Number(existing.amount))}₮, төлөв: ${existing.status}`,
+        { kind: "cash", id: existing.id, title: existing.description, status: existing.status === "draft" ? "draft" : "posted" }
+      );
+  }
   const documents = await db.query.arApDocuments.findMany({
     // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
     where: and(eq(arApDocuments.organizationId, orgId), refCondition({ id: arApDocuments.id, documentNo: arApDocuments.documentNo, externalRef: arApDocuments.externalRef }, input.documentId)),
@@ -6898,7 +6977,8 @@ async function runPayArap(
     }
   }
 
-  const { id } = unwrapAction(await createCashDocument({
+  const payment = unwrapAction(await createCashDocument({
+    externalRef: externalRef ?? undefined,
     documentType: isAr ? "receipt" : "payment",
     date: input.date,
     toCashAccountId: isAr ? cashAccount.id : undefined,
@@ -6912,6 +6992,15 @@ async function runPayArap(
     arApDocumentId: document.id,
     postNow,
   }));
+  if (payment.dedup) {
+    // Зэрэгцээ дуудлага — нөгөө нь түрүүлж бичсэн.
+    const existing = await db.query.cashDocuments.findFirst({ where: eq(cashDocuments.id, payment.id) });
+    return dedupResult(
+      `Төлбөрийн баримт ${existing?.documentNo ?? payment.id}, ${existing?.date ?? input.date}, ${fmt(Number(existing?.amount ?? amount))}₮, төлөв: ${existing?.status ?? "—"}`,
+      { kind: "cash", id: payment.id, title: existing?.description ?? `${document.documentNo} төлөлт`, status: existing?.status === "draft" ? "draft" : "posted" }
+    );
+  }
+  const { id } = payment;
 
   const unit = document.currency === "MNT" ? "₮" : ` ${document.currency}`;
   const balanceNote = postNow && !isAr ? await negativeCashBalanceNote(orgId, cashAccount.id) : "";
@@ -9637,11 +9726,13 @@ async function runCreateCompany(input: {
   address?: string;
   phone?: string;
   email?: string;
+  externalRef?: string;
 }): Promise<AiToolResult> {
   const { userId } = await getActiveOrg();
   const name = input.name?.trim();
   if (!name) throw new Error("Компанийн нэр оруулна уу");
-  const { orgId } = await createOrganizationForUser({
+  const { orgId, dedup } = await createOrganizationForUser({
+    externalRef: input.externalRef,
     userId,
     name,
     registryNo: input.registerNo ?? null,
@@ -9651,6 +9742,8 @@ async function runCreateCompany(input: {
     email: input.email ?? null,
     seedAccounts: true,
   });
+  if (dedup)
+    return dedupResult(`Компани id: ${orgId} — шинэ компани ҮҮСГЭЭГҮЙ (идэвхтэй компани солигдоогүй)`);
   return {
     resultText: [
       `Шинэ компани үүслээ: ${name}`,
@@ -10960,6 +11053,7 @@ async function runCreateGoodsReceipt(
     exchangeRate?: number;
     documentNo?: string;
     description?: string;
+    externalRef?: string;
     lines?: {
       purchaseOrderLineId?: string;
       itemCode?: string;
@@ -10968,6 +11062,23 @@ async function runCreateGoodsReceipt(
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
+  const externalRef = cleanExternalRef(input.externalRef);
+  const existingReceipt = async () => {
+    if (!externalRef) return null;
+    const existing = await db.query.goodsReceipts.findFirst({
+      where: and(eq(goodsReceipts.organizationId, orgId), eq(goodsReceipts.externalRef, externalRef)),
+    });
+    return existing
+      ? dedupResult(`Хүлээн авалт ${existing.documentNo}, ${existing.date}, төлөв: ${existing.status}`, {
+          kind: "goods_receipt",
+          id: existing.id,
+          title: existing.documentNo,
+          status: existing.status === "confirmed" ? "confirmed" : "draft",
+        })
+      : null;
+  };
+  const prior = await existingReceipt();
+  if (prior) return prior;
   const order = await findPurchaseOrder(orgId, input.purchaseOrderId);
   if (order.status === "closed")
     throw codedError(
@@ -11039,6 +11150,7 @@ async function runCreateGoodsReceipt(
 
   const created = unwrapAction(
     await createGoodsReceipt({
+      externalRef: externalRef ?? undefined,
       purchaseOrderId: order.id,
       date: input.date,
       warehouseId:
@@ -11058,6 +11170,8 @@ async function runCreateGoodsReceipt(
       confirmNow,
     })
   );
+  // Зэрэгцээ дуудлага — нөгөө нь түрүүлж бичсэн.
+  if (created.dedup) return (await existingReceipt()) ?? dedupResult(`Хүлээн авалт ${created.documentNo}`);
 
   return {
     resultText: `Хүлээн авалт ${confirmNow ? "бүртгэгдэж БАТАЛГААЖЛАА" : "ноорог болж үүслээ"}: ${created.documentNo} (${order.documentNo}), ${input.date}, ${requested.length} мөр${baseTotal > 0 ? `, капиталжих дүн ~${fmt(baseTotal)}₮` : ""}${note}${confirmNow ? " — Dr барааны нөөц / Cr бараа материалын түр данс" : " — confirm_goods_receipt-оор батална"}`,
@@ -11347,8 +11461,17 @@ async function runCreateCostAllocation(
     description?: string;
     documentNo?: string;
     targets?: { movementId: string; manualAmount?: number }[];
+    externalRef?: string;
   }
 ): Promise<AiToolResult> {
+  const externalRef = cleanExternalRef(input.externalRef);
+  if (externalRef) {
+    const existing = await db.query.costAllocations.findFirst({
+      where: and(eq(costAllocations.organizationId, orgId), eq(costAllocations.externalRef, externalRef)),
+    });
+    if (existing)
+      return dedupResult(`Зардлын хуваарилалт ${existing.documentNo}, ${existing.date}, ${fmt(Number(existing.totalAmount))}₮`);
+  }
   const base = String(input.allocationBase ?? "").trim() as AllocationBase;
   // OD-017: суурь урьдчилан СОНГОГДОХГҮЙ — default-д нуухгүй.
   if (!["value", "quantity", "manual"].includes(base))
@@ -11466,6 +11589,7 @@ async function runCreateCostAllocation(
     documentNo: input.documentNo?.trim() || undefined,
     sourceLineId,
     targets,
+    externalRef: externalRef ?? undefined,
   });
   if (!result.ok)
     throw new Error(
@@ -11474,6 +11598,7 @@ async function runCreateCostAllocation(
           ? "Зардлын хуваарилалт хийхэд нягтлангийн эрх шаардлагатай"
           : `Хуваарилалт хадгалагдсангүй (${result.code})`)
     );
+  if (result.dedup) return dedupResult(`Зардлын хуваарилалт ${result.documentNo}, ${result.lineCount} орлого`);
   return {
     resultText: `Зардлын хуваарилалт үүслээ: ${result.documentNo} · ${label} · ${ALLOCATION_BASE_LABELS[base]} · ${fmt(totalAmount)}₮ · ${result.lineCount} орлого — НООРОГ landed_cost бичилт (Dr барааны нөөц / Cr бараа материалын түр данс). post_cost_entries-ээр батална.`,
   };
@@ -11997,10 +12122,29 @@ async function runCreatePosSale(
     skipEbarimt?: boolean;
     nonVat?: boolean;
     nonVatReason?: string;
+    externalRef?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
+  // Давтан дуудлага: ээлж/лимит/зөвшөөрлийн шалгалтаас ӨМНӨ анхны борлуулалтыг буцаана.
+  const externalRef = cleanExternalRef(input.externalRef);
+  const existingSale = async () => {
+    if (!externalRef) return null;
+    const existing = await db.query.posSales.findFirst({
+      where: and(eq(posSales.organizationId, orgId), eq(posSales.externalRef, externalRef)),
+    });
+    return existing
+      ? dedupResult(`Борлуулалт ${existing.documentNo}, ${existing.date}, ТӨЛӨХ ${fmt(Number(existing.total))}₮, төлөв: ${existing.status} — ДАХИН бүртгээгүй`, {
+          kind: "pos_sale",
+          id: existing.id,
+          title: `${existing.documentNo} · ${fmt(Number(existing.total))}₮`,
+          status: "posted",
+        })
+      : null;
+  };
+  const prior = await existingSale();
+  if (prior) return prior;
   if (!Array.isArray(input.lines) || input.lines.length === 0) throw new Error("Борлуулах бараа өгнө үү");
   const shift = await posShiftFor(orgId, input.warehouseCode);
   let counterpartyId: string | null = null;
@@ -12084,8 +12228,11 @@ async function runCreatePosSale(
       ebarimtCustomerTin: input.customerTin ?? customerTinFromCard,
       ebarimtCustomerRegNo: input.customerRegNo ?? null,
       skipEbarimt: input.skipEbarimt === true,
+      externalRef,
     })
   );
+  // Зэрэгцээ дуудлага — нөгөө нь түрүүлж бичсэн.
+  if (result.dedup) return (await existingSale()) ?? dedupResult(`Борлуулалт ${result.documentNo} — ДАХИН бүртгээгүй`);
   const receipt = result.receipt;
   // Аудит M: AI/MCP/REST-ийн ИЛ managerApproval нь хүний шийдвэрийг орлох тул
   // аудитын мөрд ТУСДАА үлдэнэ (эрхтэй token-ий эзэн хэн болохыг хамт).

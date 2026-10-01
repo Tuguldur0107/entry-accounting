@@ -13,6 +13,7 @@
 // MNT дүнг хэтрэхгүй (`for update`-тэй шалгалт), жин нь D6 = (а) —
 // ЗӨВХӨН `receipt_capitalize` дүн (өмнө хуваарилсан landed_cost жинд орохгүй).
 
+import { cleanExternalRef, isExternalRefConflict } from "@/lib/idempotency";
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -81,7 +82,7 @@ export interface AllocationRow {
 }
 
 export type AllocationResultAction =
-  | { ok: true; documentNo: string; lineCount: number }
+  | { ok: true; documentNo: string; lineCount: number; dedup?: true }
   | {
       ok: false;
       code: "unauthenticated" | "validation" | "failed";
@@ -383,10 +384,32 @@ export async function createCostAllocation(data: {
   sourceLineId?: string;
   /** Сонгосон орлогууд + гараар бичсэн дүн. */
   targets: { movementId: string; manualAmount?: number }[];
+  /** Idempotency түлхүүр — давтан дуудлага анхныхыг буцаана (lib/idempotency.ts). */
+  externalRef?: string;
 }): Promise<AllocationResultAction> {
   const active = await requireRole("accountant").catch(() => null);
   if (!active) return { ok: false, code: "unauthenticated" };
   const { orgId, userId } = active;
+
+  // Давтан дуудлага: мөрийн үлдэгдлийг ДАХИН шалгахаас ӨМНӨ (анхны хуваарилалт
+  // үлдэгдлийг хэрэглэсэн тул [ALLOCATION_EXCEEDS_LINE] болно).
+  let externalRef: string | null;
+  try {
+    externalRef = cleanExternalRef(data.externalRef);
+  } catch (caught) {
+    return { ok: false, code: "validation", message: caught instanceof Error ? caught.message : "externalRef буруу" };
+  }
+  const dedupByRef = async (): Promise<AllocationResultAction | null> => {
+    if (!externalRef) return null;
+    const existing = await db.query.costAllocations.findFirst({
+      where: and(eq(costAllocations.organizationId, orgId), eq(costAllocations.externalRef, externalRef)),
+      columns: { documentNo: true },
+      with: { lines: { columns: { id: true } } },
+    });
+    return existing ? { ok: true, documentNo: existing.documentNo, lineCount: existing.lines.length, dedup: true } : null;
+  };
+  const existingByRef = await dedupByRef();
+  if (existingByRef) return existingByRef;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
     return { ok: false, code: "validation", message: "Огноо буруу байна" };
@@ -663,6 +686,7 @@ export async function createCostAllocation(data: {
           sourceLineId: sourceLineId ?? null,
           purchaseOrderId,
           createdBy: userId,
+          externalRef,
         })
         .returning({ id: costAllocations.id });
 
@@ -716,6 +740,9 @@ export async function createCostAllocation(data: {
       );
     });
   } catch (caught) {
+    // Зэрэгцээ ижил ref — нөгөө нь түрүүлж бичсэн: түүнийг буцаана.
+    const raced = isExternalRefConflict(caught) ? await dedupByRef() : null;
+    if (raced) return raced;
     return {
       ok: false,
       code: "failed",

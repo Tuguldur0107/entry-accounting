@@ -1305,6 +1305,28 @@ async function main() {
     predicate: "movement_id is not null and entry_type = 'cogs_true_up' and status = 'draft'",
   });
 
+  // ── 12. AI/MCP tool-ын idempotency түлхүүр (externalRef) ────────────────
+  // Сүлжээ тасарч агент дахин дуудахад давхар бичилт үүсэхгүй
+  // (lib/idempotency.ts, docs/ontology-audit.md §4.2). Шинэ nullable багана —
+  // бүх мөр null тул partial unique index мөргөлдөхгүй. Предикат schema.ts-тэй
+  // ҮГ ҮГЭЭР ижил.
+  for (const table of ["inventory_movements", "cost_allocations", "goods_receipts", "fixed_assets", "pos_sales"]) {
+    await run(`${table}.external_ref багана`, `alter table ${table} add column if not exists external_ref text`);
+    await ensurePartialIndex({
+      name: `${table}_org_external_ref_uq`,
+      table,
+      columns: ["organization_id", "external_ref"],
+      predicate: "external_ref is not null",
+    });
+  }
+  await run("organizations.external_ref багана", "alter table organizations add column if not exists external_ref text");
+  await ensurePartialIndex({
+    name: "organizations_external_ref_uq",
+    table: "organizations",
+    columns: ["external_ref"],
+    predicate: "external_ref is not null",
+  });
+
   console.log(
     failures === 0
       ? "apply-pending-ddl: бүх DDL хэрэгжлээ"

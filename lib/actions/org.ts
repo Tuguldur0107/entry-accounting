@@ -34,6 +34,7 @@ import {
 } from "@/lib/gl/segment-sync";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { logAuditEvent } from "@/lib/audit";
+import { cleanExternalRef, isExternalRefConflict, userScopedExternalRef } from "@/lib/idempotency";
 import { assertCompanyCreatable, assertSeatAvailable } from "@/lib/billing/guards";
 import { inheritSubscriptionForNewOrg } from "@/lib/billing/inherit";
 import { ORG_INVITATION_TTL_DAYS } from "@/lib/db/schema";
@@ -421,9 +422,37 @@ export async function createOrganizationForUser(input: {
   email?: string | null;
   /** Стандарт дансны модыг (DEFAULT_ACCOUNTS) шинэ байгууллагад суулгах эсэх. */
   seedAccounts?: boolean;
-}): Promise<{ orgId: string }> {
+  /**
+   * Idempotency түлхүүр (AI/MCP дахин дуудлага) — ЭНЭ хэрэглэгчийн ижил ref-тэй
+   * байгууллага байвал шинэ tenant үүсгэхгүй, түүнийг буцаана (lib/idempotency.ts).
+   */
+  externalRef?: string | null;
+}): Promise<{ orgId: string; dedup?: true }> {
   const name = input.name.trim();
   if (!name) throw new Error("Байгууллагын нэр оруулна уу");
+  // Хэрэглэгчээр нэрийн талбартай түлхүүр — өөр хэрэглэгчийн ижил ref мөргөлдөхгүй,
+  // мөн зөвхөн ӨӨРИЙН эзэмшдэг байгууллагыг буцаана (бусдынхыг задлахгүй).
+  const rawRef = cleanExternalRef(input.externalRef);
+  const scopedRef = rawRef ? userScopedExternalRef(input.userId, rawRef) : null;
+  const findByRef = async () => {
+    if (!scopedRef) return undefined;
+    const [row] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.organizationId, organizations.id),
+          eq(memberships.userId, input.userId),
+          eq(memberships.role, "owner")
+        )
+      )
+      .where(eq(organizations.externalRef, scopedRef))
+      .limit(1);
+    return row;
+  };
+  const existingByRef = await findByRef();
+  if (existingByRef) return { orgId: existingByRef.id, dedup: true };
   // API/MCP зам — token-ий байгууллагын entitlement-ээр шалгана (runAsOrg
   // контекстгүй дуудагдвал шалгалт алгасна: script/seed).
   // Эх байгууллага — хязгаарын шалгалтад ба доорх багцын ӨВЛӨЛТӨД хоёуланд.
@@ -441,37 +470,45 @@ export async function createOrganizationForUser(input: {
   };
   const registryNo = clean(input.registryNo);
 
-  const orgId = await db.transaction(async (tx) => {
-    const [org] = await tx
-      .insert(organizations)
-      .values({ name, registryNo })
-      .returning({ id: organizations.id });
-    await tx.insert(memberships).values({
-      organizationId: org.id,
-      userId: input.userId,
-      role: "owner",
-    });
-    // Реквизит (organizations-ийн 1:1 дагавар) — нэхэмжлэхэд шууд хэрэглэгдэнэ.
-    await tx.insert(organizationProfile).values({
-      userId: input.userId,
-      organizationId: org.id,
-      name,
-      registerNo: registryNo,
-      vatPayerNo: clean(input.vatPayerNo),
-      address: clean(input.address),
-      phone: clean(input.phone),
-      email: clean(input.email),
-    });
-    if (input.seedAccounts)
-      await tx.insert(chartOfAccounts).values(
-        DEFAULT_ACCOUNTS.map((account) => ({
-          userId: input.userId,
-          organizationId: org.id,
-          ...account,
-        }))
-      );
-    return org.id;
-  });
+  let orgId: string;
+  try {
+    orgId = await db.transaction(async (tx) => {
+      const [org] = await tx
+        .insert(organizations)
+        .values({ name, registryNo, externalRef: scopedRef })
+        .returning({ id: organizations.id });
+      await tx.insert(memberships).values({
+        organizationId: org.id,
+        userId: input.userId,
+        role: "owner",
+      });
+      // Реквизит (organizations-ийн 1:1 дагавар) — нэхэмжлэхэд шууд хэрэглэгдэнэ.
+      await tx.insert(organizationProfile).values({
+        userId: input.userId,
+        organizationId: org.id,
+        name,
+        registerNo: registryNo,
+        vatPayerNo: clean(input.vatPayerNo),
+        address: clean(input.address),
+        phone: clean(input.phone),
+        email: clean(input.email),
+      });
+      if (input.seedAccounts)
+        await tx.insert(chartOfAccounts).values(
+          DEFAULT_ACCOUNTS.map((account) => ({
+            userId: input.userId,
+            organizationId: org.id,
+            ...account,
+          }))
+        );
+      return org.id;
+      });
+  } catch (caught) {
+    // Зэрэгцээ ижил ref — нөгөө нь түрүүлж үүсгэсэн: түүнийг буцаана.
+    const raced = isExternalRefConflict(caught) ? await findByRef() : undefined;
+    if (raced) return { orgId: raced.id, dedup: true };
+    throw caught;
+  }
   // SIM2-014: мөнгөн гүйлгээний S8 ангилал шинэ компанид бэлэн байна.
   await ensureCashFlowSegmentValues(orgId, input.userId).catch((caught) =>
     console.error("[createOrganization] S8 seed", caught)

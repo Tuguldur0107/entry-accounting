@@ -38,6 +38,7 @@ import {
   type SegmentPickerData,
 } from "@/lib/gl/segment-picker-data";
 import { logAuditEvent } from "@/lib/audit";
+import { cleanExternalRef, isExternalRefConflict } from "@/lib/idempotency";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
@@ -206,8 +207,10 @@ export async function createFixedAsset(
     asDraft?: boolean;
     /** SIM2-037: өртөг аль данснаас капиталжих (ж: 20000099 түр данс). */
     capitalizeFrom?: string;
+    /** Idempotency түлхүүр — давтан дуудлага анхныхыг буцаана (lib/idempotency.ts). */
+    externalRef?: string;
   }
-): Promise<ActionResult<{ id: string; code: string; voucherNo: string | null }>> {
+): Promise<ActionResult<{ id: string; code: string; voucherNo: string | null; dedup?: true }>> {
   try {
     return await createFixedAssetCore(data, options);
   } catch (caught) {
@@ -222,9 +225,26 @@ async function createFixedAssetCore(
      * шалгаж идэвхжүүлнэ; АП sync-ийн draft карттай ижил урсгал). */
     asDraft?: boolean;
     capitalizeFrom?: string;
+    externalRef?: string;
   }
 ) {
   const { orgId, userId } = await requireModuleAction("fa", "write");
+  const externalRef = cleanExternalRef(options?.externalRef);
+  const findByRef = async () =>
+    externalRef
+      ? db.query.fixedAssets.findFirst({
+          where: and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.externalRef, externalRef)),
+          columns: { id: true, code: true },
+        })
+      : undefined;
+  const dedupOf = (asset: { id: string; code: string }) => ({
+    id: asset.id,
+    code: asset.code,
+    voucherNo: null,
+    dedup: true as const,
+  });
+  const existingByRef = await findByRef();
+  if (existingByRef) return dedupOf(existingByRef);
   validateAssetInput(data);
   await assertEnabledMainAccount(orgId, data.assetAccountNumber.trim());
   await assertEnabledMainAccount(orgId, data.accumDepAccountNumber.trim());
@@ -266,68 +286,79 @@ async function createFixedAssetCore(
   const buildCode = capitalizeFrom ? await faPostingCodeBuilder(orgId) : null;
   const cost = Math.round(Number(data.cost) * 100) / 100;
 
-  const { created, voucherNo } = await db.transaction(async (tx) => {
-    let voucherId: string | null = null;
-    let voucherNo: string | null = null;
-    if (capitalizeFrom && buildCode) {
-      await assertPeriodOpenInTx(tx, orgId, data.acquisitionDate);
-      voucherNo = await nextVoucherNo(tx, orgId, "fa", data.acquisitionDate);
-      const [voucher] = await tx
-        .insert(journalVouchers)
+  let transacted: { created: { id: string }; voucherNo: string | null };
+  try {
+    transacted = await db.transaction(async (tx) => {
+      let voucherId: string | null = null;
+      let voucherNo: string | null = null;
+      if (capitalizeFrom && buildCode) {
+        await assertPeriodOpenInTx(tx, orgId, data.acquisitionDate);
+        voucherNo = await nextVoucherNo(tx, orgId, "fa", data.acquisitionDate);
+        const [voucher] = await tx
+          .insert(journalVouchers)
+          .values({
+            userId,
+            organizationId: orgId,
+            date: data.acquisitionDate,
+            description: `ҮХ капиталжуулалт: ${code} ${data.name.trim()}`,
+            documentNo: voucherNo,
+            externalRef: `fa-capitalize:${code}`,
+            status: options?.asDraft ? "draft" : "posted",
+          })
+          .returning({ id: journalVouchers.id });
+        voucherId = voucher.id;
+        await tx.insert(journalLines).values([
+          {
+            voucherId: voucher.id,
+            accountNumber: buildCode(data.assetAccountNumber.trim()),
+            debit: String(cost),
+            credit: "0",
+            description: "ҮХ-ийн өртөг капиталжуулав",
+            sortOrder: 0,
+          },
+          {
+            voucherId: voucher.id,
+            accountNumber: buildCode(capitalizeFrom),
+            debit: "0",
+            credit: String(cost),
+            description: "ҮХ-ийн өртөг капиталжуулав",
+            sortOrder: 1,
+          },
+        ]);
+      }
+      const [created] = await tx
+        .insert(fixedAssets)
         .values({
           userId,
           organizationId: orgId,
-          date: data.acquisitionDate,
-          description: `ҮХ капиталжуулалт: ${code} ${data.name.trim()}`,
-          documentNo: voucherNo,
-          externalRef: `fa-capitalize:${code}`,
-          status: options?.asDraft ? "draft" : "posted",
+          code,
+          sourceVoucherId: voucherId,
+            name: data.name.trim(),
+            acquisitionDate: data.acquisitionDate,
+            cost: String(Math.round(Number(data.cost) * 100) / 100),
+            salvageValue: String(Math.round(Number(data.salvageValue) * 100) / 100),
+            usefulLifeMonths: data.usefulLifeMonths,
+            depreciationMethod: data.depreciationMethod,
+            custodian: data.custodian.trim().slice(0, 120),
+            ...assetExtraValues(data),
+            depreciationStartMonth: data.depreciationStartMonth,
+            assetAccountNumber: data.assetAccountNumber.trim(),
+            accumDepAccountNumber: data.accumDepAccountNumber.trim(),
+            depExpenseAccountNumber: data.depExpenseAccountNumber.trim(),
+          status: options?.asDraft ? "draft" : "active",
+          externalRef,
         })
-        .returning({ id: journalVouchers.id });
-      voucherId = voucher.id;
-      await tx.insert(journalLines).values([
-        {
-          voucherId: voucher.id,
-          accountNumber: buildCode(data.assetAccountNumber.trim()),
-          debit: String(cost),
-          credit: "0",
-          description: "ҮХ-ийн өртөг капиталжуулав",
-          sortOrder: 0,
-        },
-        {
-          voucherId: voucher.id,
-          accountNumber: buildCode(capitalizeFrom),
-          debit: "0",
-          credit: String(cost),
-          description: "ҮХ-ийн өртөг капиталжуулав",
-          sortOrder: 1,
-        },
-      ]);
-    }
-    const [created] = await tx
-      .insert(fixedAssets)
-      .values({
-        userId,
-        organizationId: orgId,
-        code,
-        sourceVoucherId: voucherId,
-          name: data.name.trim(),
-          acquisitionDate: data.acquisitionDate,
-          cost: String(Math.round(Number(data.cost) * 100) / 100),
-          salvageValue: String(Math.round(Number(data.salvageValue) * 100) / 100),
-          usefulLifeMonths: data.usefulLifeMonths,
-          depreciationMethod: data.depreciationMethod,
-          custodian: data.custodian.trim().slice(0, 120),
-          ...assetExtraValues(data),
-          depreciationStartMonth: data.depreciationStartMonth,
-          assetAccountNumber: data.assetAccountNumber.trim(),
-          accumDepAccountNumber: data.accumDepAccountNumber.trim(),
-          depExpenseAccountNumber: data.depExpenseAccountNumber.trim(),
-        status: options?.asDraft ? "draft" : "active",
-      })
-      .returning({ id: fixedAssets.id });
-    return { created, voucherNo };
-  });
+        .returning({ id: fixedAssets.id });
+      return { created, voucherNo };
+      });
+  } catch (caught) {
+    // Зэрэгцээ ижил ref — нөгөө нь түрүүлж бичсэн (капиталжуулах журнал ч хамт
+    // rollback): анхныхыг буцаана.
+    const raced = isExternalRefConflict(caught) ? await findByRef() : undefined;
+    if (raced) return dedupOf(raced);
+    throw caught;
+  }
+  const { created, voucherNo } = transacted;
   if (voucherNo) revalidatePath("/gl/journal");
   revalidateFa();
   return { id: created.id, code, voucherNo };
