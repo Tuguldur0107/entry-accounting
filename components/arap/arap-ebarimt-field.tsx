@@ -12,8 +12,9 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { resendArapEbarimt, resendArapPaymentEbarimt } from "@/lib/actions/arap";
 import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
+import { EBARIMT_TAX_CHECK_HINTS, EBARIMT_TAX_CHECK_LABELS, type EbarimtTaxCheckRow } from "@/lib/ebarimt/tax-reconcile";
 import type { ArapPaymentEbarimtRow } from "@/lib/ebarimt/types";
-import { EBARIMT_STATUS_TONES } from "@/lib/status";
+import { EBARIMT_STATUS_TONES, EBARIMT_TAX_CHECK_TONES } from "@/lib/status";
 import { feedback } from "@/lib/ui/feedback";
 
 export interface ArapEbarimtInfo {
@@ -24,6 +25,11 @@ export interface ArapEbarimtInfo {
   lastError: string | null;
   payments: ArapPaymentEbarimtRow[];
   unqueuedPayments: number;
+  /** POS «Зээлээр» — нэхэмжлэхийг POS панелиас дахин илгээнэ, энд зөвхөн төлөлт. */
+  posSourced: boolean;
+  /** ТЕГ-ийн TPI тулгалт — холболтгүй / ТЕГ-д бүртгэлгүй бол null. */
+  taxCheck: EbarimtTaxCheckRow | null;
+  taxSyncedAt: string | null;
 }
 
 /** Төлөлтийн илгээлтийн төлөв → нэхэмжлэхийн eBarimt-ийн төлвийн шошго/өнгө (claimed = илгээж байна). */
@@ -52,7 +58,7 @@ export function ArapEbarimtField({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const canResend = !reversed && (ebarimt.status === "failed" || ebarimt.status === "pending");
+  const canResend = !ebarimt.posSourced && !reversed && (ebarimt.status === "failed" || ebarimt.status === "pending");
   const [isResendingPayment, startResendPayment] = useTransition();
 
   function resendPayment(submissionId: string) {
@@ -86,6 +92,7 @@ export function ArapEbarimtField({
           {EBARIMT_STATUS_LABELS[ebarimt.status as EbarimtStatus] ?? ebarimt.status}
         </StatusBadge>
         {ebarimt.type && <span className="text-xs text-[var(--ea-text-3)]">{TYPE_LABELS[ebarimt.type] ?? ebarimt.type}</span>}
+        {ebarimt.posSourced && <span className="text-xs text-[var(--ea-text-3)]">POS «Зээлээр» борлуулалт</span>}
         {canResend && (
           <Button size="sm" variant="outline" onClick={resend} disabled={isPending}>
             {isPending ? "Илгээж байна…" : "Дахин илгээх"}
@@ -99,7 +106,36 @@ export function ArapEbarimtField({
         </div>
       )}
       {ebarimt.lastError && <div className="text-xs text-[var(--ea-danger-fg)]">{ebarimt.lastError}</div>}
-      {reversed && ebarimt.status === "sent" && (
+      {ebarimt.taxCheck && (
+        <div className="space-y-0.5 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[var(--ea-text-2)]">ТЕГ-ийн үлдэгдэл</span>
+            <span className="tabular-nums">{formatAmount(ebarimt.taxCheck.taxRemaining)}</span>
+            <span className="text-[var(--ea-text-3)]">
+              (нийт {formatAmount(ebarimt.taxCheck.taxTotal)}, төлсөн {formatAmount(ebarimt.taxCheck.taxPaid)}
+              {ebarimt.taxSyncedAt
+                ? ` · татсан ${new Date(ebarimt.taxSyncedAt).toLocaleString("mn-MN", { timeZone: "Asia/Ulaanbaatar", dateStyle: "short", timeStyle: "short" })}`
+                : ""}
+              )
+            </span>
+            <StatusBadge tone={EBARIMT_TAX_CHECK_TONES[ebarimt.taxCheck.check] ?? "muted"} size="sm">
+              {EBARIMT_TAX_CHECK_LABELS[ebarimt.taxCheck.check]}
+            </StatusBadge>
+          </div>
+          {ebarimt.taxCheck.check !== "ok" && (
+            <div
+              className={
+                EBARIMT_TAX_CHECK_TONES[ebarimt.taxCheck.check] === "danger"
+                  ? "text-[var(--ea-danger-fg)]"
+                  : "text-[var(--ea-text-3)]"
+              }
+            >
+              {EBARIMT_TAX_CHECK_HINTS[ebarimt.taxCheck.check]}
+            </div>
+          )}
+        </div>
+      )}
+      {reversed && !ebarimt.posSourced && ebarimt.status === "sent" && (
         <div className="text-xs text-[var(--ea-danger-fg)]">
           Нэхэмжлэх буцаагдсан ч ТЕГ-д хүчинтэй хэвээр — цуцлах урсгал баталгаажаагүй (docs/pos/05 Q5), ТЕГ-ийн системд гараар цуцална
         </div>

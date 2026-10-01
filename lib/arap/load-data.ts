@@ -9,6 +9,9 @@ import { baseKindOf, entityKindName } from "@/lib/arap/counterparty-kind";
 import { activeInvoiceLinkUrl } from "@/lib/arap/invoice-link";
 import { qrSvgPath } from "@/lib/qr/matrix";
 import { loadArapPaymentEbarimt } from "@/lib/ebarimt/queue";
+import { EBARIMT_POS_CREDIT_PAYMENTS_SINCE } from "@/lib/ebarimt/constants";
+import { loadEbarimtTaxChecks } from "@/lib/ebarimt/tax-sync";
+import type { EbarimtTaxCheckRow } from "@/lib/ebarimt/tax-reconcile";
 import type { ArapPaymentEbarimtRow } from "@/lib/ebarimt/types";
 import { loadEntityKinds } from "@/lib/arap/entity-kinds";
 import {
@@ -22,6 +25,7 @@ import {
   warehouses,
   arApInvoiceSends,
   posEbarimtSubmissions,
+  posSales,
 } from "@/lib/db/schema";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
@@ -98,6 +102,15 @@ export type ArApDocumentDetail = ArApDocumentView & {
     payments: ArapPaymentEbarimtRow[];
     /** Дараалалд хараахан ороогүй кассын төлөлт (сканнер дараагийн тикэд авна). */
     unqueuedPayments: number;
+    /**
+     * POS «Зээлээр» борлуулалтын нэхэмжлэх — ДДТД нь борлуулалт дээр, нэхэмжлэхийг
+     * дахин илгээх нь POS панелиас (энд зөвхөн төлөлтийн баримт).
+     */
+    posSourced: boolean;
+    /** ТЕГ-ийн TPI тулгалт (холболттой, нэхэмжлэх ТЕГ-д бүртгэлтэй үед) — үлдэгдэл, шалтгаан. */
+    taxCheck: EbarimtTaxCheckRow | null;
+    /** ТЕГ-ээс сүүлд амжилттай татсан мөч (ISO). */
+    taxSyncedAt: string | null;
   } | null;
   /**
    * АР нэхэмжлэхийн ХҮЧИНТЭЙ нийтийн линк (хэвлэх хуудасны QR) — линк үүсгээгүй
@@ -438,8 +451,28 @@ export async function loadArApDocumentDetail(
       })
     : null;
   const publicLinkUrl = row.documentType === "ar_invoice" ? await activeInvoiceLinkUrl(orgId, documentId) : null;
+  // POS «Зээлээр» — eBarimt нэхэмжлэх нь борлуулалт дээр (*_INVOICE); төлөлтийн
+  // баримт нь энэ АР баримтын settlement-ээр (enqueueArapInvoicePayments).
+  const posSale =
+    row.sourceType === "pos" && row.sourceId
+      ? await db.query.posSales.findFirst({
+          where: and(eq(posSales.id, row.sourceId), eq(posSales.organizationId, orgId)),
+          columns: { ebarimtId: true, ebarimtStatus: true, ebarimtDate: true, ebarimtType: true },
+        })
+      : null;
+  const posInvoice = posSale?.ebarimtStatus && posSale.ebarimtType?.endsWith("_INVOICE") ? posSale : null;
+  const taxChecks =
+    row.ebarimtStatus === "sent" || posInvoice?.ebarimtStatus === "sent"
+      ? await loadEbarimtTaxChecks(orgId, { documentId })
+      : null;
+  const taxCheck = taxChecks?.rows[0] ?? null;
+  const taxSyncedAt = taxChecks?.connection?.lastSyncOkAt ?? null;
   const paymentEbarimt =
-    row.ebarimtStatus === "sent" ? await loadArapPaymentEbarimt(orgId, documentId) : { payments: [], unqueued: 0 };
+    row.ebarimtStatus === "sent"
+      ? await loadArapPaymentEbarimt(orgId, documentId)
+      : posInvoice?.ebarimtStatus === "sent"
+        ? await loadArapPaymentEbarimt(orgId, documentId, { since: EBARIMT_POS_CREDIT_PAYMENTS_SINCE })
+        : { payments: [], unqueued: 0 };
   return {
     ...toDocumentView(row),
     publicLinkUrl,
@@ -453,8 +486,24 @@ export async function loadArApDocumentDetail(
           lastError: row.ebarimtStatus === "sent" ? null : lastSubmission?.lastError ?? null,
           payments: paymentEbarimt.payments,
           unqueuedPayments: paymentEbarimt.unqueued,
+          posSourced: false,
+          taxCheck,
+          taxSyncedAt,
         }
-      : null,
+      : posInvoice
+        ? {
+            id: posInvoice.ebarimtId,
+            status: posInvoice.ebarimtStatus!,
+            date: posInvoice.ebarimtDate,
+            type: posInvoice.ebarimtType,
+            lastError: null,
+            payments: paymentEbarimt.payments,
+            unqueuedPayments: paymentEbarimt.unqueued,
+            posSourced: true,
+            taxCheck,
+            taxSyncedAt,
+          }
+        : null,
     purchaseOrderNo: row.purchaseOrder?.documentNo ?? null,
     sourceType: row.sourceType,
     sourceDocumentId: row.sourceDocumentId,

@@ -140,6 +140,9 @@ tests/qpay-arap-flow.test.ts (DB), tests/qr-matrix.test.ts
 - **Төлөлт** (кассын баримттай settlement — касс, банк, хуулга, QPay линк) → `invoiceId`-тай
   `*_RECEIPT` (`lib/ebarimt/invoice-payment.ts`, ЦЭВЭР): сканнер `enqueueArapInvoicePayments`
   (worker), settlement бүрд НЭГ, нэхэмжлэхийн ДДТД/төлөвийг хөндөхгүй; буцаасан төлөлт панельд ил.
+  POS «Зээлээр»-ээс үүссэн АР (`sourceType=pos`) ч мөн — нэхэмжлэхийн ДДТД нь `pos_sales`-д
+  (`loadSentInvoice`), АР-ын switch-ээс үл хамаарна, `EBARIMT_POS_CREDIT_PAYMENTS_SINCE`-ээс
+  хойшх settlement л; панельд `posSourced` (нэхэмжлэхийг POS панелиас дахин илгээнэ)
   Харилцан суутгал, ECL хасалт, кредит нэхэмжлэл ОРОХГҮЙ (кассгүй)
 - Кредит нэхэмжлэл, нэхэмжлэхийн буцаалт eBarimt-д ИЛГЭЭГДЭХГҮЙ — docs/pos/05 Q5
 

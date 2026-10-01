@@ -112,7 +112,10 @@ export function EbarimtArapSettings({ settings }: { settings: PosSettingsView })
         onChange={setEnabled}
         disabled={!canEnable && !enabled}
       />
-      <FormField label="Нэхэмжлэхийн төлбөрийн хэлбэр" hint="Нэхэмжлэхийн eBarimt-ийн төлбөрийн код (ихэвчлэн банкны шилжүүлэг)">
+      <FormField
+        label="Нэхэмжлэхийн төлбөрийн хэлбэр"
+        hint="Нэхэмжлэхийн eBarimt-ийн төлбөрийн код (ихэвчлэн банкны шилжүүлэг). POS-ийн «Зээлээр» борлуулалт ч энэ код, дансаар нэхэмжлэх болж явна — дээрх switch-ээс үл хамаарна"
+      >
         <FilterChips options={PAYMENT_CODE_OPTIONS} value={paymentCode} onChange={setPaymentCode} className="flex-wrap" />
       </FormField>
       <div className="grid gap-3 sm:grid-cols-2">

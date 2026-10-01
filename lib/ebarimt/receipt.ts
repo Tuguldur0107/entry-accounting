@@ -9,10 +9,12 @@
 //  2. Мөрүүдийг taxType-аар БҮЛЭГЛЭЖ дэд баримт (receipts[]) болгоно.
 //  3. Мөрийн дүн = POS-ийн lineTotal (хөнгөлөлтийн дараах, татвар орсон) —
 //     computeSaleTotals-той ЯГ ижил; unitPrice = lineTotal / qty (2 орон).
-//  4. payments[] = хэлбэрийн ebarimtCode; Σ paidAmount = totalAmount. Зээлээр
-//     (`credit`) төлбөр → тэр хэсэг `PAY` статус, баримт `B2C/B2B_INVOICE`
-//     (receiptTypeOf; сугалаа олгогдохгүй). АР нэхэмжлэх (`sale.invoice`) — төрөл
-//     ИЛ нэхэмжлэх, дэд баримт бүрд `bankAccountNo` (+`iBan`) ЗААВАЛ. Хэсэгчилсэн
+//  4. payments[] = хэлбэрийн ebarimtCode, статус ҮРГЭЛЖ `PAID` (`PAY` = гуравдагч
+//     системээр гүйцэтгэх төлбөр, «төлөгдөөгүй» биш — спек 3.0.1 §11); Σ paidAmount
+//     = totalAmount. Зээлээр (`credit`) хэсэгтэй борлуулалт → `B2C/B2B_INVOICE`
+//     (receiptTypeOf; сугалаагүй), код/данс нь нэхэмжлэхийн тохиргооноос
+//     (`withCreditInvoice`); авлага төлөгдөхөд `invoiceId`-тай *_RECEIPT (сканнер).
+//     НЭХЭМЖЛЭХ бүрд (POS зээл / АР) дэд баримтад `bankAccountNo` (+`iBan`) ЗААВАЛ. Хэсэгчилсэн
 //     буцаалтын дараа (Σ мөр < бүтэн төлбөр) төлбөрүүдийг ХУВЬ ТЭНЦҮҮЛЭН
 //     хуваарилж, бөөрөнхийллийн зөрүүг хамгийн том төлбөр шингээнэ.
 //  5. Ямар нэг зүйл дутуу (ангилал, татварын код, төлбөрийн код, Σ зөрүү) →
@@ -34,16 +36,17 @@ import {
   EBARIMT_ERRORS,
   EBARIMT_INVOICE_PAYMENT_KINDS,
   EBARIMT_PAYMENT_STATUS_PAID,
-  EBARIMT_PAYMENT_STATUS_PAY,
+  EBARIMT_RESPONSE_STATUS_SUCCESS,
+  isKnownEbarimtPaymentCode,
   MERCHANT_TIN_RE,
   TAX_PRODUCT_CODE_RE,
   type EbarimtBarcodeType,
-  type EbarimtPaymentStatus,
   type EbarimtReceiptType,
   type EbarimtStatus,
   type EbarimtTaxType,
 } from "./constants";
 import type {
+  EbarimtInvoiceBank,
   EbarimtItem,
   EbarimtPayment,
   EbarimtReceiptRequest,
@@ -154,16 +157,14 @@ function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtIte
   return item;
 }
 
-/** Дараа төлөгдөх (нэхэмжлэх) төлбөр мөн эсэх — зээлээр. */
-function paymentStatusOf(payment: EbarimtSaleInput["payments"][number]): EbarimtPaymentStatus {
-  return EBARIMT_INVOICE_PAYMENT_KINDS.includes(payment.kind)
-    ? EBARIMT_PAYMENT_STATUS_PAY
-    : EBARIMT_PAYMENT_STATUS_PAID;
+/** Дараа төлөгдөх (зээлээр) хэсэг мөн эсэх — баримтыг НЭХЭМЖЛЭХ болгоно. */
+function isCreditPayment(payment: EbarimtSaleInput["payments"][number]): boolean {
+  return payment.baseAmount > 0.005 && EBARIMT_INVOICE_PAYMENT_KINDS.includes(payment.kind);
 }
 
 /**
- * Баримтын төрөл: `invoice` (АР нэхэмжлэх — ил) эсвэл зээлээр (POS «Зээлээр»,
- * PAY) хэсэгтэй бол НЭХЭМЖЛЭХ (`B2C_INVOICE` / `B2B_INVOICE`), үгүй бол RECEIPT;
+ * Баримтын төрөл: `invoice` (АР нэхэмжлэх — ил) эсвэл зээлээр (POS «Зээлээр»)
+ * хэсэгтэй бол НЭХЭМЖЛЭХ (`B2C_INVOICE` / `B2B_INVOICE`), үгүй бол RECEIPT;
  * байгууллагын ТТД-тэй бол B2B.
  */
 export function receiptTypeOf(
@@ -171,9 +172,7 @@ export function receiptTypeOf(
   customerTin: string | null,
   forceInvoice = false
 ): EbarimtReceiptType {
-  const invoice =
-    forceInvoice ||
-    payments.some((payment) => payment.baseAmount > 0.005 && paymentStatusOf(payment) === EBARIMT_PAYMENT_STATUS_PAY);
+  const invoice = forceInvoice || payments.some(isCreditPayment);
   if (customerTin) return invoice ? "B2B_INVOICE" : "B2B_RECEIPT";
   return invoice ? "B2C_INVOICE" : "B2C_RECEIPT";
 }
@@ -197,9 +196,9 @@ export function allocatePayments(
       );
   const paidTotal = positive.reduce((sum, payment) => sum + payment.baseAmount, 0);
   const factor = paidTotal > 0 ? targetTotal / paidTotal : 0;
-  const scaled = positive.map((payment) => ({
+  const scaled: EbarimtPayment[] = positive.map((payment) => ({
     code: payment.ebarimtCode!.trim(),
-    status: paymentStatusOf(payment),
+    status: EBARIMT_PAYMENT_STATUS_PAID,
     paidAmount: round2(payment.baseAmount * factor),
     ...(payment.reference ? { exchangeCode: payment.reference } : {}),
   }));
@@ -217,6 +216,42 @@ export function allocatePayments(
     else merged.set(key, { ...payment });
   }
   return [...merged.values()].filter((payment) => payment.paidAmount > 0.005);
+}
+
+/**
+ * POS «Зээлээр» борлуулалтыг НЭХЭМЖЛЭХ болгон бэлтгэнэ (АР нэхэмжлэхтэй ижил):
+ * зээлийн хэсгийн код = нэхэмжлэхийн тохиргооны АЛБАН код (хэлбэрийн өөрийн
+ * `ebarimtCode` биш — хуучин `INVOICE` г.м. албан бус код явахгүй), дэд баримт
+ * бүрд нэхэмжлэхийн данс. Зээлгүй борлуулалтыг ХӨНДӨХГҮЙ. Тохиргоо дутуу →
+ * [EBARIMT_SETTINGS] (зохиохгүй; дуудагч submission-ийг failed болгоно).
+ */
+export function withCreditInvoice(
+  sale: EbarimtSaleInput,
+  invoiceSettings: { paymentCode: string | null; bankAccountNo: string | null; iBan: string | null }
+): EbarimtSaleInput {
+  if (!sale.payments.some(isCreditPayment)) return sale;
+  const code = invoiceSettings.paymentCode?.trim().toUpperCase() ?? "";
+  if (!isKnownEbarimtPaymentCode(code))
+    throw new EbarimtError(
+      EBARIMT_ERRORS.settings,
+      "«Зээлээр» борлуулалт eBarimt-д НЭХЭМЖЛЭХ болж явна — POS тохиргоо → eBarimt → Нэхэмжлэх: төлбөрийн код (CASH / PAYMENT_CARD / BANK_TRANSFER / BANK_TRANSFER_QPAY) сонгоно"
+    );
+  if (!normalizeBankAccountNo(invoiceSettings.bankAccountNo))
+    throw new EbarimtError(
+      EBARIMT_ERRORS.settings,
+      "«Зээлээр» борлуулалт eBarimt-д НЭХЭМЖЛЭХ болж явна — POS тохиргоо → eBarimt → Нэхэмжлэх: ТЕГ-д бүртгэлтэй банкны данс ЗААВАЛ"
+    );
+  const invoice: EbarimtInvoiceBank = {
+    bankAccountNo: invoiceSettings.bankAccountNo!,
+    iBan: invoiceSettings.iBan?.trim() || null,
+  };
+  return {
+    ...sale,
+    invoice,
+    payments: sale.payments.map((payment) =>
+      EBARIMT_INVOICE_PAYMENT_KINDS.includes(payment.kind) ? { ...payment, ebarimtCode: code } : payment
+    ),
+  };
 }
 
 /** Банкны дансны дугаар — зөвхөн цифр (зай/зураасыг хасна), 6–20 орон. */
@@ -313,7 +348,13 @@ export function buildEbarimtReceipt(
   if (consumerNo && !CONSUMER_NO_RE.test(consumerNo))
     throw new EbarimtError(EBARIMT_ERRORS.settings, "Иргэний eBarimt дугаар 8 оронтой байна");
 
-  // НЭХЭМЖЛЭХ: дэд баримт бүрд мерчантын бүртгэлтэй данс ЗААВАЛ (спек 3.0.1).
+  // НЭХЭМЖЛЭХ: дэд баримт бүрд мерчантын бүртгэлтэй данс ЗААВАЛ (спек 3.0.1 §6).
+  const type = receiptTypeOf(sale.payments, customerTin, !!sale.invoice);
+  if (type.endsWith("_INVOICE") && !sale.invoice)
+    throw new EbarimtError(
+      EBARIMT_ERRORS.settings,
+      "Нэхэмжлэхэд банкны данс заавал — «Зээлээр» борлуулалтыг withCreditInvoice-оор бэлтгэнэ (POS тохиргоо → eBarimt → Нэхэмжлэх)"
+    );
   if (sale.invoice) {
     const bankAccountNo = normalizeBankAccountNo(sale.invoice.bankAccountNo);
     if (!bankAccountNo)
@@ -343,7 +384,7 @@ export function buildEbarimtReceipt(
     districtCode: settings.districtCode.trim(),
     merchantTin,
     posNo: settings.posNo.trim(),
-    type: receiptTypeOf(sale.payments, customerTin, !!sale.invoice),
+    type,
     receipts,
     payments: allocatePayments(sale.payments, totalAmount),
   };
@@ -360,7 +401,12 @@ export function buildEbarimtReceipt(
   return request;
 }
 
-/** Хариуг үнэлнэ — ДДТД ирсэн бол амжилт; үгүй бол PosAPI-ийн мессежийг өгнө. */
+/**
+ * Хариуг үнэлнэ. Амжилт = ДДТД + `status: "SUCCESS"` (албан спек 3.0.1 §6).
+ * `PAYMENT` («төлбөрийн мэдээлэл дутуу») ДДТД-тэй ирсэн ч амжилт БИШ — өмнө нь
+ * ERROR-оос бусдыг амжилт гэж үздэг байсан тул бүрэн бус баримт «Илгээгдсэн»
+ * гэж чимээгүй бүртгэгдэх эрсдэлтэй байв (2026-10-01).
+ */
 export function receiptResponseOutcome(response: {
   id?: string;
   status?: string;
@@ -368,11 +414,14 @@ export function receiptResponseOutcome(response: {
 }): { ok: true; id: string } | { ok: false; message: string } {
   const id = typeof response.id === "string" ? response.id.trim() : "";
   const status = typeof response.status === "string" ? response.status.toUpperCase() : "";
-  if (id && status !== "ERROR") return { ok: true, id };
-  return {
-    ok: false,
-    message: (typeof response.message === "string" && response.message.trim()) || `PosAPI татгалзав (status: ${status || "?"})`,
-  };
+  if (id && status === EBARIMT_RESPONSE_STATUS_SUCCESS) return { ok: true, id };
+  const message = (typeof response.message === "string" && response.message.trim()) || `PosAPI татгалзав (status: ${status || "?"})`;
+  if (status === "PAYMENT")
+    return {
+      ok: false,
+      message: `PosAPI: төлбөрийн мэдээлэл дутуу (status PAYMENT${id ? `, ДДТД ${id}` : ""}) — баримт бүрэн үүсээгүй: ${message}`,
+    };
+  return { ok: false, message };
 }
 
 /**

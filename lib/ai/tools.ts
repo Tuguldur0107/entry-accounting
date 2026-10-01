@@ -213,6 +213,8 @@ import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliatio
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
 import { unwrapAction } from "@/lib/action-result";
+import { getEbarimtTaxChecks } from "@/lib/actions/ebarimt-tpi";
+import { EBARIMT_TAX_CHECK_HINTS, EBARIMT_TAX_CHECK_LABELS, isTaxCheckProblem } from "@/lib/ebarimt/tax-reconcile";
 import {
   applyAdvanceToInvoice,
   getAdvanceSettings,
@@ -3638,6 +3640,18 @@ export const AI_TOOLS: AiToolDef[] = [
     description:
       "eBarimt 3.0-ийн байдал: автомат илгээлт асаалттай эсэх, горим (server/browser), тохиргооны дутуу зүйлс, дараалалд хүлээгдэж байгаа / алдаатай баримтын тоо, өнөөдөр илгээсэн, сүүлийн алдаа. Борлуулалтын дараа баримт ТЕГ-д очсон эсэхийг шалгахад.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_ebarimt_tax_reconciliation",
+    description:
+      "ТЕГ ↔ Entry НЭХЭМЖЛЭХИЙН ҮЛДЭГДЛИЙН тулгалт (eBarimt TPI-ээс өдөр бүр татсан): ТЕГ-ийн порталын «Үлдэгдэл» (нэхэмжлэх − invoiceId-тай төлбөрийн баримт) ↔ Entry-ийн авлагын үлдэгдэл, мөр бүрийн шалтгаан (ТЕГ-д илүү төлөлт = порталд гараар нэмсэн / давхар бүртгэлийн эрсдэл, ТЕГ-д хүрээгүй төлөлт, Entry-д мэдэгдээгүй төлөлт, нэхэмжлэхийн дүн зөрсөн). ЗӨВХӨН унших — засах нь хэрэглэгчийн шийдвэр (ТЕГ-ийн портал / resend). Холболтгүй бол тохируулах заавар буцаана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        onlyProblems: { type: "boolean", description: "true (default) = зөрүүтэйг л; false = бүх тулгасан нэхэмжлэх" },
+        limit: { type: "number", description: "Хамгийн ихдээ буцаах мөр (default 50, ≤ 200)" },
+      },
+    },
   },
   {
     name: "resend_ebarimt",
@@ -12669,6 +12683,34 @@ async function runGetPosSalesReport(
 
 // ── eBarimt 3.0 ─────────────────────────────────────────────────────────────
 
+/** ТЕГ ↔ Entry нэхэмжлэхийн үлдэгдэл — getEbarimtTaxChecks action-оор (ar:read эрх, алдааны дүрэм нэг). */
+async function runGetEbarimtTaxReconciliation(args: { onlyProblems?: boolean; limit?: number }): Promise<AiToolResult> {
+  const data = unwrapAction(await getEbarimtTaxChecks());
+  if (!data.connection)
+    return {
+      resultText:
+        "ТЕГ-ийн TPI холболт тохируулаагүй — админ вэбээс POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт»-д байгууллагын ITC нэвтрэлт (+ ITC-ийн X-API-KEY) холбоно. Холбосны дараа нэхэмжлэх ба төлбөрийн баримт өдөр бүр татагдаж тулгагдана.",
+    };
+  const onlyProblems = args.onlyProblems !== false;
+  const limit = Math.min(Math.max(Math.trunc(Number(args.limit) || 50), 1), 200);
+  const selected = data.rows.filter((row) => (onlyProblems ? isTaxCheckProblem(row.check) : true));
+  const money = (value: number | null) => (value === null ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: 2 }));
+  const lines = [
+    `ТЕГ-ээс сүүлд амжилттай татсан: ${data.connection.lastSyncOkAt?.slice(0, 16).replace("T", " ") ?? "хэзээ ч"} (UTC) · хамрах хугацаа ${data.connection.syncFrom ?? "—"} → ${data.connection.syncedThrough ?? "—"}`,
+    ...(data.connection.lastSyncError ? [`Сүүлийн татлага АЛДААТАЙ: ${data.connection.lastSyncError}`] : []),
+    ...(data.connection.lastSyncSkipped ? [`ТЕГ-ийн хариунаас ${data.connection.lastSyncSkipped} мөр танигдаагүй — тулгалт бүрэн биш байж болно`] : []),
+    `Тулгасан ${data.summary.checked} · зөрүүтэй ${data.summary.problems} · ТЕГ-д бүртгэлийн эрсдэл ${data.summary.danger}`,
+    ...selected
+      .slice(0, limit)
+      .map(
+        (row) =>
+          `- ${row.documentNo} (${row.invoiceDate}, ${row.counterpartyName ?? "—"}, ${row.source === "pos" ? "POS «Зээлээр»" : "АР"}): ${EBARIMT_TAX_CHECK_LABELS[row.check]} — ТЕГ үлдэгдэл ${money(row.taxRemaining)} (нийт ${money(row.taxTotal)}, төлсөн ${money(row.taxPaid)}) · Entry үлдэгдэл ${money(row.entryRemaining)} · Entry ТЕГ-д мэдэгдсэн ${money(row.reportedPaid)} · ДДТД ${row.ddtd}${row.check === "ok" ? "" : ` · ${EBARIMT_TAX_CHECK_HINTS[row.check]}`}`
+      ),
+    ...(selected.length > limit ? [`… дахиад ${selected.length - limit} мөр (вэб: Авлага → eBarimt → ТЕГ-ийн тулгалт)`] : []),
+  ];
+  return { resultText: lines.join("\n") };
+}
+
 async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
   const settings = await ensurePosSettings(orgId);
   const [status, readiness] = await Promise.all([
@@ -13213,6 +13255,8 @@ async function dispatchAiTool(
         return await runGetEbarimtStatus(orgId);
       case "resend_ebarimt":
         return await runResendEbarimt(orgId, args);
+      case "get_ebarimt_tax_reconciliation":
+        return await runGetEbarimtTaxReconciliation(args);
       case "lookup_tin":
         return await runLookupTin(args);
       case "get_qpay_status":

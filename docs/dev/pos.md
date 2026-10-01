@@ -278,9 +278,21 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   (`pos_sales.nonVatReason`), эрх `pos:post` (approvalReasons), аудитад ил;
   жагсаалтын «НӨАТ баримт» багана + «НӨАТ-гүй» шүүлт, панель. Буцаалт эх АР
   мөрийн орлогын данс руу. AI `create_pos_sale` `nonVat` + `nonVatReason`
-- **Зээлээр (`credit`) = НЭХЭМЖЛЭХ:** зээлийн хэсэгтэй борлуулалт `B2C/B2B_INVOICE`
-  төрлөөр, тэр хэсэг `payments[].status = PAY` (бусад PAID), сугалаагүй —
-  `receiptTypeOf` (receipt.ts, тесттэй); `EBARIMT_INVOICE_PAYMENT_KINDS` нь ЦОРЫН ГАНЦ эх
+- **Зээлээр (`credit`) = НЭХЭМЖЛЭХ, төлөлт = PAID баримт** (product owner 2026-10-01):
+  зээлийн хэсэгтэй борлуулалт `B2C/B2B_INVOICE` (сугалаагүй) — `receiptTypeOf`;
+  `EBARIMT_INVOICE_PAYMENT_KINDS` нь ЦОРЫН ГАНЦ эх. АР нэхэмжлэхтэй ИЖИЛ хэв маяг:
+  `withCreditInvoice` (receipt.ts, тесттэй) зээлийн хэсгийн кодыг нэхэмжлэхийн
+  тохиргооны АЛБАН кодоор (`ebarimtArapPaymentCode`, хэлбэрийн өөрийн код БИШ) солиж,
+  дэд баримт бүрд данс (`ebarimtArapBankAccountNo`/`Iban`) тавина — дутуу бол
+  `[EBARIMT_SETTINGS]` (АР-ын switch-ээс үл хамаарна). Бүх төлбөр **`PAID`** — `PAY`
+  ХЭРЭГЛЭХГҮЙ (спек 3.0.1 §11: гуравдагч төлбөрийн сервисийн төлөв, «төлөгдөөгүй» биш).
+  Авлагын төлөлт бүр (борлуулах мөчийн бэлэн/карт хэсэг ч) → `invoiceId`-тай
+  `*_RECEIPT`: `enqueueArapInvoicePayments` POS-оос үүссэн АР-ыг (`sourceType=pos`,
+  ДДТД нь `pos_sales`-д) ч авна, зөвхөн `EBARIMT_POS_CREDIT_PAYMENTS_SINCE`-ээс хойшх
+  settlement. Төлөв АР панельд (`posSourced`). Кассгүй хэсэг (бэлгийн карт, урьдчилгаа)
+  төлөлтийн баримт болохгүй — АР-ын Q8-тай ижил хязгаар
+- **PosAPI хариу:** ЗӨВХӨН ДДТД + `status: SUCCESS` амжилт; `PAYMENT` («төлбөрийн
+  мэдээлэл дутуу») ДДТД-тэй ирсэн ч «Алдаатай» (`receiptResponseOutcome`)
 - **taxType бүлэглэл:** барааны `vatMode` → `VAT_ABLE|VAT_FREE|VAT_ZERO`
   (НӨАТ төлөгч эсэхээс үл хамаарна; төлөгч бусад мөрийн НӨАТ 0), мөрүүд дэд баримт
   (`receipts[]`) болж бүлэглэгдэнэ. Хэсэгчилсэн буцаалтын дараа үлдсэн мөрөөр

@@ -11,7 +11,13 @@
 // Код ЗОХИОХГҮЙ (CLAUDE.md §5c) — зөвхөн дутууг НЭРЛЭНЭ.
 
 import { effectiveCategoryClassification } from "@/lib/inventory/category-tree";
-import { CLASSIFICATION_CODE_RE, EBARIMT_PAYMENT_CODES, isKnownEbarimtPaymentCode, TAX_PRODUCT_CODE_RE } from "./constants";
+import {
+  CLASSIFICATION_CODE_RE,
+  EBARIMT_INVOICE_PAYMENT_KINDS,
+  EBARIMT_PAYMENT_CODES,
+  isKnownEbarimtPaymentCode,
+  TAX_PRODUCT_CODE_RE,
+} from "./constants";
 
 /**
  * Ангиллын лавлах — барааны код хоосон бол ЭНДЭЭС өвлөнө (queue.ts prepare-тай
@@ -56,12 +62,19 @@ export interface ReadinessItem {
 export interface ReadinessPaymentMethod {
   name: string;
   ebarimtCode: string | null;
+  /** `credit` (Зээлээр) — өөрийн код хэрэглэгдэхгүй, нэхэмжлэхийн тохиргоо шалгагдана. */
+  kind?: string | null;
 }
 
 export interface EbarimtReadinessInput {
   items: ReadinessItem[];
   categories: ReadinessCategory[];
   paymentMethods: ReadinessPaymentMethod[];
+  /**
+   * Нэхэмжлэхийн тохиргоо (POS тохиргоо → eBarimt → Нэхэмжлэх) — «Зээлээр»
+   * борлуулалт НЭХЭМЖЛЭХ болж явахад код + данс ЗААВАЛ (`withCreditInvoice`).
+   */
+  invoice?: { paymentCode: string | null; bankAccountNo: string | null } | null;
 }
 
 /** Нэг бүлгийн дутуу — тоо + жишээ нэрс (UI-д бүгдийг нь асгахгүй). */
@@ -135,10 +148,15 @@ export function ebarimtReadiness(input: EbarimtReadinessInput): EbarimtReadiness
     }
   }
 
-  const missingPayments = input.paymentMethods
+  // «Зээлээр» хэлбэрийн өөрийн код явахгүй (нэхэмжлэхийн код явна) — доор тусад нь.
+  const isCredit = (method: ReadinessPaymentMethod) =>
+    (EBARIMT_INVOICE_PAYMENT_KINDS as readonly string[]).includes(method.kind ?? "");
+  const ownCodeMethods = input.paymentMethods.filter((method) => !isCredit(method));
+  const creditMethods = input.paymentMethods.filter(isCredit);
+  const missingPayments = ownCodeMethods
     .filter((method) => !method.ebarimtCode?.trim())
     .map((method) => method.name);
-  const unknownCodes = input.paymentMethods
+  const unknownCodes = ownCodeMethods
     .filter((method) => method.ebarimtCode?.trim() && !isKnownEbarimtPaymentCode(method.ebarimtCode))
     .map((method) => `${method.name} (${method.ebarimtCode!.trim().toUpperCase()})`);
 
@@ -166,6 +184,14 @@ export function ebarimtReadiness(input: EbarimtReadinessInput): EbarimtReadiness
     warnings.push(
       `${unknownPaymentCodes.count} төлбөрийн хэлбэрийн eBarimt код ТЕГ-ийн албан жагсаалтад (${EBARIMT_PAYMENT_CODES.join(", ")}) байхгүй — PosAPI татгалзаж болзошгүй: ${sampleText(unknownPaymentCodes)}`
     );
+  if (creditMethods.length > 0) {
+    const invoiceCode = input.invoice?.paymentCode ?? null;
+    const invoiceReady = isKnownEbarimtPaymentCode(invoiceCode) && /^\d{6,20}$/.test((input.invoice?.bankAccountNo ?? "").replace(/[\s-]/g, ""));
+    if (!invoiceReady)
+      warnings.push(
+        `«${creditMethods.map((method) => method.name).join("», «")}» борлуулалт eBarimt-д НЭХЭМЖЛЭХ болж явна — POS тохиргоо → eBarimt → Нэхэмжлэх: төлбөрийн код ба ТЕГ-д бүртгэлтэй банкны данс тохируулаагүй бол тэр борлуулалтын eBarimt «Алдаатай» болно`
+      );
+  }
 
   return { items, taxProduct, payments, unknownPaymentCodes, problems, warnings, ready: problems.length === 0 };
 }

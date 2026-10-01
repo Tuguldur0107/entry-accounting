@@ -59,19 +59,29 @@ export const EBARIMT_BARCODE_TYPES = ["UNDEFINED", "GS1", "ISBN"] as const;
 export type EbarimtBarcodeType = (typeof EBARIMT_BARCODE_TYPES)[number];
 
 /**
- * Төлбөрийн статус — PosAPI `payments[].status`: PAID = төлөгдсөн, PAY =
- * төлөгдөх (нэхэмжлэхийн дараа төлөх хэсэг — зээлээр `credit`).
+ * Төлбөрийн статус — PosAPI `payments[].status`. Entry ЗӨВХӨН `PAID` илгээнэ.
+ * Албан спек 3.0.1 §6/§11: `PAY` = «Баримтын мэдээлэл солилцох сервис»-ийн
+ * PAYMENT төрлөөр (PosAPI-д холбосон гуравдагч төлбөрийн систем) ОДОО гүйцэтгэх
+ * төлбөр — «дараа төлөгдөнө» гэсэн утга БИШ. Ийм сервис тохируулаагүй PosAPI
+ * баримтыг бүрэн үүсгэхгүй (`status: "PAYMENT"`) тул хэрэглэхгүй (2026-10-01).
  */
 export const EBARIMT_PAYMENT_STATUS_PAID = "PAID";
-export const EBARIMT_PAYMENT_STATUS_PAY = "PAY";
-export type EbarimtPaymentStatus = typeof EBARIMT_PAYMENT_STATUS_PAID | typeof EBARIMT_PAYMENT_STATUS_PAY;
+export type EbarimtPaymentStatus = typeof EBARIMT_PAYMENT_STATUS_PAID;
 
 /**
- * Дараа төлөгдөх (НЭХЭМЖЛЭХ) төлбөрийн `kind`. Ийм төлбөртэй борлуулалт
- * `B2C_INVOICE` / `B2B_INVOICE` төрлөөр илгээгдэж, тэр хэсэг нь `PAY` статустай
- * (docs/pos/03 T3). Сугалаа нэхэмжлэхэд олгогдохгүй.
+ * Дараа төлөгдөх (зээлээр) төлбөрийн `kind`. Ийм хэсэгтэй борлуулалт НЭХЭМЖЛЭХ
+ * (`B2C_INVOICE` / `B2B_INVOICE`, сугалаагүй) болж явна — АР нэхэмжлэхтэй ИЖИЛ
+ * хэв маяг (docs/pos/05): нэхэмжлэхийн төлбөрийн код + банкны данс нь POS
+ * тохиргоо → eBarimt → «Нэхэмжлэх»-ээс (`withCreditInvoice`), `PAID` бүтэн
+ * дүнгээр; авлага төлөгдөх бүрд `invoiceId`-тай `*_RECEIPT` (төлөлтийн сканнер).
  */
 export const EBARIMT_INVOICE_PAYMENT_KINDS: readonly PaymentKind[] = ["credit"];
+
+/**
+ * Хариуны баримтын төлөв — албан спек 3.0.1 §6. ЗӨВХӨН `SUCCESS` = баримт
+ * үүссэн. `PAYMENT` = «төлбөрийн мэдээлэл дутуу» — ДДТД ирсэн ч амжилт БИШ.
+ */
+export const EBARIMT_RESPONSE_STATUS_SUCCESS = "SUCCESS";
 
 /**
  * PosAPI 3.0 `payments[].code`-ийн АЛБАН жагсаалт (developer портал «Төлбөрийн
@@ -96,8 +106,8 @@ export function isKnownEbarimtPaymentCode(code: string | null | undefined): bool
  * ЗӨВХӨН UI-ийн placeholder ба анхны seed-д; хэрэглэгч pos_payment_methods.ebarimtCode-д
  * өөрөө оноож баталгаажуулна. null = санал байхгүй: ewallet ерөнхийд нь (QPay
  * провайдертай хэлбэр л `BANK_TRANSFER_QPAY` — lib/qpay/seed.ts), BNPL, зээл
- * (`credit` = PAY статустай дараа төлөгдөх хэсэг — төлөгдөх хэлбэрийнх нь код;
- * өмнөх `INVOICE` санал албан жагсаалтад БАЙХГҮЙ тул хасагдав).
+ * (`credit` — хэлбэрийн өөрийн код ХЭРЭГЛЭГДЭХГҮЙ: нэхэмжлэхийн тохиргооны
+ * код `ebarimtArapPaymentCode` явна — `withCreditInvoice`).
  */
 export const EBARIMT_PAYMENT_CODE_SUGGESTIONS: Record<PaymentKind, string | null> = {
   cash: "CASH",
@@ -116,7 +126,9 @@ export const EBARIMT_PAYMENT_CODE_SUGGESTIONS: Record<PaymentKind, string | null
 export const POSAPI_PATHS = {
   receipt: "/rest/receipt",
   info: "/rest/info",
+  /** Developer портал (2026). PDF гарын авлага 3.0.1 §8 `/rest/send` гэдэг — 404 бол тэр рүү. */
   sendData: "/rest/sendData",
+  sendDataLegacy: "/rest/send",
   /** Мерчантын бүртгэлтэй банкны данс (`?tin=`) — нэхэмжлэхийн `bankAccountNo`-ийн эх (§10). */
   bankAccounts: "/rest/bankAccounts",
 } as const;
@@ -167,6 +179,8 @@ export const EBARIMT_MAX_ATTEMPTS = 20;
 export const EBARIMT_ALERT_AFTER_ATTEMPTS = 3;
 /** PosAPI-ийн HTTP timeout — хөнгөн хүсэлтэд (`/rest/info`, гар шалгалт). */
 export const POSAPI_TIMEOUT_MS = 10_000;
+/** `GET /rest/sendData` — хуримтлагдсан баримтыг ТЕГ рүү түлхэх тул удаан. */
+export const POSAPI_SEND_DATA_TIMEOUT_MS = 60_000;
 /**
  * `POST`/`DELETE /rest/receipt`-ийн HTTP timeout. PosAPI daemon ТЕГ рүү нөөцөө
  * түлхэж байх үедээ хариуг хэдэн арван секунд барьдаг (Techpartners SDK-ийн
@@ -183,6 +197,13 @@ export const POSAPI_RECEIPT_TIMEOUT_MS = 90_000;
  * үргэлжилнэ (ДДТД дахин хэвлэхэд гарна).
  */
 export const EBARIMT_INLINE_SEND_TIMEOUT_MS = 8_000;
+/**
+ * POS «Зээлээр» нэхэмжлэхийн ТӨЛӨЛТИЙГ ТЕГ-д мэдэгдэж эхэлсэн мөч (2026-10-01,
+ * docs/pos/05 §5). Үүнээс өмнө Entry-д бүртгэгдсэн төлөлт (settlement.createdAt)
+ * сканнерт ОРОХГҮЙ — шинэ функц асмагц өнгөрсөн бүх төлөлтийг өнөөдрийн огноотой
+ * ТЕГ рүү цацахгүй. Тэдгээрийг шаардлагатай бол ТЕГ-д гараар бүртгэнэ.
+ */
+export const EBARIMT_POS_CREDIT_PAYMENTS_SINCE = new Date("2026-10-01T00:00:00+08:00");
 /** Сугалаа энэ тооноос доош үлдвэл анхааруулна (тестийн checklist). */
 export const EBARIMT_LOTTERY_LOW_THRESHOLD = 200;
 /** ТЕГ рүү сүүлд илгээснээс хойш энэ цагаас удвал анхааруулна (хуулийн 72ц-ийн 2/3). */

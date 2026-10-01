@@ -52,11 +52,36 @@ eBarimt таб «Мерчант бүртгэл: ҮГҮЙ» гэж улаанаа
 
 ## 4. PosAPI 3.0 суулгац (оператор, нэг удаа)
 
-- Багц: ГТСМТТ-ийн Linux `.deb` (Qt; Java БИШ). Тохиргоо `posapi.ini`:
-  `db` = `QPSQL` (Postgres) / `QSQLITE`, `dbHost/dbPort/dbUser/dbPass/dbName`,
-  `workDir` (унших/бичих эрхтэй, **хэзээ ч freeze хийхгүй**), `webServiceHost`,
-  `webServicePort` (default 7080). Хүснэгтийг PosAPI өөрөө үүсгэдэг тул DB
-  хэрэглэгч table үүсгэх эрхтэй байна
+- Багц: ГТСМТТ-ийн `PosService_<хувилбар>-<Staging|Prod>.zip` → `Package/linux/PosAPI.deb`
+  (+ Windows `PosAPI_Setup.exe`). **3.0.12 багцыг задалж шалгасан (2026-10-01):**
+  - `/opt/posapi/PosService` нь Go дээрх **хяналт + автомат шинэчлэгч** — жинхэнэ Qt
+    PosAPI-г `updaterUrl`-аас татаж ажиллуулж, шинэ хувилбар гарвал өөрөө солино. Тиймээс
+    операторын PosAPI-ийн хувилбар бидний мэдэлгүй өөрчлөгдөж болно — тохиргооны табын
+    «PosAPI хувилбар» (хариуны `version`) хяналт үүнд зориулагдсан
+  - systemd `PosAPI.service`: `User=root`, `Restart=always`, `WorkingDirectory=/opt/posapi`.
+    Railway/Docker контейнерт systemd байхгүй — `PosService`-ийг шууд ажиллуулна
+  - `.deb`-ийн `Depends` нь зөвхөн `ca-certificates`, багцад `libQt5HttpServer/SslServer/
+    Nut/JsonSerializer` + `quazip5` л орсон — **Qt 5.12-ийн `Core/Network/Sql/Gui` +
+    SQLite/Postgres драйверыг системээс** суулгана (Qt 5.12 агуулдаг Ubuntu 20.04 хамгийн
+    тохиромжтой: `libqt5core5a libqt5network5 libqt5sql5 libqt5sql5-sqlite libqt5gui5`)
+  - **Staging ба Prod багц ТУСДАА:** staging-ийн `posapi.ini`-д `st-api.ebarimt.mn`,
+    `st.auth.itc.gov.mn`, `st-posapi.ebarimt.mn` (шинэчлэгч) хаягууд бичигдсэн. Production-д
+    prod багцыг суулгана — staging багцын ini-ийн хаягийг гараар солихгүй
+- `posapi.ini` (3.0.12 — ХЭСЭГТЭЙ формат; PDF 3.0.1 §2-ын `dbHost`/`webServicePort`
+  гэх мэт хавтгай нэр ХУУЧИРСАН):
+  ```ini
+  [General]  ebarimtUrl=…  workDir=/opt/posapi  updaterUrl=…  skipHours=1114,1821
+  [auth]     clientId / clientSecret / realm / url   ← өөрчлөхгүй
+  [db]       driver=QSQLITE|QPSQL|QMYSQL|QODBC  host  name  port  user  pass  options
+  [http]     host=0.0.0.0  port=7080
+  [logServer] enable=false
+  ```
+  `workDir` унших/бичих эрхтэй, **хэзээ ч freeze хийхгүй**. Хүснэгтийг PosAPI өөрөө
+  үүсгэдэг тул DB хэрэглэгч table үүсгэх эрхтэй байна
+- ⚠️ **`[http] host=0.0.0.0` (анхдагч) — 7080 БҮХ интерфэйс дээр, нэвтрэлтгүй.** §4a-ийн
+  nginx + WAF-ыг PosAPI-тай НЭГ машинд тавьвал `host=127.0.0.1` болгоно (эсвэл firewall-аар
+  7080-ыг гаднаас хаана) — эс бөгөөс `http://<IP>:7080` шууд нээлттэй үлдэж gateway нууцыг
+  (`EBARIMT_GATEWAY_KEY`) тойрно
 - Идэвхжүүлэлт: PosAPI суусны дараа **идэвхгүй**; оператор эрхтэй хэрэглэгч
   PosAPI-ийн web (`http://<host>:7080/web/`)-д нэвтэрч операторыг сонгон
   идэвхжүүлэхэд ТЕГ-д бүртгэгдэж сугалааны нөөц авна (§3)
@@ -70,9 +95,10 @@ eBarimt таб «Мерчант бүртгэл: ҮГҮЙ» гэж улаанаа
   овог/нэр/РД/утас/и-мэйл) авна
 - **Албан best practice (developer портал):** PosAPI-г нийтийн сүлжээнд ил тавихгүй —
   Entry (Railway) ↔ операторын PosAPI хооронд VPN/tunnel + IP allowlist; нэг PosAPI-д
-  ≤1000 мерчант, ≤100 000 баримт/өдөр, DB ping <100 мс; `posapi.ini`: `noEasyResponse = true`
-  (банкны картын хялбар бүртгэлийн хариуг хүлээхгүй — `easy` талбар ажиллахгүй),
-  `skipHours = 1114,1821` (шинэчлэлт оргил цагт хийгдэхгүй); **хувилбар ≥ 3.0.12**
+  ≤1000 мерчант, ≤100 000 баримт/өдөр, DB ping <100 мс; `posapi.ini [General]`: `noEasyResponse = true`
+  (банкны картын хялбар бүртгэлийн хариуг хүлээхгүй — `easy` талбар ажиллахгүй; 3.0.12-ийн
+  анхдагч ini-д БАЙХГҮЙ тул гараар нэмнэ), `skipHours = 1114,1821` (шинэчлэлт 11–14, 18–21
+  цагт хийгдэхгүй — анхдагч ini-д бий); **хувилбар ≥ 3.0.12**
   (2025-11-25 «яаралтай») — тохиргооны таб сүүлийн баримтын хариуны `version`-ийг харуулж
   доош бол улаанаар анхааруулна
 - ТЕГ-ийн нийтийн лавлах (`api.ebarimt.mn`) ЗӨВХӨН Монголын IP — гадаад бүсийн Entry
@@ -150,7 +176,11 @@ Railway env солих → deploy → хуучныг дүрмээс хасна (
 1. **Борлуулалт → Тохиргоо → eBarimt**: ТТД, салбар, дүүрэг, posNo, PosAPI URL
    (операторын), горим `server` → [Хадгалах] → [Холболт шалгах] — `/rest/info`
    хариулж, «Мерчант бүртгэл: бүртгэлтэй» гарах ёстой
-2. **Төлбөрийн хэлбэр бүрд eBarimt код** (`CASH`, `PAYMENT_CARD` …)
+2. **Төлбөрийн хэлбэр бүрд eBarimt код** (`CASH`, `PAYMENT_CARD` …). «Зээлээр»
+   хэлбэрийн өөрийн код ХЭРЭГЛЭГДЭХГҮЙ — зээлийн борлуулалт НЭХЭМЖЛЭХ
+   (`B2C/B2B_INVOICE`) болж явах тул **eBarimt → Нэхэмжлэх** блокийн төлбөрийн код
+   ба ТЕГ-д бүртгэлтэй банкны дансыг бөглөнө (АР-ын switch асаах шаардлагагүй).
+   Авлага төлөгдөх бүрд `invoiceId`-тай төлбөрийн баримт автоматаар явна (docs/pos/05)
 3. **Бараа бүрд ангилалын код (7 орон)** — ҮСХ-ны «Бүтээгдэхүүн, үйлчилгээний
    нэгдсэн ангилал»-ын 4-р багана; бүлэгт оноовол бараа өвлөнө. НӨАТ-гүй / 0%
    бараанд **татварын бүтээгдэхүүний код (3–5 орон)** — ТЕГ-ийн албан жагсаалтаас

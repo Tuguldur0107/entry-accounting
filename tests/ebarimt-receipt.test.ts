@@ -11,6 +11,7 @@ import {
   receiptTypeOf,
   stripReceiptSecrets,
   taxTypeOf,
+  withCreditInvoice,
 } from "../lib/ebarimt/receipt";
 import type { EbarimtSaleInput, EbarimtSaleLineInput, EbarimtSettingsInput } from "../lib/ebarimt/types";
 
@@ -136,21 +137,42 @@ test("B2B: customerTin өгвөл B2B_RECEIPT; буруу ТТД/иргэний 
   assert.equal(buildEbarimtReceipt(sale({ consumerNo: "12345678" }), settings).consumerNo, "12345678");
 });
 
-test("зээлээр (credit) → B2C/B2B_INVOICE, зээлийн хэсэг PAY статус, бусад нь PAID", () => {
+const invoiceSettings = { paymentCode: "BANK_TRANSFER", bankAccountNo: "5000 1234-56", iBan: "MN12 0005 0050 0012 3456" };
+
+test("зээлээр (credit) → B2C/B2B_INVOICE, бүх төлбөр PAID; зээлийн код + данс нэхэмжлэхийн тохиргооноос", () => {
+  // Хэлбэрийн хуучин албан бус код («INVOICE») ХЭЗЭЭ Ч явахгүй.
   const credit = { kind: "credit" as const, methodName: "Зээлээр", ebarimtCode: "INVOICE", baseAmount: 661_550, reference: null };
   const cash = { kind: "cash" as const, methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 1_000_000, reference: null };
-  const mixed = buildEbarimtReceipt(sale({ payments: [cash, credit] }), settings);
+  const mixed = buildEbarimtReceipt(withCreditInvoice(sale({ payments: [cash, credit] }), invoiceSettings), settings);
   assert.equal(mixed.type, "B2C_INVOICE");
   assert.deepEqual(
     mixed.payments.map((payment) => [payment.code, payment.status, payment.paidAmount]),
-    [["CASH", "PAID", 1_000_000], ["INVOICE", "PAY", 661_550]]
+    [["CASH", "PAID", 1_000_000], ["BANK_TRANSFER", "PAID", 661_550]]
   );
-  const b2b = buildEbarimtReceipt(sale({ customerTin: "12345678901", payments: [{ ...credit, baseAmount: 1_661_550 }] }), settings);
+  for (const receipt of mixed.receipts) {
+    assert.equal(receipt.bankAccountNo, "5000123456");
+    assert.equal(receipt.iBan, "MN120005005000123456");
+  }
+  assert.ok(!JSON.stringify(mixed).includes('"PAY"'), "PAY статус ХЭЗЭЭ Ч илгээгдэхгүй");
+  const b2b = buildEbarimtReceipt(
+    withCreditInvoice(sale({ customerTin: "12345678901", payments: [{ ...credit, baseAmount: 1_661_550 }] }), invoiceSettings),
+    settings
+  );
   assert.equal(b2b.type, "B2B_INVOICE");
-  assert.deepEqual(b2b.payments.map((payment) => payment.status), ["PAY"]);
+  assert.deepEqual(b2b.payments, [{ code: "BANK_TRANSFER", status: "PAID", paidAmount: 1_661_550 }]);
   // Бүрэн төлөгдсөн → RECEIPT хэвээр; 0 дүнтэй зээлийн мөр төрлийг өөрчлөхгүй
   assert.equal(receiptTypeOf([cash, { ...credit, baseAmount: 0 }], null), "B2C_RECEIPT");
   assert.equal(receiptTypeOf([cash], "12345678901"), "B2B_RECEIPT");
+});
+
+test("withCreditInvoice: зээлгүй борлуулалтыг хөндөхгүй; тохиргоо дутуу бол ил алдаа (зохиохгүй)", () => {
+  const plain = sale();
+  assert.equal(withCreditInvoice(plain, { paymentCode: null, bankAccountNo: null, iBan: null }), plain);
+  const credit = sale({ payments: [{ kind: "credit", methodName: "Зээлээр", ebarimtCode: null, baseAmount: 1_661_550, reference: null }] });
+  assert.throws(() => withCreditInvoice(credit, { ...invoiceSettings, paymentCode: "INVOICE" }), /\[EBARIMT_SETTINGS\].*төлбөрийн код/);
+  assert.throws(() => withCreditInvoice(credit, { ...invoiceSettings, bankAccountNo: "" }), /\[EBARIMT_SETTINGS\].*банкны данс/);
+  // withCreditInvoice-гүй шууд дуудвал нэхэмжлэх дансгүй явахгүй
+  assert.throws(() => buildEbarimtReceipt(credit, settings), /\[EBARIMT_SETTINGS\].*данс/);
 });
 
 test("хэсэгчилсэн буцаалт: үлдсэн мөр л илгээгдэж, төлбөр хувь тэнцүү хуваарилагдана", () => {
@@ -184,8 +206,13 @@ test("allocatePayments: бөөрөнхийллийн зөрүүг хамгийн
   assert.equal(payments.find((payment) => payment.code === "PAYMENT_CARD")?.paidAmount, 33.33);
 });
 
-test("receiptResponseOutcome: ДДТД ирвэл амжилт, үгүй бол мессеж", () => {
+test("receiptResponseOutcome: ЗӨВХӨН ДДТД + SUCCESS амжилт; PAYMENT ба status-гүй нь амжилт БИШ", () => {
   assert.deepEqual(receiptResponseOutcome({ id: "0000123", status: "SUCCESS" }), { ok: true, id: "0000123" });
+  assert.deepEqual(receiptResponseOutcome({ id: "0000123", status: "success" }), { ok: true, id: "0000123" });
+  const payment = receiptResponseOutcome({ id: "0000123", status: "PAYMENT", message: "Төлбөр дутуу" });
+  assert.equal(payment.ok, false);
+  assert.match(payment.ok ? "" : payment.message, /PAYMENT.*0000123.*Төлбөр дутуу/);
+  assert.equal(receiptResponseOutcome({ id: "0000123" }).ok, false);
   const failed = receiptResponseOutcome({ status: "ERROR", message: "Мерчант олдсонгүй" });
   assert.equal(failed.ok, false);
   assert.match(failed.ok ? "" : failed.message, /Мерчант/);

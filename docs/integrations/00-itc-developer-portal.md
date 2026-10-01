@@ -128,7 +128,7 @@ grant_type=password&client_id={client}&username={нэвтрэх нэр}&password
 | E2 | **ХАОАТ / НДШ-ийн цалингийн тайлан** — ХАОАТ eTax-д (`payroll_runs`); НДШ нь ndaatgal.mn (ITC биш, тусдаа) | `lib/payroll/` | Хожим |
 | E3 | **ААНОАТ улирал/жил** — орлогын тайлан + татварын тохируулга (татварын элэгдэл `taxAmount` мэмо, IAS 12 зөрүү) | `lib/reports/`, `lib/fa/` | Хожим; маягт олон мөртэй |
 | E4 | **Татварын тайлангийн төлөв татах** (тушаасан/хүлээн авсан/хүлээгдэж буй) → `attention.ts` дохио, сар хаалтын checklist | `lib/notifications/attention.ts`, `/close` | Уншилт — аль ч горимд |
-| E5 | eBarimt TPI-ээр **борлуулалт/худалдан авалтын тулгалт** (§4.1) → `reconcile_modules`-ийн шинэ хэсэг «ТЕГ ↔ Entry» | `lib/ai/tools.ts` | НӨАТ тайлангийн өмнөх алхам |
+| E5 | eBarimt TPI-ээр **борлуулалт/худалдан авалтын тулгалт** (§4.1) → `reconcile_modules`-ийн шинэ хэсэг «ТЕГ ↔ Entry». ✅ 2026-10-01 эхний хэсэг: **нэхэмжлэхийн үлдэгдэл** (status 3 + `prParentRno`) өдөр бүр татаж Entry-ийн авлагатай тулгана — `docs/dev/ebarimt-tax-reconcile.md` (staging-ийн баталгаажуулалт §6) | `lib/ebarimt/tax-sync.ts`, `lib/ai/tools.ts` | НӨАТ тайлангийн өмнөх алхам |
 
 Хатуу дүрмүүд (CLAUDE.md-тэй нийцүүлнэ): тайлан **зохиохгүй** — GL-ээс бодогдсон
 дүнг л илгээнэ; илгээлт бүр `logAuditEvent` (`tax_return` entityType) + мэдэгдэл;

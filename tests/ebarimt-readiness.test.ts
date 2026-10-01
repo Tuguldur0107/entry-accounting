@@ -153,3 +153,30 @@ test("P1-4: албан жагсаалтад байхгүй төлбөрийн к
   assert.match(readiness.warnings[0], /BANK_TRANSFER_QPAY/);
   assert.match(readiness.warnings[0], /Зээлээр \(INVOICE\)/);
 });
+
+test("«Зээлээр» (credit): өөрийн код шаардахгүй, нэхэмжлэхийн код + данс дутуу бол анхааруулга", () => {
+  const credit = { name: "Зээлээр", ebarimtCode: "INVOICE", kind: "credit" };
+  const missing = ebarimtReadiness({ items: [], categories: [], paymentMethods: [CASH, credit], invoice: null });
+  // Хуучин албан бус «INVOICE» код ч явахгүй тул дутуу/албан бус гэж тоолохгүй
+  assert.equal(missing.payments.count, 0);
+  assert.equal(missing.unknownPaymentCodes.count, 0);
+  assert.equal(missing.ready, true);
+  assert.equal(missing.warnings.length, 1);
+  assert.match(missing.warnings[0], /Зээлээр.*НЭХЭМЖЛЭХ.*банкны данс/);
+
+  const noBank = ebarimtReadiness({
+    items: [],
+    categories: [],
+    paymentMethods: [credit],
+    invoice: { paymentCode: "BANK_TRANSFER", bankAccountNo: "" },
+  });
+  assert.equal(noBank.warnings.length, 1);
+
+  const ready = ebarimtReadiness({
+    items: [],
+    categories: [],
+    paymentMethods: [CASH, credit],
+    invoice: { paymentCode: "BANK_TRANSFER", bankAccountNo: "5000 1234 56" },
+  });
+  assert.deepEqual(ready.warnings, []);
+});

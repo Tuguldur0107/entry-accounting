@@ -24,12 +24,12 @@ import { toItemVatMode } from "@/lib/inventory/load-data";
 import { loadVatSettings } from "@/lib/vat/settings";
 import type { PaymentKind } from "@/lib/pos/constants";
 
-import { EBARIMT_ERRORS, backoffMs, type SubmissionKind } from "./constants";
+import { EBARIMT_ERRORS, EBARIMT_POS_CREDIT_PAYMENTS_SINCE, backoffMs, type SubmissionKind } from "./constants";
 import { categoryClassificationMap, ebarimtReadiness, type EbarimtReadiness } from "./readiness";
 import { fetchPosApiHealth } from "./client";
 import { lookupTaxpayerByTin } from "./lookup";
 import { isMerchantRegistered } from "./posapi-info";
-import { buildEbarimtReceipt, EbarimtError, stripReceiptSecrets } from "./receipt";
+import { buildEbarimtReceipt, EbarimtError, stripReceiptSecrets, withCreditInvoice } from "./receipt";
 import { arapBillIdSuffix } from "./arap-receipt";
 import { buildInvoicePaymentReceipt, invoicePaymentBillIdSuffix, invoicePaymentCodeOf } from "./invoice-payment";
 import { loadArapInvoiceForEbarimt } from "./arap-load";
@@ -134,6 +134,19 @@ async function setSaleCorrection(saleId: string, correction: "pending" | "failed
     .update(posSales)
     .set({ ebarimtCorrection: correction })
     .where(correction ? and(eq(posSales.id, saleId), eq(posSales.ebarimtStatus, "sent")) : eq(posSales.id, saleId));
+}
+
+/**
+ * Нэхэмжлэхийн тохиргоо (POS тохиргоо → eBarimt → Нэхэмжлэх) — АР нэхэмжлэх ба
+ * POS «Зээлээр» борлуулалт НЭГ эх (`withCreditInvoice`). АР-ын асаах товчоос
+ * үл хамаарна: зээлийн борлуулалт eBarimt асаалттай л бол нэхэмжлэх болж явна.
+ */
+export function invoiceSettingsOf(row: PosSettings): { paymentCode: string; bankAccountNo: string; iBan: string } {
+  return {
+    paymentCode: row.ebarimtArapPaymentCode,
+    bankAccountNo: row.ebarimtArapBankAccountNo,
+    iBan: row.ebarimtArapIban,
+  };
 }
 
 export function settingsInputOf(row: PosSettings): EbarimtSettingsInput {
@@ -338,18 +351,49 @@ export async function requeueArapInvoiceEbarimt(orgId: string, documentId: strin
  * Кассгүй хаалт (харилцан суутгал Q8, ECL хасалт, кредит нэхэмжлэл) ОРОХГҮЙ.
  * Нэг нэхэмжлэхэд нэг удаад нэг идэвхтэй төлөлт (arap_active_ux) — дараагийнх
  * нь өмнөх нь дуусмагц дараагийн тикэд. Хэзээ ч шидэхгүй.
+ *
+ * POS «Зээлээр» борлуулалт ч мөн (2026-10-01): POS-оос үүссэн АР нэхэмжлэх
+ * (`sourceType=pos`) — eBarimt нэхэмжлэх нь борлуулалт дээр (`pos_sales.ebarimt*`,
+ * *_INVOICE, sent) тул тэндээс шалгана. Борлуулах мөчийн бэлэн/карт хэсэг ч
+ * settlement тул төлөлтийн баримт болно (нэхэмжлэх НӨАТ-ын тайланд орсон —
+ * `invoiceId`-тай баримт давхар тусгагдахгүй, спек 3.0.1 §6). АР-ын асаах
+ * товчноос үл хамаарна; `EBARIMT_POS_CREDIT_PAYMENTS_SINCE`-ээс хойшх төлөлт л.
  */
 export async function enqueueArapInvoicePayments(limit = 50): Promise<number> {
   try {
     const orgs = await db.query.posSettings.findMany({
-      where: and(eq(posSettings.ebarimtEnabled, true), eq(posSettings.ebarimtArapEnabled, true), eq(posSettings.ebarimtMode, "server")),
-      columns: { organizationId: true },
+      where: and(eq(posSettings.ebarimtEnabled, true), eq(posSettings.ebarimtMode, "server")),
+      columns: { organizationId: true, ebarimtArapEnabled: true },
     });
     if (orgs.length === 0) return 0;
     const { getEntitlements } = await import("@/lib/billing/load");
-    const allowed: string[] = [];
-    for (const org of orgs) if ((await getEntitlements(org.organizationId)).features.ebarimt) allowed.push(org.organizationId);
-    if (allowed.length === 0) return 0;
+    const posAllowed: string[] = [];
+    const arapAllowed: string[] = [];
+    for (const org of orgs) {
+      if (!(await getEntitlements(org.organizationId)).features.ebarimt) continue;
+      posAllowed.push(org.organizationId);
+      if (org.ebarimtArapEnabled) arapAllowed.push(org.organizationId);
+    }
+    if (posAllowed.length === 0) return 0;
+    const invoiceTypes = ["B2B_INVOICE", "B2C_INVOICE"];
+    // АР модулийн нэхэмжлэх: ДДТД нь баримт дээр.
+    const arapInvoiceSent = arapAllowed.length
+      ? and(
+          inArray(arApSettlements.organizationId, arapAllowed),
+          eq(arApDocuments.ebarimtStatus, "sent"),
+          inArray(arApDocuments.ebarimtType, invoiceTypes)
+        )
+      : sql`false`;
+    // POS «Зээлээр»: ДДТД нь борлуулалт дээр.
+    const posInvoiceSent = and(
+      inArray(arApSettlements.organizationId, posAllowed),
+      eq(arApDocuments.sourceType, "pos"),
+      gte(arApSettlements.createdAt, EBARIMT_POS_CREDIT_PAYMENTS_SINCE),
+      sql`exists (select 1 from pos_sales s
+                   where s.id = ${arApDocuments.sourceId}
+                     and s.ebarimt_status = 'sent'
+                     and s.ebarimt_type in ('B2B_INVOICE', 'B2C_INVOICE'))`
+    );
 
     const candidates = await db
       .selectDistinctOn([arApSettlements.documentId], {
@@ -362,10 +406,8 @@ export async function enqueueArapInvoicePayments(limit = 50): Promise<number> {
       .innerJoin(cashDocuments, eq(cashDocuments.id, arApSettlements.cashDocumentId))
       .where(
         and(
-          inArray(arApSettlements.organizationId, allowed),
           eq(arApDocuments.documentType, "ar_invoice"),
-          eq(arApDocuments.ebarimtStatus, "sent"),
-          inArray(arApDocuments.ebarimtType, ["B2B_INVOICE", "B2C_INVOICE"]),
+          or(arapInvoiceSent, posInvoiceSent),
           eq(cashDocuments.status, "posted"),
           sql`${arApSettlements.amount} > 0`,
           sql`not exists (select 1 from pos_ebarimt_submissions p where p.arap_settlement_id = ${arApSettlements.id})`,
@@ -436,7 +478,9 @@ export async function requeueArapPaymentEbarimt(orgId: string, submissionId: str
  */
 export async function loadArapPaymentEbarimt(
   orgId: string,
-  documentId: string
+  documentId: string,
+  /** POS «Зээлээр»: сканнер үүнээс хойшх төлөлтийг л авна — өмнөхийг «дараалалд орж байна» гэж тоолохгүй. */
+  options: { since?: Date } = {}
 ): Promise<{ payments: ArapPaymentEbarimtRow[]; unqueued: number }> {
   const rows = await db
     .select({
@@ -469,6 +513,7 @@ export async function loadArapPaymentEbarimt(
         eq(arApSettlements.organizationId, orgId),
         eq(arApSettlements.documentId, documentId),
         eq(cashDocuments.status, "posted"),
+        options.since ? gte(arApSettlements.createdAt, options.since) : undefined,
         sql`${arApSettlements.amount} > 0`,
         sql`not exists (select 1 from pos_ebarimt_submissions p where p.arap_settlement_id = ${arApSettlements.id})`
       )
@@ -633,11 +678,11 @@ export async function prepareSubmission(
       columns: { ebarimtId: true, ebarimtDate: true, ebarimtStatus: true },
     });
     if (!sale) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Борлуулалт олдсонгүй");
-    const input = await loadSaleForEbarimt(submission.organizationId, saleId);
-    if (!input) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Буцаалтын баримт өөрөө илгээгдэхгүй");
+    const loaded = await loadSaleForEbarimt(submission.organizationId, saleId);
+    if (!loaded) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Буцаалтын баримт өөрөө илгээгдэхгүй");
     // Буцаалт бүр loadSaleForEbarimt-д тооцогддог тул хожуу илгээгдэх баримт
     // ч үлдсэн мөрөөр л явна.
-    const hasRemaining = input.lines.some((line) => line.quantity > 1e-9);
+    const hasRemaining = loaded.lines.some((line) => line.quantity > 1e-9);
     const alreadySent = !!sale.ebarimtId && sale.ebarimtStatus === "sent";
 
     let request: EbarimtReceiptRequest | null = null;
@@ -645,6 +690,8 @@ export async function prepareSubmission(
     if (kind === "send") {
       if (alreadySent) return settle(null); // давхар enqueue
       if (!hasRemaining) return settle("cancelled"); // илгээхээс өмнө бүгд буцаагдсан
+      // «Зээлээр» хэсэгтэй бол НЭХЭМЖЛЭХ — нэхэмжлэхийн код/данс (дутуу бол [EBARIMT_SETTINGS]).
+      const input = withCreditInvoice(loaded, invoiceSettingsOf(settingsRow));
       request = buildEbarimtReceipt(input, settings, { edit: await editIndexOf(submission) });
     } else if (!alreadySent) {
       // Эх нь ТЕГ-д очоогүй байхад буцаагдав — цуцлах/засах зүйл алга; хүлээгдэж
@@ -654,7 +701,7 @@ export async function prepareSubmission(
       // ХЭСЭГЧИЛСЭН буцаалт — албан спек §5: inactiveId = сүүлийн ДДТД, шинэ
       // бичилт эхийг орлоно, сугалаа ДАХИН олгогдохгүй (DELETE + шинэ бол
       // үйлчлүүлэгч хоёр дахь сугалаа авах зөрчил байсан).
-      request = buildEbarimtReceipt(input, settings, {
+      request = buildEbarimtReceipt(withCreditInvoice(loaded, invoiceSettingsOf(settingsRow)), settings, {
         inactiveId: sale.ebarimtId,
         edit: Math.max(1, await editIndexOf(submission)),
       });
@@ -728,6 +775,48 @@ async function closeWithoutSending(submissionId: string, reason: string): Promis
 }
 
 /**
+ * ТЕГ-д бүртгэлтэй нэхэмжлэх (ДДТД + илгээсэн хүсэлт). АР модулийнх — баримт
+ * дээр, хүсэлт нь тэр баримтын сүүлийн амжилттай «send». POS «Зээлээр»
+ * (`sourceType=pos`) — борлуулалт дээр (*_INVOICE), хүсэлт нь сүүлийн амжилттай
+ * хүсэлттэй submission (хэсэгчилсэн буцаалтын `inactiveId` засвар бол түүнийх —
+ * ТЕГ-д одоо хүчинтэй нэхэмжлэх). Бүртгэлгүй / нэхэмжлэх биш бол null.
+ */
+async function loadSentInvoice(
+  orgId: string,
+  documentId: string,
+  doc: { ebarimtId: string | null; ebarimtStatus: string | null; sourceType: string; sourceId: string | null }
+): Promise<{ id: string; request: EbarimtReceiptRequest | null } | null> {
+  const requestOf = (payload: unknown) => (payload as { request?: EbarimtReceiptRequest } | null)?.request ?? null;
+  if (doc.sourceType === "pos") {
+    if (!doc.sourceId) return null;
+    const sale = await db.query.posSales.findFirst({
+      where: and(eq(posSales.id, doc.sourceId), eq(posSales.organizationId, orgId)),
+      columns: { ebarimtId: true, ebarimtStatus: true, ebarimtType: true },
+    });
+    if (!sale?.ebarimtId || sale.ebarimtStatus !== "sent" || !sale.ebarimtType?.endsWith("_INVOICE")) return null;
+    const rows = await db.query.posEbarimtSubmissions.findMany({
+      where: and(eq(posEbarimtSubmissions.saleId, doc.sourceId), eq(posEbarimtSubmissions.status, "sent")),
+      orderBy: [desc(posEbarimtSubmissions.sentAt)],
+      columns: { payload: true },
+      limit: 10,
+    });
+    const latest = rows.map((row) => requestOf(row.payload)).find((request) => request !== null) ?? null;
+    return { id: sale.ebarimtId, request: latest };
+  }
+  if (!doc.ebarimtId || doc.ebarimtStatus !== "sent") return null;
+  const invoiceSubmission = await db.query.posEbarimtSubmissions.findFirst({
+    where: and(
+      eq(posEbarimtSubmissions.arapDocumentId, documentId),
+      eq(posEbarimtSubmissions.kind, "send"),
+      eq(posEbarimtSubmissions.status, "sent")
+    ),
+    orderBy: [desc(posEbarimtSubmissions.sentAt)],
+    columns: { payload: true },
+  });
+  return { id: doc.ebarimtId, request: requestOf(invoiceSubmission?.payload) };
+}
+
+/**
  * Нэхэмжлэхийн ТӨЛӨЛТ (docs/pos/05 Шат 3) → `invoiceId`-тай төлбөрийн баримт.
  * Мөр нь ТЕГ-д ИЛГЭЭГДСЭН нэхэмжлэхийн хүсэлтээс (Entry-ийн одоогийн мөрөөс биш —
  * ТЕГ-д бүртгэлтэйтэй тулгагдана), дүн нь settlement-ийнх. Төлөлт устгагдсан
@@ -767,27 +856,18 @@ async function prepareArapPaymentSubmission(
 
     const doc = await db.query.arApDocuments.findFirst({
       where: and(eq(arApDocuments.id, submission.arapDocumentId), eq(arApDocuments.organizationId, submission.organizationId)),
-      columns: { ebarimtId: true, ebarimtStatus: true },
+      columns: { ebarimtId: true, ebarimtStatus: true, sourceType: true, sourceId: true },
     });
-    if (!doc?.ebarimtId || doc.ebarimtStatus !== "sent")
-      throw new EbarimtError(EBARIMT_ERRORS.notSent, "Нэхэмжлэх ТЕГ-д бүртгэгдээгүй — эхлээд нэхэмжлэхийг илгээнэ");
-    // ТЕГ-д бүртгэлтэй нэхэмжлэхийн хүсэлт = сүүлийн амжилттай «send».
-    const invoiceSubmission = await db.query.posEbarimtSubmissions.findFirst({
-      where: and(
-        eq(posEbarimtSubmissions.arapDocumentId, submission.arapDocumentId),
-        eq(posEbarimtSubmissions.kind, "send"),
-        eq(posEbarimtSubmissions.status, "sent")
-      ),
-      orderBy: [desc(posEbarimtSubmissions.sentAt)],
-      columns: { payload: true },
-    });
-    const invoiceRequest = (invoiceSubmission?.payload as { request?: EbarimtReceiptRequest } | null)?.request;
+    if (!doc) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Нэхэмжлэх олдсонгүй");
+    const invoice = await loadSentInvoice(submission.organizationId, submission.arapDocumentId, doc);
+    if (!invoice) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Нэхэмжлэх ТЕГ-д бүртгэгдээгүй — эхлээд нэхэмжлэхийг илгээнэ");
+    const invoiceRequest = invoice.request;
     if (!invoiceRequest)
       throw new EbarimtError(EBARIMT_ERRORS.notSent, "ТЕГ-д илгээсэн нэхэмжлэхийн мэдээлэл олдсонгүй — ТЕГ-д гараар бүртгэнэ");
 
     const request = buildInvoicePaymentReceipt({
       invoiceRequest,
-      invoiceId: doc.ebarimtId,
+      invoiceId: invoice.id,
       amount: Number(settlement.amount),
       paymentCode: invoicePaymentCodeOf({ accountType: settlement.accountType, externalRef: settlement.externalRef }),
       billIdSuffix: invoicePaymentBillIdSuffix(settlement.id),
@@ -994,7 +1074,7 @@ export async function loadSubmissionsForSale(orgId: string, saleId: string): Pro
  * Зөвхөн ИДЭВХТЭЙ мөрийг шалгана — архивласан бараа зарагдахгүй.
  */
 export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadiness> {
-  const [items, categories, methods] = await Promise.all([
+  const [items, categories, methods, settings] = await Promise.all([
     db.query.inventoryItems.findMany({
       where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
       columns: {
@@ -1011,7 +1091,11 @@ export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadin
     }),
     db.query.posPaymentMethods.findMany({
       where: and(eq(posPaymentMethods.organizationId, orgId), eq(posPaymentMethods.isActive, true)),
-      columns: { name: true, ebarimtCode: true },
+      columns: { name: true, ebarimtCode: true, kind: true },
+    }),
+    db.query.posSettings.findFirst({
+      where: eq(posSettings.organizationId, orgId),
+      columns: { ebarimtArapPaymentCode: true, ebarimtArapBankAccountNo: true },
     }),
   ]);
 
@@ -1025,6 +1109,9 @@ export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadin
     })),
     categories,
     paymentMethods: methods,
+    invoice: settings
+      ? { paymentCode: settings.ebarimtArapPaymentCode, bankAccountNo: settings.ebarimtArapBankAccountNo }
+      : null,
   });
 }
 

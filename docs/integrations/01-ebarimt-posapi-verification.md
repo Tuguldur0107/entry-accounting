@@ -254,3 +254,45 @@ npm test -- tests/ebarimt-receipt.test.ts tests/ebarimt-posapi-info.test.ts test
 3. P1-1 — Монголын egress шийдэл (операторын сервер, `EBARIMT_PUBLIC_API_BASE`); ✅ P1-2 харилцагчийн картын ТТД (`counterparties.tin`, «ТЕГ-ээс лавлах», POS/AI шууд хэрэглэнэ)
 4. `docs/pos/03-ebarimt-integration-plan.md` §8-д «2026-09-25 developer портал v3.0.12-тэй
    тулгав» мөр, `02-implementation-status.md`-д P2-5 (ОАТ) хязгаар
+
+---
+
+## 7. PDF гарын авлага «POS API 3.0.1» + PosService 3.0.12 багцтай тулгалт (2026-10-01)
+
+**Эх:** `POS API 3.0.1.pdf` (30 хуудас, ГТСМТТ УҮГ, нүүрэнд 2023) ба
+`ST_PosService_3.0.12-Staging.zip` (2025-11-20). PDF нь developer порталаас ХУУЧИН:
+`billIdSuffix`, `branchNo`, `iBan`, `BANK_TRANSFER*` кодыг агуулаагүй — эдгээрт портал
+(§1–§5) давамгайлна.
+
+### 7.1 Олдвор ба засвар
+
+| # | PDF 3.0.1 | Entry (өмнө) | Засвар |
+|---|---|---|---|
+| D-1 | §6 `status`: SUCCESS / ERROR / **PAYMENT** («төлбөрийн мэдээлэл дутуу») | `receiptResponseOutcome`: ДДТД + ERROR биш бол амжилт → PAYMENT-ийг «Илгээгдсэн» гэж чимээгүй бүртгэх эрсдэл | ✅ ЗӨВХӨН ДДТД + `SUCCESS` амжилт; PAYMENT нь ДДТД-тэй ирсэн ч «Алдаатай» + шалтгаан (`receipt.ts`, тест) |
+| D-2 | §6/§11 `payments[].status = PAY` = «Баримтын мэдээлэл солилцох сервис»-ийн PAYMENT төрлөөр (PosAPI-д холбосон гуравдагч төлбөрийн систем) гүйцэтгэх төлбөр | POS «Зээлээр» хэсгийг `PAY`-аар (+ албан бус `INVOICE` код) илгээдэг — ийм сервисгүй PosAPI `PAYMENT` буцаах магадлалтай (D-1-тэй нийлээд бүрэн бус баримт «sent») | ✅ Бүх төлбөр `PAID`. «Зээлээр» → `*_INVOICE`, код + данс нь нэхэмжлэхийн тохиргооноос (`withCreditInvoice`) — АР нэхэмжлэхтэй ИЖИЛ (docs/pos/05 Q2). Авлагын төлөлт бүр → `invoiceId`-тай `*_RECEIPT` (сканнер POS-оос үүссэн АР-ыг ч авдаг болов) |
+| D-3 | §8 `GET /rest/send` | `GET /rest/sendData` (портал) | ✅ `sendData` 404 бол `/rest/send` руу шилжинэ; хоёулаа 404 бол ил алдаа (`client.ts`, тест) |
+| D-4 | — | `/rest/info` 5 сек (тогтмол ба баримт 10 сек) | ✅ `POSAPI_TIMEOUT_MS` (10 сек) |
+| D-5 | §6 нэхэмжлэхэд `bankAccountNo` заавал | POS «Зээлээр» нэхэмжлэх дансгүй явдаг байв | ✅ `*_INVOICE` бүрд данс ЗААВАЛ, дутуу бол `[EBARIMT_SETTINGS]` |
+| D-6 | §7 DELETE `{id, date "yyyy-MM-dd HH:mm:ss"}` | `ebarimtDate` = PosAPI-ийн хариуны `date` текстээр (өөрчлөлтгүй) | Нийцнэ |
+
+### 7.2 PosService 3.0.12 багц (задалж шалгасан)
+
+- `PosService` = Go хяналт/шинэчлэгч (жинхэнэ Qt PosAPI-г `updaterUrl`-аас татаж ажиллуулна,
+  өөрөө солино) → операторын PosAPI-ийн хувилбар хөдөлгөөнтэй; P2-10 хяналт хэрэгтэй
+- `posapi.ini` хэсэгтэй формат (`[General]/[auth]/[db]/[http]/[logServer]`), анхдагч
+  `[http] host=0.0.0.0 port=7080`, `[db] driver=QSQLITE`, `skipHours=1114,1821`
+  (P2-12 — анхдагчид бий), `noEasyResponse` анхдагчид БАЙХГҮЙ
+- Qt 5.12 Core/Network/Sql/Gui системээс (`.deb` хамааралд ороогүй) — Ubuntu 20.04
+- Staging багцад st-* хаяг бичигдсэн — prod-д prod багц
+- Дэлгэрэнгүй ба `host=127.0.0.1` шаардлага: `docs/deployment/ebarimt.md` §4
+
+### 7.3 Staging-д нэмж шалгах (§4.1-ийн хүснэгтэд)
+
+| # | Тест | Хүлээгдэх |
+|---|---|---|
+| 13 | `*_INVOICE` + албан код + `PAID` бүтэн дүн (Entry-ийн одоогийн payload) | `status: SUCCESS`, сугалаагүй |
+| 14 | Ижил нэхэмжлэх `PAY` төлөвтэй | `PAYMENT` / ERROR уу — D-2-ыг батална |
+| 15 | `GET /rest/sendData` ба `GET /rest/send` | Аль нь 404 биш — D-3 |
+
+`docs/pos/ebarimt-invoice-staging/run.sh` 13–15-ыг (T1e, T1a, `send_path`) хамарна.
+PosService 3.0.12 багцаар Ubuntu 20.04 VM дээр §4.1-ийг ажиллуулах боломжтой болсон.

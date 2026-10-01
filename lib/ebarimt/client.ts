@@ -3,7 +3,13 @@
 // client component ч дуудаж болно (browser горим).
 // docs/pos/03-ebarimt-integration-plan.md §1, §3.
 
-import { EBARIMT_ERRORS, POSAPI_PATHS, POSAPI_RECEIPT_TIMEOUT_MS, POSAPI_TIMEOUT_MS } from "./constants";
+import {
+  EBARIMT_ERRORS,
+  POSAPI_PATHS,
+  POSAPI_RECEIPT_TIMEOUT_MS,
+  POSAPI_SEND_DATA_TIMEOUT_MS,
+  POSAPI_TIMEOUT_MS,
+} from "./constants";
 import { EbarimtError } from "./receipt";
 import { parsePosApiBankAccounts, parsePosApiInfo } from "./posapi-info";
 import { gatewayHeaders } from "./gateway-auth";
@@ -44,6 +50,12 @@ async function call<T>(
   init: RequestInit,
   timeoutMs = POSAPI_TIMEOUT_MS
 ): Promise<{ status: number; body: T }> {
+  const { status, text } = await rawCall(url, init, timeoutMs);
+  return { status, body: parsePosApiBody<T>(status, text, url) };
+}
+
+/** HTTP дуудлага — хариуг задлахгүй (замын 404-ийг дуудагч өөрөө шийдэхэд). */
+async function rawCall(url: string, init: RequestInit, timeoutMs: number): Promise<{ status: number; text: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -51,8 +63,7 @@ async function call<T>(
     // lib/ebarimt/gateway-auth.ts); тохируулаагүй бол хоосон.
     const headers = { ...(init.headers as Record<string, string> | undefined), ...gatewayHeaders(url) };
     const response = await fetch(url, { ...init, headers, signal: controller.signal, cache: "no-store" });
-    const text = await response.text();
-    return { status: response.status, body: parsePosApiBody<T>(response.status, text, url) };
+    return { status: response.status, text: await response.text() };
   } catch (error) {
     if (error instanceof EbarimtError) throw error;
     if (error instanceof Error && error.name === "AbortError")
@@ -97,7 +108,7 @@ export async function posApiDeleteReceipt(posApiUrl: string, request: EbarimtDel
 }
 
 export async function posApiInfo(posApiUrl: string): Promise<PosApiInfo> {
-  const { body } = await call<PosApiInfo>(`${baseUrl(posApiUrl)}${POSAPI_PATHS.info}`, { method: "GET" }, 5_000);
+  const { body } = await call<PosApiInfo>(`${baseUrl(posApiUrl)}${POSAPI_PATHS.info}`, { method: "GET" });
   return body ?? {};
 }
 
@@ -111,9 +122,26 @@ export async function posApiBankAccounts(posApiUrl: string, tin: string): Promis
   return parsePosApiBankAccounts(body);
 }
 
+/**
+ * Хуримтлагдсан баримтыг ТЕГ рүү түлхэнэ. Developer портал `/rest/sendData`,
+ * PDF гарын авлага 3.0.1 §8 `/rest/send` гэж өөр бичсэн тул эхнийх нь 404 бол
+ * хоёр дахийг оролдоно — аль замыг таньдаг нь операторын PosAPI-ийн хувилбараас
+ * хамаарна (docs/integrations/01 §7).
+ */
 export async function posApiSendData(posApiUrl: string): Promise<PosApiInfo> {
-  const { body } = await call<PosApiInfo>(`${baseUrl(posApiUrl)}${POSAPI_PATHS.sendData}`, { method: "GET" }, 60_000);
-  return body ?? {};
+  const base = baseUrl(posApiUrl);
+  let url = `${base}${POSAPI_PATHS.sendData}`;
+  let response = await rawCall(url, { method: "GET" }, POSAPI_SEND_DATA_TIMEOUT_MS);
+  if (response.status === 404) {
+    url = `${base}${POSAPI_PATHS.sendDataLegacy}`;
+    response = await rawCall(url, { method: "GET" }, POSAPI_SEND_DATA_TIMEOUT_MS);
+  }
+  if (response.status === 404)
+    throw new EbarimtError(
+      EBARIMT_ERRORS.posApi,
+      `PosAPI ${POSAPI_PATHS.sendData} ба ${POSAPI_PATHS.sendDataLegacy} хоёуланг таньсангүй (HTTP 404, ${base}) — PosAPI-ийн хувилбарыг шалгана уу`
+    );
+  return parsePosApiBody<PosApiInfo>(response.status, response.text, url) ?? {};
 }
 
 /**
