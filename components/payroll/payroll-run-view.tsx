@@ -31,10 +31,12 @@ import { Icon } from "@/components/ui/icon";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { IconAction } from "@/components/ui/icon-action";
 import { PageTabs } from "@/components/ui/tabs";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   calculatePayrollRun,
   createPayrollSalaryBill,
   createPayrollVoucher,
+  reversePayrollVoucher,
   updatePayrollLine,
   type PayrollLineView,
   type PayrollRunView as PayrollRunData,
@@ -67,6 +69,7 @@ export function PayrollRunView({ data }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [tab, setTab] = useState<PayrollTab>("advance");
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const { periodMonth, voucher, lines, settings, activeEmployeeCount, bills } =
     data;
@@ -182,6 +185,29 @@ export function PayrollRunView({ data }: Props) {
       } catch (error) {
         toast.error(errorMessage(error));
       }
+    });
+  }
+
+  // GL-ийн «Буцаах» цалингийн журналд хаалттай (H5) — эндээс буцаана.
+  async function reverseVoucher() {
+    if (!voucher) return;
+    const ok = await confirm({
+      title: "Цалингийн журнал буцаах",
+      description:
+        voucher.status === "draft"
+          ? `${fmtPeriodCode(periodMonth)} сарын НООРОГ журнал устгагдаж бодолт засварлах боломжтой болно.`
+          : `${fmtPeriodCode(periodMonth)} сарын журналыг эх огноогоор нь буцаалтын (сторно) журналаар буцаана. Бодолт ноорог руу буцаж, дахин бодоод шинэ журнал үүсгэнэ.`,
+      confirmText: voucher.status === "draft" ? "Устгах" : "Буцаах",
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      const result = await reversePayrollVoucher(periodMonth);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Цалингийн журнал буцаагдлаа — бодолтыг засаж дахин журнал үүсгэнэ үү");
+      router.refresh();
     });
   }
 
@@ -696,13 +722,25 @@ export function PayrollRunView({ data }: Props) {
               GL ноорог журнал үүсгэх
             </Button>
           )}
+
+          {voucher && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={reverseVoucher}
+              disabled={isPending}
+            >
+              <Icon name="journal" size="sm" />
+              Журнал буцаах
+            </Button>
+          )}
         </div>
       </div>
 
       {locked && (
         <p className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs text-[var(--ea-text-3)]">
           GL журнал үүссэн тул бодолт болон мөрийн засвар түгжигдсэн — дахин
-          бодохын тулд эхлээд журналыг устгана.
+          бодохын тулд «Журнал буцаах» дарна.
         </p>
       )}
 
@@ -837,6 +875,7 @@ export function PayrollRunView({ data }: Props) {
           )}
         </div>
       )}
+      {confirmDialog}
     </section>
   );
 }
