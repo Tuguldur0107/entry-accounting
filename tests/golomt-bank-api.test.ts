@@ -434,3 +434,19 @@ test("known bank codes become plain Mongolian: unknown username (MERDET0001) and
     /Голомт банк \(нэвтрэх, HTTP 400\): Нэвтрэх нууц үг оруулна уу/
   );
 });
+
+test("encrypted 4xx error bodies are decrypted so the bank's real reason is shown", async () => {
+  // 2026-10-01 UAT: ACCTLST / OPERACCSTAINQ-ийн 400 хариу Base64 AES-ээр ирсэн.
+  const bank = fakeBank((request) =>
+    request.url.endsWith("/v1/auth/login")
+      ? { body: JSON.stringify({ token: "T1" }) }
+      : {
+          status: 400,
+          body: encrypted({ status: "BAD_REQUEST", message: "checksum.invalid", subErrors: [{ code: "CHK0001" }] }),
+        }
+  );
+  await assert.rejects(
+    new GolomtClient(CREDENTIALS, bank.fetchImpl).listAccounts(),
+    /Голомт банк \(дансны жагсаалт, HTTP 400\): checksum\.invalid \[CHK0001\]/
+  );
+});
