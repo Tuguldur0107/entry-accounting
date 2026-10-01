@@ -82,6 +82,30 @@ export function saleListErpBody(input: SaleListErpRequest): {
   return { Pin: pin, subPin, StartDate: input.startDate, EndDate: input.endDate };
 }
 
+/** Нэг хуудасны мөр (startCount/endCount). */
+export const TPI_PAGE_SIZE = 500;
+/** Нэг өдөр × status-д хамгийн ихдээ — хэтэрвэл ил алдаа (чимээгүй таслахгүй). */
+export const TPI_MAX_PAGES = 400;
+
+/**
+ * Хуудасны цонх. `startCount`/`endCount`-ийн утга (0/1-ээс эхлэх, төгсгөл орох
+ * эсэх) албан тайлбарт тодорхойгүй тул дараагийн хуудас ӨМНӨХИЙН `endCount`-оос
+ * эхэлнэ: аль ч тайлбарт мөр АЛГАСАХГҮЙ, хамгийн ихдээ 1 мөр давхцана (ДДТД-ээр
+ * upsert тул хор хөнөөлгүй).
+ */
+export function tpiPageWindow(page: number, size = TPI_PAGE_SIZE): { startCount: number; endCount: number } {
+  return { startCount: page * size, endCount: (page + 1) * size };
+}
+
+/**
+ * Дараагийн хуудас бий эсэх: дүүрэн хуудас (size−1 … size+1 — төгсгөл орох/үл
+ * орох тайлбарын зөрүү) л үргэлжилнэ. Үүнээс их бол сервер хуудаслалтыг үл
+ * тоож бүгдийг өгсөн — дахин асуухгүй.
+ */
+export function tpiHasMorePages(rowsInPage: number, size = TPI_PAGE_SIZE): boolean {
+  return rowsInPage >= size - 1 && rowsInPage <= size + 1;
+}
+
 // ── Хариу ────────────────────────────────────────────────────────────────────
 
 export interface TpiSaleRow {

@@ -173,6 +173,13 @@ eBarimt    pos_settings.ebarimt{Enabled,MerchantTin,BranchNo,DistrictCode,PosNo,
            arapDocumentId (saleId NULL — яг нэг нь), (arapDocumentId, kind) unique),
            ar_ap_documents.ebarimt{Id,Status,Date,Type,CustomerTin,Total,Vat,CityTax}, pos_settings.ebarimtArap*
            (docs/pos/05)
+           ebarimt_tpi_connections (байгууллагад НЭГ — ТЕГ-ийн TPI нэвтрэлт:
+             environment, username, passwordEnc, apiKeyEnc (null = env), isEnabled,
+             syncFrom/syncedThrough (YYYY-MM-DD явц), lastSync{At,OkAt,Error,Skipped},
+             lastCheckSummary jsonb {checked,problems,danger} — «Анхаарах»-ын эх),
+           ebarimt_tax_receipts (TPI-ээс татсан НЭХЭМЖЛЭХ (isInvoice) ба төлбөрийн
+             баримт (parentDdtd = prParentRno) л; (org, ddtd) unique, upsert) —
+             docs/dev/ebarimt-tax-reconcile.md
 Costing    cost_components, inventory_issue_types, costing_account_settings,
            costing_item_settings, cost_allocations, cost_allocation_lines,
            costing_runs, cost_entries, cost_period_results

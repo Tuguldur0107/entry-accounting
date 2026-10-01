@@ -9,6 +9,7 @@
 // Хатуу дүрэм: дүн, дугаар ЗОХИОХГҮЙ — оролтод ирснийг л уншина.
 
 import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_SEND_STALE_HOURS } from "@/lib/ebarimt/constants";
+import { EBARIMT_TAX_SYNC_STALE_HOURS } from "@/lib/ebarimt/tax-reconcile";
 import type { TaxDeadline, TaxDeadlineKey } from "@/lib/tax/calendar";
 
 import type { NotificationSeverity, NotificationType } from "./catalog";
@@ -96,6 +97,17 @@ export interface AttentionInput {
     hoursSinceLastSent: number | null;
     /** Сүүлийн 3 хоногт илгээгдсэн баримт бий эсэх — байхгүй бол хоцролт биш. */
     sentRecently: boolean;
+  };
+  /**
+   * ТЕГ-ийн TPI тулгалт (холболттой үед л) — сүүлийн татлагын тойм
+   * (`ebarimt_tpi_connections.lastCheckSummary`) ба татлагын хоцролт.
+   */
+  ebarimtTax?: {
+    problems: number;
+    danger: number;
+    /** Сүүлийн амжилттай татлагаас хойш цаг (null = хэзээ ч амжаагүй). */
+    hoursSinceOk: number | null;
+    lastError: string | null;
   };
   /** QPay — `paid` боловч `saleId` null intent-үүд (≥ QPAY_PAID_UNFINALIZED_MINUTES). */
   qpay?: {
@@ -725,6 +737,56 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
           audience: posAudience,
           severity: overLimit ? "danger" : "warning",
           payload: { hoursSinceLastSent: hours },
+        },
+      });
+    }
+  }
+
+  // ТЕГ ↔ Entry нэхэмжлэхийн үлдэгдэл (TPI) — өдөрт нэг.
+  const tax = input.ebarimtTax;
+  if (tax) {
+    const arAudience: NotificationAudience = { kind: "module", moduleKeys: ["ar"], minLevel: "write" };
+    if (tax.problems > 0) {
+      signals.push({
+        key: "ebarimt-tax-mismatch",
+        tone: tax.danger > 0 ? "danger" : "warning",
+        title: `eBarimt: ${tax.problems} нэхэмжлэхийн үлдэгдэл ТЕГ-тэй зөрсөн`,
+        detail:
+          tax.danger > 0
+            ? `${tax.danger} нь ТЕГ-д илүү/дутуу бүртгэлийн эрсдэлтэй (порталд гараар нэмсэн төлөлт, ТЕГ-д хүрээгүй баримт). Тулгалтаас шалтгааныг харна.`
+            : "Entry-д төлөгдсөн ч ТЕГ-д мэдэгдээгүй төлөлт байна (алдаатай баримт, кассгүй хаалт). Тулгалтаас шалтгааныг харна.",
+        href: "/receivables/ebarimt?view=tax",
+        action: "ТЕГ-ийн тулгалт",
+        surfaces: ["dashboard", "daily"],
+        notify: {
+          type: "arap.ebarimt_tax_mismatch",
+          dedupeKey: `ebarimt:tax:${input.today}`,
+          audience: arAudience,
+          severity: tax.danger > 0 ? "danger" : "warning",
+          payload: { problems: tax.problems, danger: tax.danger },
+        },
+      });
+    }
+    // Хэзээ ч амжаагүй + алдаатай, эсвэл сүүлийн амжилтаас 48 цаг өнгөрсөн (шинэ холболт алдаагүй бол чимээгүй).
+    const syncStale =
+      tax.hoursSinceOk === null ? !!tax.lastError : tax.hoursSinceOk >= EBARIMT_TAX_SYNC_STALE_HOURS;
+    if (syncStale) {
+      signals.push({
+        key: "ebarimt-tax-sync-failed",
+        tone: "warning",
+        title:
+          tax.hoursSinceOk === null
+            ? "ТЕГ-ээс eBarimt нэхэмжлэх татагдаагүй байна"
+            : `ТЕГ-ээс eBarimt нэхэмжлэх ${Math.floor(tax.hoursSinceOk)} цаг татагдаагүй`,
+        detail: `Нэхэмжлэхийн үлдэгдлийн тулгалт хуучирсан${tax.lastError ? `: ${tax.lastError.slice(0, 200)}` : ""}. POS тохиргоо → eBarimt → ТЕГ-ийн TPI холболтыг шалгана.`,
+        href: "/inventory/pos-settings?section=ebarimt",
+        action: "TPI холболт",
+        surfaces: ["dashboard", "daily"],
+        notify: {
+          type: "arap.ebarimt_tax_sync_failed",
+          dedupeKey: `ebarimt:tax-sync:${input.today}`,
+          audience: { kind: "roles", roles: ["owner", "admin"] },
+          severity: "warning",
         },
       });
     }

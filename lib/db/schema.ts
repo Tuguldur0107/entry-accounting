@@ -4733,6 +4733,88 @@ export const posEbarimtSubmissions = pgTable(
 );
 
 /**
+ * ТЕГ-ийн eBarimt TPI холболт (docs/dev/ebarimt-tax-reconcile.md) — байгууллагын
+ * өөрийн ITC нэвтрэлтээр `getSalesTotalData`-аас нэхэмжлэх ба тэдгээрийн
+ * төлбөрийн баримтыг (`prParentRno`) өдөр бүр татаж Entry-ийн авлагын үлдэгдэлтэй
+ * тулгана. ЗӨВХӨН унших — ТЕГ-д юу ч бичихгүй. Нууц (`passwordEnc`, `apiKeyEnc`)
+ * `encryptSecret`-ээр, утга нь client/лог/аудит/тестэд ХЭЗЭЭ Ч гарахгүй.
+ */
+export const ebarimtTpiConnections = pgTable(
+  "ebarimt_tpi_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Сүүлд хадгалсан хэрэглэгч. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** "staging" | "production" — хост кодод (lib/itc/constants.ts), хэрэглэгч URL оруулахгүй. */
+    environment: text("environment").notNull().default("production"),
+    username: text("username").notNull(),
+    passwordEnc: text("password_enc").notNull(),
+    /** X-API-KEY (ХСН-д ITC олгосон) — null бол env ITC_TPI_API_KEY. */
+    apiKeyEnc: text("api_key_enc"),
+    isEnabled: boolean("is_enabled").notNull().default(true),
+    /** Татаж эхэлсэн өдөр (YYYY-MM-DD) — анхны татлагад тогтоогдоно. */
+    syncFrom: text("sync_from"),
+    /** Энэ өдөр хүртэл (YYYY-MM-DD, УБ) бүрэн татагдсан; null = хэзээ ч. */
+    syncedThrough: text("synced_through"),
+    lastSyncAt: timestamp("last_sync_at"),
+    /** Сүүлийн амжилттай татлага — «Анхаарах»-ын хоцролтын эх. */
+    lastSyncOkAt: timestamp("last_sync_ok_at"),
+    /** Сүүлийн татлагын алдаа (нууц утгагүй); амжилттай бол null. */
+    lastSyncError: text("last_sync_error"),
+    /** Сүүлийн татлагад танигдахгүй (ДДТД/дүнгүй) алгассан мөр — ИЛ, зохиохгүй. */
+    lastSyncSkipped: integer("last_sync_skipped").notNull().default(0),
+    /**
+     * Сүүлийн татлагын дараах тулгалтын тойм `{ checked, problems, danger }` —
+     * «Анхаарах» хөнгөн уншина (бүрэн тулгалтыг панель/жагсаалт амьдаар бодно).
+     */
+    lastCheckSummary: jsonb("last_check_summary").$type<{ checked: number; problems: number; danger: number }>(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("ebarimt_tpi_connections_org_ux").on(table.organizationId)]
+);
+
+/**
+ * TPI-ээс татсан ТЕГ-ийн баримт — зөвхөн НЭХЭМЖЛЭХ (`isInvoice`, status 3) ба
+ * нэхэмжлэхийн ТӨЛБӨРИЙН баримт (`parentDdtd` = prParentRno). Бусад баримт
+ * хадгалагдахгүй. ДДТД-ээр upsert (дахин татахад давхардахгүй). Сугалаа/QR TPI-д
+ * байхгүй. Нэхэмжлэхийн ТЕГ-ийн үлдэгдэл = нэхэмжлэх − Σ хүүхэд баримт.
+ */
+export const ebarimtTaxReceipts = pgTable(
+  "ebarimt_tax_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    ddtd: text("ddtd").notNull(),
+    /** ТЕГ-ийн огноо — эх текст (posRdate). */
+    taxDate: text("tax_date").notNull().default(""),
+    /** Татсан өдөр (YYYY-MM-DD, УБ) — хүсэлтийн өдөр. */
+    receiptDate: text("receipt_date").notNull(),
+    isInvoice: boolean("is_invoice").notNull().default(false),
+    parentDdtd: text("parent_ddtd"),
+    total: numeric("total", { precision: 18, scale: 2 }).notNull(),
+    vat: numeric("vat", { precision: 18, scale: 2 }).notNull().default("0"),
+    cityTax: numeric("city_tax", { precision: 18, scale: 2 }).notNull().default("0"),
+    buyerRegNo: text("buyer_reg_no").notNull().default(""),
+    buyerName: text("buyer_name").notNull().default(""),
+    syncedAt: timestamp("synced_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("ebarimt_tax_receipts_org_ddtd_ux").on(table.organizationId, table.ddtd),
+    index("ebarimt_tax_receipts_parent_ix")
+      .on(table.organizationId, table.parentDdtd)
+      .where(sql`${table.parentDdtd} is not null`),
+  ]
+);
+
+/**
  * QPay төлбөрийн INTENT (docs/pos/04-qpay-integration-plan.md §3.3) — борлуулалт
  * төлбөр батлагдтал ҮҮСДЭГГҮЙ тул QPay нэхэмжлэх, QR, сагсны snapshot энд түр
  * амьдарна: open → paid (webhook / check) → finalized (createPosSale) | cancelled |

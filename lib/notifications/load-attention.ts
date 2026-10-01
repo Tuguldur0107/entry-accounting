@@ -27,6 +27,7 @@ import {
   posSettings,
   vatSettings,
   warehouses,
+  ebarimtTpiConnections,
 } from "@/lib/db/schema";
 import { countAmountMismatch, countPaidUnfinalized } from "@/lib/qpay/store";
 import { fetchPosApiHealth } from "@/lib/ebarimt/client";
@@ -180,6 +181,24 @@ async function loadEbarimt(orgId: string, today: string): Promise<AttentionInput
   };
 }
 
+/**
+ * ТЕГ-ийн TPI тулгалт — холболттой үед л. Сүүлийн татлагын ХАДГАЛСАН тойм
+ * (амьд тулгалт хийхгүй — самбар хурдан), татлагын хоцролт. Шидэхгүй.
+ */
+async function loadEbarimtTax(orgId: string): Promise<AttentionInput["ebarimtTax"]> {
+  const row = await db.query.ebarimtTpiConnections.findFirst({
+    where: and(eq(ebarimtTpiConnections.organizationId, orgId), eq(ebarimtTpiConnections.isEnabled, true)),
+    columns: { lastCheckSummary: true, lastSyncOkAt: true, lastSyncError: true },
+  });
+  if (!row) return undefined;
+  return {
+    problems: row.lastCheckSummary?.problems ?? 0,
+    danger: row.lastCheckSummary?.danger ?? 0,
+    hoursSinceOk: row.lastSyncOkAt ? (Date.now() - row.lastSyncOkAt.getTime()) / 3_600_000 : null,
+    lastError: row.lastSyncError,
+  };
+}
+
 async function loadQpay(orgId: string): Promise<AttentionInput["qpay"]> {
   const settings = await db.query.posSettings.findFirst({
     where: eq(posSettings.organizationId, orgId),
@@ -271,6 +290,7 @@ export async function loadAttentionInput(
     negativeStock,
     ebarimt,
     qpay,
+    ebarimtTax,
   ] = await Promise.all([
     draftSummary(orgId, journalVouchers, "journal"),
     draftSummary(orgId, arApDocuments, "arap"),
@@ -340,6 +360,7 @@ export async function loadAttentionInput(
     loadNegativeStock(orgId),
     loadEbarimt(orgId, today),
     loadQpay(orgId),
+    loadEbarimtTax(orgId),
   ]);
 
   let arOverdue = 0;
@@ -400,6 +421,7 @@ export async function loadAttentionInput(
     negativeStock,
     ebarimt,
     qpay,
+    ebarimtTax,
     tokens: tokenRows
       .filter((token) => token.expiresAt)
       .map((token) => ({
