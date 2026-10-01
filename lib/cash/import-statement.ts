@@ -56,6 +56,7 @@ import { counterpartyDirectionError } from "@/lib/arap/counterparty-kind";
 import { documentNoPrefix } from "@/lib/arap/document-kind";
 import { loadArApSegmentData } from "@/lib/arap/load-data";
 import { loadVatSettings } from "@/lib/vat/settings";
+import { extractMainAccount } from "@/lib/reports/balances";
 import { nextVoucherNo } from "@/lib/gl/voucher-no";
 import { loadImportedExternalRefs } from "@/lib/cash/statement-external-refs";
 import { enqueueArapInvoiceEbarimt } from "@/lib/ebarimt/queue";
@@ -496,11 +497,15 @@ export async function saveBankStatement(
         const isSale = documentType === "ar_invoice";
         const directionError = counterpartyDirectionError(documentType, master.counterpartyType, master.name);
         if (directionError) throw new Error(`${label}: ${directionError}`);
-        const controlMain = (
-          (isSale ? master.defaultReceivableAccountNumber : master.defaultPayableAccountNumber) ||
-          (isSale ? defaultControl.receivable : defaultControl.payable) ||
-          ""
-        ).trim();
+        // Харилцагчийн картад данс бүтэн сегмент кодоор (000.000000.31000001.00.0000)
+        // хадгалагддаг — үндсэн дансаар нь харьцуулна.
+        const controlMain = extractMainAccount(
+          (
+            (isSale ? master.defaultReceivableAccountNumber : master.defaultPayableAccountNumber) ||
+            (isSale ? defaultControl.receivable : defaultControl.payable) ||
+            ""
+          ).trim()
+        );
         if (!controlMain || !enabledMains.has(controlMain))
           throw new Error(
             `${label}: ${master.name}-ийн ${isSale ? "авлагын" : "өглөгийн"} хяналтын данс тохируулаагүй эсвэл идэвхгүй — харилцагчийн картаас шалгана уу`
