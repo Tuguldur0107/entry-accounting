@@ -11,29 +11,36 @@ import { revalidatePath } from "next/cache";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { encryptSecret } from "@/lib/ai/crypto";
 import { logAuditEvent } from "@/lib/audit";
-import { requireModuleAction, requireRole } from "@/lib/auth";
+import { requireAnyModuleAction, requireModuleAction, requireRole } from "@/lib/auth";
 import { GolomtApiError, GolomtClient } from "@/lib/bank/golomt/client";
 import {
   GOLOMT_BANK_KEY,
-  fetchGolomtStatementForOrg,
   golomtCredentialsFromRow,
   loadGolomtConnectionRow,
+  loadGolomtPendingPulls,
+  loadGolomtPullStatement,
+  pullGolomtStatement,
   recordGolomtCheck,
+  saveGolomtBalanceSnapshots,
   toGolomtConnectionView,
 } from "@/lib/bank/golomt/connection";
 import {
   golomtAccountId,
   golomtStatementRangeError,
+  isGolomtBank,
   isGolomtCashAccount,
   isGolomtEnvironment,
   type GolomtAccountCheck,
+  type GolomtAccountHolderView,
   type GolomtConnectionView,
   type GolomtEnvironment,
+  type GolomtPendingPull,
 } from "@/lib/bank/golomt/constants";
 import type { ParsedBankStatement } from "@/lib/cash/bank-statement-types";
 import { db } from "@/lib/db";
 import {
   bankApiConnections,
+  bankStatementPulls,
   cashAccounts,
   organizationProfile,
 } from "@/lib/db/schema";
@@ -82,6 +89,8 @@ export async function saveGolomtConnection(input: {
   clientId?: string | null;
   registerNo: string;
   isEnabled: boolean;
+  /** Өдөр бүр хуулга автоматаар татах — хянагдаагүй хуулга болж хүлээгдэнэ. */
+  autoFetch?: boolean;
 }): Promise<ActionResult<{ connection: GolomtConnectionView }>> {
   try {
     const { orgId, userId } = await requireRole("admin");
@@ -109,6 +118,7 @@ export async function saveGolomtConnection(input: {
       clientId: cleanText(input.clientId) || null,
       registerNo,
       isEnabled: !!input.isEnabled,
+      autoFetch: !!input.autoFetch,
       userId,
       updatedAt: new Date(),
       ...(password ? { passwordEnc: encryptSecret(password) } : {}),
@@ -153,7 +163,7 @@ export async function saveGolomtConnection(input: {
       action: existing ? "update" : "create",
       entityType: "bank_api_connection",
       entityId: id,
-      summary: `Голомт банкны API холболт ${existing ? "шинэчлэгдэв" : "үүсгэгдэв"} — ${input.environment}, ${input.isEnabled ? "идэвхтэй" : "идэвхгүй"}${changedSecrets.length ? `; шинэ: ${changedSecrets.join(", ")}` : ""}`,
+      summary: `Голомт банкны API холболт ${existing ? "шинэчлэгдэв" : "үүсгэгдэв"} — ${input.environment}, ${input.isEnabled ? "идэвхтэй" : "идэвхгүй"}, автомат татлага ${input.autoFetch ? "асаалттай" : "унтраалттай"}${changedSecrets.length ? `; шинэ: ${changedSecrets.join(", ")}` : ""}`,
     });
 
     revalidatePath("/cash/statements");
@@ -290,7 +300,7 @@ export async function fetchGolomtStatement(input: {
       );
     connectionId = row.id;
 
-    const result = await fetchGolomtStatementForOrg({
+    const { result, entries } = await pullGolomtStatement({
       orgId,
       row,
       accountId,
@@ -299,6 +309,16 @@ export async function fetchGolomtStatement(input: {
       endDate: input.endDate,
     });
     await recordGolomtCheck(row.id, null);
+    // Өдрийн хаалтын үлдэгдэл (тулгалтад) — унавал татлагыг саатуулахгүй.
+    await saveGolomtBalanceSnapshots({
+      orgId,
+      cashAccountId: cashAccount.id,
+      currency: cashAccount.currency,
+      entries,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      today: ulaanbaatarToday(),
+    }).catch((caught) => console.warn("[golomt] үлдэгдэл хадгалагдсангүй:", errorText(caught)));
     // Холболт амжилттай — хоосон үр дүн нь холболтын алдаа биш (тэмдэглэхгүй).
     if (result.statement.rows.length === 0)
       return {
@@ -320,5 +340,104 @@ export async function fetchGolomtStatement(input: {
   } catch (caught) {
     if (connectionId) await recordGolomtCheck(connectionId, errorText(caught)).catch(() => {});
     return actionError("fetchGolomtStatement", caught, "Голомтоос хуулга татаж чадсангүй");
+  }
+}
+
+/** Автоматаар татсан, одоо ч импортлогдоогүй мөртэй хуулгууд. */
+export async function listGolomtPendingPulls(): Promise<
+  ActionResult<{ pulls: GolomtPendingPull[] }>
+> {
+  try {
+    const { orgId } = await requireModuleAction("cash", "read");
+    return { pulls: await loadGolomtPendingPulls(orgId) };
+  } catch (caught) {
+    return actionError("listGolomtPendingPulls", caught, "Автомат татлагын жагсаалтыг уншиж чадсангүй");
+  }
+}
+
+/**
+ * Хүлээгдэж буй татлагыг импортын хүснэгтэд ачаална (зөвхөн импортлогдоогүй
+ * мөрүүд). GL-д юу ч бичихгүй — ердийн «Хадгалах»-аар л.
+ */
+export async function openGolomtPull(pullId: string): Promise<
+  ActionResult<{ cashAccountId: string; statement: ParsedBankStatement; skipped: number }>
+> {
+  try {
+    const { orgId } = await requireModuleAction("cash", "write");
+    const loaded = await loadGolomtPullStatement(orgId, cleanText(pullId));
+    if (!loaded) throw new Error("Татлага олдсонгүй эсвэл хэрэгсэхгүй болгосон байна");
+    if (loaded.statement.rows.length === 0)
+      return { error: "Энэ татлагын бүх гүйлгээ аль хэдийн импортлогдсон байна" };
+    return loaded;
+  } catch (caught) {
+    return actionError("openGolomtPull", caught, "Татлагыг нээж чадсангүй");
+  }
+}
+
+/** Хүлээгдэж буй татлагыг хэрэгсэхгүй болгоно (мөр устахгүй, аудиттай). */
+export async function dismissGolomtPull(pullId: string): Promise<ActionResult<{ ok: true }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction("cash", "write");
+    const [updated] = await db
+      .update(bankStatementPulls)
+      .set({ dismissedAt: new Date(), dismissedBy: userId })
+      .where(
+        and(
+          eq(bankStatementPulls.id, cleanText(pullId)),
+          eq(bankStatementPulls.organizationId, orgId)
+        )
+      )
+      .returning({
+        id: bankStatementPulls.id,
+        startDate: bankStatementPulls.startDate,
+        endDate: bankStatementPulls.endDate,
+        rowCount: bankStatementPulls.rowCount,
+      });
+    if (!updated) throw new Error("Татлага олдсонгүй");
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "dismiss_pull",
+      entityType: "bank_api_connection",
+      entityId: updated.id,
+      summary: `Голомтын автомат татлага (${updated.startDate}–${updated.endDate}, ${updated.rowCount} мөр) хэрэгсэхгүй болгов`,
+    });
+    revalidatePath("/cash/statements");
+    return { ok: true };
+  } catch (caught) {
+    return actionError("dismissGolomtPull", caught, "Татлагыг хэрэгсэхгүй болгож чадсангүй");
+  }
+}
+
+/**
+ * Данс эзэмшигч шалгах (ACCCHK) — харилцагч/ажилтны дансыг шилжүүлэг, нэхэмжлэхэд
+ * ашиглахаас өмнө нэрийг нь банкнаас баталгаажуулна. ЗӨВХӨН Голомтын данс:
+ * банк хоорондын шалгалт UAT-д ажиллаагүй (docs/dev/bank-api.md §3).
+ */
+export async function checkGolomtAccountHolder(input: {
+  bankName?: string | null;
+  bankCode?: string | null;
+  accountNo: string;
+}): Promise<ActionResult<{ holder: GolomtAccountHolderView }>> {
+  try {
+    const { orgId } = await requireAnyModuleAction([
+      ["ar", "read"],
+      ["ap", "read"],
+      ["cash", "read"],
+      ["payroll", "read"],
+    ]);
+    const accountId = golomtAccountId(input.accountNo);
+    if (!accountId) throw new Error("Дансны дугаар буруу байна (6–20 оронтой тоо)");
+    if (!isGolomtBank(input.bankName, input.bankCode))
+      throw new Error(
+        "Одоогоор зөвхөн Голомт банкны дансны эзэмшигчийг шалгана — бусад банкны шалгалтыг Голомт банк нээгээгүй байна"
+      );
+    const row = await loadGolomtConnectionRow(orgId);
+    if (!row) throw new Error("Голомтын API холболт тохируулаагүй байна");
+    if (!row.isEnabled) throw new Error("Голомтын API холболт идэвхгүй байна");
+    const client = new GolomtClient(golomtCredentialsFromRow(row));
+    return { holder: await client.accountHolder(accountId) };
+  } catch (caught) {
+    return actionError("checkGolomtAccountHolder", caught, "Дансны эзэмшигчийг шалгаж чадсангүй");
   }
 }

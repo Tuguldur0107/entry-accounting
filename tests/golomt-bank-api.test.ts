@@ -569,3 +569,87 @@ test("account-level bank codes: 162 (no such account), 342 (closed); other desc 
     /дансны мэдээлэл, HTTP 400\): Something else\. \[999\]$/
   );
 });
+
+// ── Өдрийн хаалтын үлдэгдэл, автомат татлага, ACCCHK (docs/dev/bank-api.md §7) ──
+
+test("daily closing balances come from the per-row balance; same-time rows ordered by recNum (newest first)", async () => {
+  const { golomtDailyClosingBalances } = await import("../lib/bank/golomt/statement");
+  // 2026-10-01 UAT-ийн хэлбэр: гүйлгээ ба шимтгэл ижил цагтай, шимтгэл recNum бага.
+  const entries: GolomtStatementEntry[] = [
+    { recNum: 1, tranId: "GB2", drOrCr: "Debit", tranAmount: 100, tranPostedDate: "2026-09-03T12:20:24", balance: "8900.00" },
+    { recNum: 2, tranId: "GB2", drOrCr: "Debit", tranAmount: 1000, tranPostedDate: "2026-09-03T12:20:24", balance: "9000.00" },
+    { recNum: 3, tranId: "S1", drOrCr: "Credit", tranAmount: 5000, tranPostedDate: "2026-09-02T09:00:00", balance: "10000.00" },
+  ];
+  assert.deepEqual(golomtDailyClosingBalances(entries, "2026-09-01", "2026-09-04"), [
+    { date: "2026-09-01", balance: 5000 }, // эхний гүйлгээний өмнөх үлдэгдэл
+    { date: "2026-09-02", balance: 10000 },
+    { date: "2026-09-03", balance: 8900 }, // шимтгэлийн дараах
+    { date: "2026-09-04", balance: 8900 },
+  ]);
+  // Мөр огт ирээгүй бол үлдэгдэл ТААХГҮЙ.
+  assert.deepEqual(golomtDailyClosingBalances([], "2026-09-01", "2026-09-04"), []);
+});
+
+test("auto-pull range: yesterday only, resumes after the last pull, first run 7 days, capped at 92 days", async () => {
+  const { golomtAutoPullRange } = await import("../lib/bank/golomt/auto-pull");
+  assert.deepEqual(golomtAutoPullRange(null, "2026-10-02"), { startDate: "2026-09-25", endDate: "2026-10-01" });
+  assert.deepEqual(golomtAutoPullRange("2026-09-29", "2026-10-02"), { startDate: "2026-09-30", endDate: "2026-10-01" });
+  assert.equal(golomtAutoPullRange("2026-10-01", "2026-10-02"), null);
+  assert.deepEqual(golomtAutoPullRange("2026-01-01", "2026-10-02"), { startDate: "2026-07-02", endDate: "2026-10-01" });
+});
+
+test("Golomt bank detection by code or name (counterparty/employee rows have no code)", async () => {
+  const { isGolomtBank } = await import("../lib/bank/golomt/constants");
+  assert.equal(isGolomtBank("Голомт банк"), true);
+  assert.equal(isGolomtBank("GOLOMT BANK"), true);
+  assert.equal(isGolomtBank("", "150000"), true);
+  assert.equal(isGolomtBank("Хаан банк"), false);
+  assert.equal(isGolomtBank(null), false);
+});
+
+test("ACCCHK checks a Golomt account WITHOUT bankCode and returns the masked holder", async () => {
+  const bank = fakeBank((request) =>
+    request.url.endsWith("/v1/auth/login")
+      ? { body: JSON.stringify({ token: "T1" }) }
+      : {
+          body: encrypted({
+            requestId: "R1",
+            maskedAccountName: "ГА****ХА ХО*****ИИ",
+            accountName: "",
+            status: "a",
+            currency: "mnt",
+            accountId: "1105000001",
+            iban: "MN000015001105000001",
+          }),
+        }
+  );
+  const holder = await new GolomtClient(CREDENTIALS, bank.fetchImpl).accountHolder("1105000001");
+  assert.deepEqual(holder, { accountId: "1105000001", maskedName: "ГА****ХА ХО*****ИИ", currency: "MNT", status: "A" });
+  assert.equal(bank.calls[1].headers["X-Golomt-Service"], "ACCCHK");
+  assert.match(bank.calls[1].url, /\/v1\/account\/check\/account\?/);
+  assert.deepEqual(JSON.parse(bank.calls[1].body ?? ""), { accountId: "1105000001" });
+});
+
+test("auto-pull audit events become cash notifications (new rows → info, failure → warning)", async () => {
+  const { notificationFromAudit } = await import("../lib/notifications/rules");
+  const now = new Date("2026-10-02T00:00:00Z");
+  const pulled = notificationFromAudit(
+    { userId: "U1", system: true, action: "auto_fetch", entityType: "bank_api_connection", entityId: "C1", summary: "Голомтоос 3 шинэ гүйлгээ" },
+    now
+  );
+  assert.equal(pulled?.type, "bank.statement_pulled");
+  assert.deepEqual(pulled?.audience, { kind: "module", moduleKeys: ["cash"], minLevel: "write" });
+  assert.equal(pulled?.href, "/cash/statements");
+  assert.equal(pulled?.dedupeKey, "bank-pull:C1:2026-10-02");
+  const failed = notificationFromAudit(
+    { userId: "U1", system: true, action: "auto_fetch_failed", entityType: "bank_api_connection", entityId: "C1", summary: "алдаа" },
+    now
+  );
+  assert.equal(failed?.type, "bank.auto_fetch_failed");
+  assert.equal(failed?.severity, "warning");
+  // Тохиргоо хадгалах г.м. бусад үйлдэл мэдэгдэл үүсгэхгүй.
+  assert.equal(
+    notificationFromAudit({ userId: "U1", action: "update", entityType: "bank_api_connection", entityId: "C1" }, now),
+    null
+  );
+});

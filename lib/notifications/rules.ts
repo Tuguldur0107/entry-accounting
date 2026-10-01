@@ -34,6 +34,7 @@ export const ENTITY_MODULE_KEYS: Record<string, string[]> = {
   payroll: ["payroll"],
   pos_sale: ["pos"],
   ar_recurring: ["ar"],
+  bank_api_connection: ["cash"],
 };
 
 /** Панельгүй (эсвэл панель нээгдэхгүй) үед очих жагсаалтын зам. */
@@ -53,6 +54,7 @@ export const ENTITY_HREF: Record<string, string> = {
   membership: "/settings/permissions",
   settings: "/settings/company",
   ar_recurring: "/receivables/recurring",
+  bank_api_connection: "/cash/statements",
 };
 
 const ENTITY_LABEL: Record<string, string> = {
@@ -280,6 +282,27 @@ export function notificationFromAudit(
       { kind: "module", moduleKeys: ["ar"], minLevel: "post" },
       { severity: "danger", href: "/receivables/reminders", dedupeKey: `reminders-blocked:${now.toISOString().slice(0, 10)}` }
     );
+  // Банкны API-ийн өдрийн автомат хуулга (docs/dev/bank-api.md §7) — шинэ
+  // гүйлгээ хүлээгдэж байна / татлага унасан. Кассын бичих эрхтэй гишүүдэд.
+  if (entityType === "bank_api_connection" && action === "auto_fetch")
+    return draft(
+      event,
+      now,
+      "bank.statement_pulled",
+      "Банкнаас шинэ гүйлгээ ирлээ — хянаж хадгална уу",
+      { kind: "module", moduleKeys: ["cash"], minLevel: "write" },
+      { dedupeKey: `bank-pull:${event.entityId}:${now.toISOString().slice(0, 10)}` }
+    );
+  if (entityType === "bank_api_connection" && action === "auto_fetch_failed")
+    return draft(
+      event,
+      now,
+      "bank.auto_fetch_failed",
+      "Банкны хуулга автоматаар татагдсангүй",
+      { kind: "module", moduleKeys: ["cash"], minLevel: "write" },
+      { severity: "warning", dedupeKey: `bank-pull-failed:${event.entityId}:${now.toISOString().slice(0, 10)}` }
+    );
+
   // АР нэхэмжлэхийн eBarimt (docs/pos/05 Шат 2) — авлагын батлах эрхтэй гишүүдэд.
   if (entityType === "arap" && action === "ebarimt_failed")
     return draft(

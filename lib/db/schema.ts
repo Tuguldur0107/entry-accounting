@@ -1054,6 +1054,14 @@ export const bankApiConnections = pgTable(
     lastCheckedAt: timestamp("last_checked_at"),
     /** Сүүлийн шалгалт/татлагын алдаа (нууц утгагүй текст); амжилттай бол null. */
     lastCheckError: text("last_check_error"),
+    /**
+     * Өдөр бүр хуулга автоматаар татах (lib/bank/golomt/auto-pull.ts). Анхнаасаа
+     * УНТРААЛТТАЙ. Татсан хуулга GL-д бичигдэхгүй — bank_statement_pulls-д
+     * хүлээгдэж, хэрэглэгч хянаж «Хадгалах» дарна.
+     */
+    autoFetch: boolean("auto_fetch").notNull().default(false),
+    lastAutoFetchAt: timestamp("last_auto_fetch_at"),
+    lastAutoFetchError: text("last_auto_fetch_error"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -1061,6 +1069,67 @@ export const bankApiConnections = pgTable(
     uniqueIndex("bank_api_connections_org_bank_ux").on(
       table.organizationId,
       table.bank
+    ),
+  ]
+);
+
+// Банкны API-аас АВТОМАТААР татсан, хянагдаагүй хуулга (docs/dev/bank-api.md §7).
+// `statement` нь ParsedBankStatement (файлын импорттой ижил хэлбэр) — «Хянах»
+// дарахад импортын хүснэгтэд ачаалагдаж, ердийн saveBankStatement-ээр л GL-д
+// орно. Аль мөр нь импортлогдсоныг externalRef-ээр ДИНАМИК тооцно (төлөв
+// хадгалахгүй); хэрэглэгч «Хэрэгсэхгүй» гэвэл dismissedAt.
+export const bankStatementPulls = pgTable(
+  "bank_statement_pulls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    cashAccountId: uuid("cash_account_id")
+      .notNull()
+      .references(() => cashAccounts.id, { onDelete: "cascade" }),
+    bank: text("bank").notNull(),
+    startDate: text("start_date").notNull(),
+    endDate: text("end_date").notNull(),
+    statement: jsonb("statement").notNull(),
+    rowCount: integer("row_count").notNull(),
+    dismissedAt: timestamp("dismissed_at"),
+    dismissedBy: text("dismissed_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("bank_statement_pulls_org_account_idx").on(
+      table.organizationId,
+      table.cashAccountId,
+      table.endDate
+    ),
+  ]
+);
+
+// Банкны API-аас авсан ӨДРИЙН ХААЛТЫН үлдэгдэл (хуулгын мөр бүрийн «гүйлгээний
+// дараах үлдэгдэл»-ээс) — тулгалтын хуудсанд Entry-ийн үлдэгдэлтэй харьцуулна.
+// Данс × огноо НЭГ мөр (upsert).
+export const bankBalanceSnapshots = pgTable(
+  "bank_balance_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    cashAccountId: uuid("cash_account_id")
+      .notNull()
+      .references(() => cashAccounts.id, { onDelete: "cascade" }),
+    bank: text("bank").notNull(),
+    /** Энэ өдрийн ТӨГСГӨЛИЙН үлдэгдэл (YYYY-MM-DD, Улаанбаатар). */
+    asOfDate: text("as_of_date").notNull(),
+    balance: numeric("balance", { precision: 18, scale: 2 }).notNull(),
+    currency: text("currency").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("bank_balance_snapshots_account_date_ux").on(
+      table.cashAccountId,
+      table.asOfDate
     ),
   ]
 );

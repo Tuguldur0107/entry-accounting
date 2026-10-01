@@ -116,6 +116,7 @@ export function GolomtConnectionDialog({
     connection?.registerNo || defaultRegisterNo
   );
   const [isEnabled, setIsEnabled] = useState(connection?.isEnabled ?? true);
+  const [autoFetch, setAutoFetch] = useState(connection?.autoFetch ?? false);
   const [error, setError] = useState("");
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
@@ -138,6 +139,7 @@ export function GolomtConnectionDialog({
         clientId,
         registerNo,
         isEnabled,
+        autoFetch,
       });
       const { connection: saved, error: saveError } = result;
       if (saveError || !saved) {
@@ -291,6 +293,24 @@ export function GolomtConnectionDialog({
             onChange={setIsEnabled}
             disabled={isPending}
           />
+          <SwitchField
+            label="Өдөр бүр хуулга автоматаар татах"
+            hint="Өглөө 07:00-оос Голомтын данс бүрийн өчигдрийн хуулгыг татна. GL-д автоматаар бичигдэхгүй — «Банкны хуулга» хуудсанд хянаж, данс оноогоод хадгална."
+            checked={autoFetch}
+            onChange={setAutoFetch}
+            disabled={isPending || !isEnabled}
+          />
+          {connection?.autoFetch && (connection.lastAutoFetchAt || connection.lastAutoFetchError) && (
+            <p className="text-xs text-[var(--ea-text-3)]">
+              Сүүлийн автомат татлага:{" "}
+              {connection.lastAutoFetchAt ? fmtDateTimeUb(connection.lastAutoFetchAt) : "—"}
+              {connection.lastAutoFetchError && (
+                <span className="block text-[var(--ea-danger-fg)]">
+                  {connection.lastAutoFetchError}
+                </span>
+              )}
+            </p>
+          )}
 
           {connection && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--ea-text-3)]">

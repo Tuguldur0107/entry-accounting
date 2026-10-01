@@ -7,6 +7,7 @@ import {
 import { getActiveOrg } from "@/lib/auth";
 import {
   loadGolomtConnectionRow,
+  loadGolomtPendingPulls,
   toGolomtConnectionView,
 } from "@/lib/bank/golomt/connection";
 import { buildCashAccountCodeRules } from "@/lib/cash/account-code-validation";
@@ -36,6 +37,7 @@ export default async function BankStatementsPage() {
     statements,
     golomtRow,
     profile,
+    pendingPulls,
   ] = await Promise.all([
     db.query.cashAccounts.findMany({
       where: eq(cashAccounts.organizationId, orgId),
@@ -68,6 +70,7 @@ export default async function BankStatementsPage() {
       where: eq(organizationProfile.organizationId, orgId),
       columns: { registerNo: true },
     }),
+    loadGolomtPendingPulls(orgId),
   ]);
 
   const balanceMap = await loadCashBalancesFast(orgId, accounts);
@@ -139,6 +142,7 @@ export default async function BankStatementsPage() {
         connection: golomtRow ? toGolomtConnectionView(golomtRow) : null,
         defaultRegisterNo: profile?.registerNo ?? "",
         canManage: roleAtLeast(role, "admin"),
+        pendingPulls,
       }}
     />
   );

@@ -31,6 +31,15 @@ export type GolomtCredentials = {
 
 export type GolomtGrant = { clientId: string; state: string; scope: string };
 
+/** ACCCHK (Голомтын данс) — эзэмшигчийн нэр БАНКНААС далдлагдсан ирнэ. */
+export type GolomtAccountHolder = {
+  accountId: string;
+  maskedName: string;
+  currency: string;
+  /** A — идэвхтэй, I — идэвхгүй, D — унтаа. */
+  status: string;
+};
+
 /** OPERACCTDET-ийн хариунаас хэрэгтэй талбарууд. */
 export type GolomtAccountDetails = {
   accountId: string;
@@ -97,6 +106,7 @@ const STEP_LABELS: Record<string, string> = {
   OPERACCTDET: "дансны мэдээлэл",
   ACCTBALINQ: "дансны үлдэгдэл",
   OPERACCTSTA: "хуулга татах",
+  ACCCHK: "данс эзэмшигч шалгах",
 };
 
 function stepLabel(service: string): string {
@@ -442,6 +452,22 @@ export class GolomtClient {
     return {
       accountId: stringField(result, "accountNumber", "accountId") || accountId,
       accountName: stringField(result, "accountName", "customerName", "accountShortName"),
+      currency: stringField(result, "currency").toUpperCase(),
+      status: stringField(result, "status").toUpperCase(),
+    };
+  }
+
+  /**
+   * SPEC §5.12 (ACCCHK) — ГОЛОМТЫН данс эзэмшигч. `bankCode`-гүй илгээнэ:
+   * 2026-10-01 UAT-д өөр банкны код (05, 040000 …) өгөхөд банк хоорондын
+   * шалгалт руу орж, хүчинтэй данс ч `vrfctn:false` (FF01 / AC01) буцаасан —
+   * тиймээс бусад банкны данс одоогоор дэмжигдэхгүй (дуудагч шийднэ).
+   */
+  async accountHolder(accountId: string): Promise<GolomtAccountHolder> {
+    const result = await this.call("ACCCHK", "/v1/account/check/account", { accountId });
+    return {
+      accountId: stringField(result, "accountId") || accountId,
+      maskedName: stringField(result, "maskedAccountName", "markedAccountName"),
       currency: stringField(result, "currency").toUpperCase(),
       status: stringField(result, "status").toUpperCase(),
     };
