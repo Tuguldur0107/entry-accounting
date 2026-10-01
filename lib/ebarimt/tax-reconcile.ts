@@ -267,6 +267,12 @@ export interface EbarimtTpiConnectionView {
   lastSyncError: string | null;
   lastSyncSkipped: number;
   summary: TaxCheckSummary | null;
+  /** Худалдан авалт (getSaleListERP) — тусдаа явц. */
+  purchasesSyncFrom: string | null;
+  purchasesSyncedThrough: string | null;
+  lastPurchaseSyncOkAt: string | null;
+  lastPurchaseSyncError: string | null;
+  purchaseSummary: TaxCheckSummary | null;
 }
 
 /** Тулгалтын жагсаалт / панель / AI tool-ийн мөр. */

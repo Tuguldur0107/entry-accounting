@@ -135,7 +135,9 @@ export function EbarimtTpiSettings() {
         <p className="mt-1 text-xs text-[var(--ea-text-3)]">
           ТЕГ-ээс нэхэмжлэх ба түүний төлбөрийн баримтыг өдөр бүр шөнө (01:00–07:00 — ТЕГ-ийн сервисийн цаг) автоматаар татаж, ТЕГ-ийн порталын
           «Үлдэгдэл»-ийг Entry-ийн авлагын үлдэгдэлтэй тулгана. Зөрүүг (порталд гараар нэмсэн төлөлт, ТЕГ-д хүрээгүй
-          баримт) «Анхаарах» ба Авлага → eBarimt-д шалтгаантай нь харуулна. ТЕГ-д юу ч бичихгүй.
+          баримт) «Анхаарах» ба Авлага → eBarimt-д шалтгаантай нь харуулна. Нийлүүлэгчдээс танай регистр дээр
+          олгогдсон худалдан авалтын баримтыг мөн татаж өглөгийн нэхэмжлэх, авсан НӨАТ-тай тулгана (Өглөг → eBarimt).
+          ТЕГ-д юу ч бичихгүй.
         </p>
         <p className="mt-1 text-xs text-[var(--ea-text-3)]">
           Нэвтрэлт: байгууллагын eBarimt-д эрхтэй ITC хэрэглэгч. X-API-KEY-г ITC олгоно (posapi@itc.gov.mn); хоосон
@@ -162,6 +164,14 @@ export function EbarimtTpiSettings() {
                 )}
               </div>
               {connection.lastSyncError && <div className="text-[var(--ea-danger-fg)]">{connection.lastSyncError}</div>}
+              <div className="text-[var(--ea-text-3)]">
+                Худалдан авалт: сүүлд амжилттай {formatTime(connection.lastPurchaseSyncOkAt)} ·{" "}
+                {connection.purchasesSyncFrom ?? "—"} → {connection.purchasesSyncedThrough ?? "—"}
+                {connection.purchaseSummary ? ` · зөрүүтэй ${connection.purchaseSummary.problems}` : ""}
+              </div>
+              {connection.lastPurchaseSyncError && (
+                <div className="text-[var(--ea-danger-fg)]">Худалдан авалт: {connection.lastPurchaseSyncError}</div>
+              )}
               {connection.lastSyncSkipped > 0 && (
                 <div className="text-[var(--ea-warning-fg)]">
                   ТЕГ-ийн хариунаас {connection.lastSyncSkipped} мөр танигдаагүй тул алгасав — тулгалт бүрэн биш байж болно

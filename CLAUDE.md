@@ -368,6 +368,9 @@ POS `docs/pos/00-proposal.md` → `01-implementation-contract.md` (функци�
   ТЕГ ↔ Entry нэхэмжлэхийн үлдэгдлийн тулгалт (`docs/dev/ebarimt-tax-reconcile.md`): TPI-ээс
   ЗӨВХӨН унших, өдөр бүр автомат (Excel/гар татлага БИШ), нууц шифртэй write-only, дүн
   ЗОХИОХГҮЙ / автоматаар засахгүй — зөрүү (порталд гараар нэмсэн төлөлт г.м.) «Анхаарах»-д ил;
+  `getSalesTotalData` бодит орчинд ЗӨВХӨН 01:00–07:00 УБ; худалдан авалт (`getSaleListERP`,
+  борлуулагч далдлагдсан) ↔ өглөг ЗӨВХӨН ДДТД-ээр (`supplierEbarimtId`), холбох нь хэрэглэгчийн
+  үйлдэл — санал л, автоматаар холбохгүй;
   ТЕГ/ITC-д хүрэх ажлууд `docs/deployment/mongolia-network-runbook.md`
 
 **QPay Quick QR**

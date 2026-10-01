@@ -188,7 +188,13 @@ async function loadEbarimt(orgId: string, today: string): Promise<AttentionInput
 async function loadEbarimtTax(orgId: string): Promise<AttentionInput["ebarimtTax"]> {
   const row = await db.query.ebarimtTpiConnections.findFirst({
     where: and(eq(ebarimtTpiConnections.organizationId, orgId), eq(ebarimtTpiConnections.isEnabled, true)),
-    columns: { lastCheckSummary: true, lastSyncOkAt: true, lastSyncError: true },
+    columns: {
+      lastCheckSummary: true,
+      lastSyncOkAt: true,
+      lastSyncError: true,
+      lastPurchaseSummary: true,
+      lastPurchaseSyncError: true,
+    },
   });
   if (!row) return undefined;
   return {
@@ -196,6 +202,9 @@ async function loadEbarimtTax(orgId: string): Promise<AttentionInput["ebarimtTax
     danger: row.lastCheckSummary?.danger ?? 0,
     hoursSinceOk: row.lastSyncOkAt ? (Date.now() - row.lastSyncOkAt.getTime()) / 3_600_000 : null,
     lastError: row.lastSyncError,
+    purchaseProblems: row.lastPurchaseSummary?.problems ?? 0,
+    purchaseDanger: row.lastPurchaseSummary?.danger ?? 0,
+    purchaseError: row.lastPurchaseSyncError,
   };
 }
 

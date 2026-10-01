@@ -27,6 +27,7 @@ import { ApplyAdvanceDialog } from "@/components/arap/apply-advance-dialog";
 import { CreditNoteDialog } from "@/components/arap/credit-note-dialog";
 import { WriteOffSection } from "@/components/arap/write-off-section";
 import { ArapEbarimtField } from "@/components/arap/arap-ebarimt-field";
+import { ApEbarimtReceiptField } from "@/components/arap/ap-ebarimt-receipt-field";
 import {
   ARAP_DOCUMENT_TYPE_LABELS,
   arapLedger,
@@ -1282,6 +1283,18 @@ function ArapDocReadOnly({
                 ebarimt={document.ebarimt}
                 paid={document.status === "paid" || document.status === "partially_paid"}
                 reversed={document.status === "reversed"}
+              />
+            </ReadField>
+          </div>
+        )}
+        {document.apEbarimt && (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <ReadField label="Нийлүүлэгчийн eBarimt">
+              <ApEbarimtReceiptField
+                documentId={document.id}
+                receipt={document.apEbarimt}
+                total={document.baseTotalAmount}
+                readOnly={document.status === "reversed"}
               />
             </ReadField>
           </div>

@@ -213,7 +213,12 @@ import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliatio
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
 import { unwrapAction } from "@/lib/action-result";
-import { getEbarimtTaxChecks } from "@/lib/actions/ebarimt-tpi";
+import { getEbarimtPurchaseChecks, getEbarimtTaxChecks, linkApEbarimtReceipt } from "@/lib/actions/ebarimt-tpi";
+import {
+  EBARIMT_PURCHASE_CHECK_HINTS,
+  EBARIMT_PURCHASE_CHECK_LABELS,
+  isPurchaseCheckProblem,
+} from "@/lib/ebarimt/purchase-reconcile";
 import { EBARIMT_TAX_CHECK_HINTS, EBARIMT_TAX_CHECK_LABELS, isTaxCheckProblem } from "@/lib/ebarimt/tax-reconcile";
 import {
   applyAdvanceToInvoice,
@@ -3651,6 +3656,31 @@ export const AI_TOOLS: AiToolDef[] = [
         onlyProblems: { type: "boolean", description: "true (default) = зөрүүтэйг л; false = бүх тулгасан нэхэмжлэх" },
         limit: { type: "number", description: "Хамгийн ихдээ буцаах мөр (default 50, ≤ 200)" },
       },
+    },
+  },
+  {
+    name: "get_ebarimt_purchase_reconciliation",
+    description:
+      "ХУДАЛДАН АВАЛТЫН eBarimt ↔ өглөгийн нэхэмжлэх тулгалт (ТЕГ-ийн TPI getSaleListERP-ээс өдөр бүр татсан — нийлүүлэгчдээс танай регистр дээр олгогдсон баримт): өглөгт бүртгэлгүй баримт (санал болгох өглөгтэй), eBarimt холбогдоогүй НӨАТ-тай өглөг (авсан НӨАТ хасагдахгүй эрсдэл), дүн зөрсөн, өглөгт бичсэн ДДТД ТЕГ-д алга. Борлуулагчийн нэр ТЕГ-ээс далдлагдсан тул тааруулалт ДДТД-ээр. ЗӨВХӨН унших — холбох нь link_ap_ebarimt_receipt.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        onlyProblems: { type: "boolean", description: "true (default) = зөрүүтэйг л" },
+        limit: { type: "number", description: "Хамгийн ихдээ буцаах мөр (default 50, ≤ 200)" },
+      },
+    },
+  },
+  {
+    name: "link_ap_ebarimt_receipt",
+    description:
+      "Өглөгийн нэхэмжлэхэд нийлүүлэгчийн eBarimt-ийн ДДТД (33 орон) холбоно (ddtd хоосон = салгана). Байгууллагад нэг ДДТД нэг л өглөгт. Журнал хөндөхгүй; аудитад үлдэнэ. get_ebarimt_purchase_reconciliation-ийн санал (дүн + огноо) хэрэглэгчтэй тулгаж БАТАЛГААЖУУЛСНЫ дараа л холбоно — таамаглаж холбохгүй.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        document: { type: "string", description: "Өглөгийн нэхэмжлэхийн дугаар (AP-…) эсвэл ID" },
+        ddtd: { type: "string", description: "Нийлүүлэгчийн баримтын ДДТД (33 орон); хоосон бол салгана" },
+      },
+      required: ["document"],
     },
   },
   {
@@ -12775,6 +12805,51 @@ async function runGetEbarimtTaxReconciliation(args: { onlyProblems?: boolean; li
   return { resultText: lines.join("\n") };
 }
 
+/** Худалдан авалтын eBarimt ↔ өглөг — getEbarimtPurchaseChecks action-оор (ap:read). */
+async function runGetEbarimtPurchaseReconciliation(args: { onlyProblems?: boolean; limit?: number }): Promise<AiToolResult> {
+  const data = unwrapAction(await getEbarimtPurchaseChecks());
+  if (!data.connection)
+    return {
+      resultText:
+        "ТЕГ-ийн TPI холболт тохируулаагүй — админ вэбээс POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт»-д байгууллагын ITC нэвтрэлт (+ X-API-KEY) холбоно. Худалдан авалтыг байгууллагын регистрээр татна.",
+    };
+  if (!data.syncFrom)
+    return {
+      resultText: `Худалдан авалт ТЕГ-ээс хараахан татагдаагүй${data.connection.lastPurchaseSyncError ? ` — сүүлийн алдаа: ${data.connection.lastPurchaseSyncError}` : " (өдөр бүр 01:00–07:00-д автоматаар)"}`,
+    };
+  const onlyProblems = args.onlyProblems !== false;
+  const limit = Math.min(Math.max(Math.trunc(Number(args.limit) || 50), 1), 200);
+  const selected = data.rows.filter((row) => (onlyProblems ? isPurchaseCheckProblem(row.check) : true));
+  const money = (value: number | null) => (value === null ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: 2 }));
+  const lines = [
+    `ТЕГ-ийн худалдан авалт: ${data.syncFrom} → ${data.syncedThrough ?? "—"}${data.connection.lastPurchaseSyncError ? ` · сүүлийн татлага АЛДААТАЙ: ${data.connection.lastPurchaseSyncError}` : ""}`,
+    `Тулгасан ${data.summary.checked} · зөрүүтэй ${data.summary.problems} · авсан НӨАТ-ын эрсдэл ${data.summary.danger}`,
+    ...selected.slice(0, limit).map((row) => {
+      const head =
+        row.kind === "receipt"
+          ? `- ТЕГ баримт ${row.ddtd} (${row.date}, ${row.sellerName ?? "—"}): ${money(row.taxTotal)} / НӨАТ ${money(row.taxVat)}`
+          : `- Өглөг ${row.documentNo} (${row.date}, ${row.counterpartyName ?? "—"}): ${money(row.entryTotal)} / НӨАТ ${money(row.entryVat)}${row.ddtd ? ` · ДДТД ${row.ddtd}` : ""}`;
+      const linked = row.kind === "receipt" && row.documentNo ? ` ↔ ${row.documentNo} (${money(row.entryTotal)} / НӨАТ ${money(row.entryVat)})` : "";
+      const candidates = row.candidates.length
+        ? ` · санал: ${row.candidates.map((candidate) => `${candidate.documentNo} (${candidate.date}, ${money(candidate.total)})`).join(", ")}`
+        : "";
+      return `${head}${linked} — ${EBARIMT_PURCHASE_CHECK_LABELS[row.check]}${candidates}${row.check === "ok" ? "" : ` · ${EBARIMT_PURCHASE_CHECK_HINTS[row.check]}`}`;
+    }),
+    ...(selected.length > limit ? [`… дахиад ${selected.length - limit} мөр (вэб: Өглөг → eBarimt)`] : []),
+  ];
+  return { resultText: lines.join("\n") };
+}
+
+/** Өглөгт нийлүүлэгчийн ДДТД холбох — linkApEbarimtReceipt action-оор (ap:write, аудит). */
+async function runLinkApEbarimtReceipt(orgId: string, args: { document: string; ddtd?: string | null }): Promise<AiToolResult> {
+  const doc = await findArapDocument(orgId, String(args.document ?? ""));
+  if (!doc) return { resultText: `[NOT_FOUND] «${args.document}» өглөгийн нэхэмжлэх олдсонгүй` };
+  const { ddtd } = unwrapAction(await linkApEbarimtReceipt({ documentId: doc.id, ddtd: args.ddtd?.trim() || null }));
+  return {
+    resultText: ddtd ? `${doc.documentNo}: нийлүүлэгчийн eBarimt ДДТД ${ddtd} холбогдлоо` : `${doc.documentNo}: ДДТД салгалаа`,
+  };
+}
+
 async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
   const settings = await ensurePosSettings(orgId);
   const [status, readiness] = await Promise.all([
@@ -13321,6 +13396,10 @@ async function dispatchAiTool(
         return await runResendEbarimt(orgId, args);
       case "get_ebarimt_tax_reconciliation":
         return await runGetEbarimtTaxReconciliation(args);
+      case "get_ebarimt_purchase_reconciliation":
+        return await runGetEbarimtPurchaseReconciliation(args);
+      case "link_ap_ebarimt_receipt":
+        return await runLinkApEbarimtReceipt(orgId, args);
       case "lookup_tin":
         return await runLookupTin(args);
       case "get_qpay_status":

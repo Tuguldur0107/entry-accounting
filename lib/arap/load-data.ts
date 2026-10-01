@@ -11,6 +11,7 @@ import { qrSvgPath } from "@/lib/qr/matrix";
 import { loadArapPaymentEbarimt } from "@/lib/ebarimt/queue";
 import { EBARIMT_POS_CREDIT_PAYMENTS_SINCE } from "@/lib/ebarimt/constants";
 import { loadEbarimtTaxChecks } from "@/lib/ebarimt/tax-sync";
+import { loadApEbarimtReceipt } from "@/lib/ebarimt/purchase-sync";
 import type { EbarimtTaxCheckRow } from "@/lib/ebarimt/tax-reconcile";
 import type { ArapPaymentEbarimtRow } from "@/lib/ebarimt/types";
 import { loadEntityKinds } from "@/lib/arap/entity-kinds";
@@ -84,6 +85,19 @@ export type ArApDocumentDetail = ArApDocumentView & {
   lines: ArApDocumentLineView[];
   /** PO-той баримтын захиалгын дугаар (харагдацад). */
   purchaseOrderNo: string | null;
+  /**
+   * ӨГЛӨГИЙН нэхэмжлэх (ap_bill): нийлүүлэгчийн eBarimt ДДТД + ТЕГ-ээс татсан
+   * баримтын дүн (docs/dev/ebarimt-tax-reconcile.md §7). Бусад төрөлд null.
+   */
+  apEbarimt: {
+    ddtd: string | null;
+    taxTotal: number | null;
+    taxVat: number | null;
+    taxDate: string | null;
+    entryVat: number;
+    /** ТЕГ-ээс худалдан авалт татаж эхэлсэн эсэх (үгүй бол дүнгийн тулгалт байхгүй). */
+    connected: boolean;
+  } | null;
   /** Эх модуль ("manual" | "pos") — POS нэхэмжлэх кредит авахгүй. */
   sourceType: string;
   /** Кредит/дебит баримтын эх нэхэмжлэх (ENT-029). */
@@ -519,6 +533,7 @@ export async function loadArApDocumentDetail(
           }
         : null,
     purchaseOrderNo: row.purchaseOrder?.documentNo ?? null,
+    apEbarimt: row.documentType === "ap_bill" ? await loadApEbarimtReceipt(orgId, documentId) : null,
     sourceType: row.sourceType,
     sourceDocumentId: row.sourceDocumentId,
     sourceDocumentNo: row.sourceDocument?.documentNo ?? null,

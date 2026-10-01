@@ -108,6 +108,10 @@ export interface AttentionInput {
     /** Сүүлийн амжилттай татлагаас хойш цаг (null = хэзээ ч амжаагүй). */
     hoursSinceOk: number | null;
     lastError: string | null;
+    /** Худалдан авалт (getSaleListERP) — сүүлийн татлагын тойм. */
+    purchaseProblems?: number;
+    purchaseDanger?: number;
+    purchaseError?: string | null;
   };
   /** QPay — `paid` боловч `saleId` null intent-үүд (≥ QPAY_PAID_UNFINALIZED_MINUTES). */
   qpay?: {
@@ -767,6 +771,29 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
         },
       });
     }
+    const purchaseProblems = tax.purchaseProblems ?? 0;
+    if (purchaseProblems > 0) {
+      const purchaseDanger = tax.purchaseDanger ?? 0;
+      signals.push({
+        key: "ebarimt-purchase-mismatch",
+        tone: purchaseDanger > 0 ? "danger" : "warning",
+        title: `eBarimt худалдан авалт: ${purchaseProblems} зөрүү`,
+        detail:
+          purchaseDanger > 0
+            ? `${purchaseDanger} нь авсан НӨАТ-ын эрсдэлтэй (дүн зөрсөн / өглөгт бичсэн ДДТД ТЕГ-д алга). Өглөгт бүртгэлгүй баримт, eBarimt-гүй НӨАТ-тай өглөгийг шалгана.`
+            : "Өглөгт бүртгэлгүй худалдан авалтын баримт эсвэл eBarimt холбогдоогүй НӨАТ-тай өглөг байна — НӨАТ-ын тайлангаас өмнө холбоно.",
+        href: "/payables/ebarimt",
+        action: "Худалдан авалтын тулгалт",
+        surfaces: ["dashboard", "daily"],
+        notify: {
+          type: "arap.ebarimt_purchase_mismatch",
+          dedupeKey: `ebarimt:purchase:${input.today}`,
+          audience: { kind: "module", moduleKeys: ["ap"], minLevel: "write" },
+          severity: purchaseDanger > 0 ? "danger" : "warning",
+          payload: { problems: purchaseProblems, danger: purchaseDanger },
+        },
+      });
+    }
     // Хэзээ ч амжаагүй + алдаатай, эсвэл сүүлийн амжилтаас 48 цаг өнгөрсөн (шинэ холболт алдаагүй бол чимээгүй).
     const syncStale =
       tax.hoursSinceOk === null ? !!tax.lastError : tax.hoursSinceOk >= EBARIMT_TAX_SYNC_STALE_HOURS;
@@ -778,7 +805,7 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
           tax.hoursSinceOk === null
             ? "ТЕГ-ээс eBarimt нэхэмжлэх татагдаагүй байна"
             : `ТЕГ-ээс eBarimt нэхэмжлэх ${Math.floor(tax.hoursSinceOk)} цаг татагдаагүй`,
-        detail: `Нэхэмжлэхийн үлдэгдлийн тулгалт хуучирсан${tax.lastError ? `: ${tax.lastError.slice(0, 200)}` : ""}. POS тохиргоо → eBarimt → ТЕГ-ийн TPI холболтыг шалгана.`,
+        detail: `Нэхэмжлэхийн үлдэгдлийн тулгалт хуучирсан${tax.lastError ? `: ${tax.lastError.slice(0, 200)}` : ""}${tax.purchaseError ? `; худалдан авалт: ${tax.purchaseError.slice(0, 160)}` : ""}. POS тохиргоо → eBarimt → ТЕГ-ийн TPI холболтыг шалгана.`,
         href: "/inventory/pos-settings?section=ebarimt",
         action: "TPI холболт",
         surfaces: ["dashboard", "daily"],

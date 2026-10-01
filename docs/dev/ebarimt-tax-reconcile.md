@@ -133,3 +133,45 @@ Staging-д үлдсэн (Монголын IP, `АА10010110` + staging X-API-KEY
 4. `prParentRno` нь `invoiceId`-тай баримт бүрд ирж буй эсэх; засварын дараах ДДТД
 5. Бодит хариунд ДДТД бүтэн ирэх эсэх (жишээнд далдлагдсан)
 6. Порталын «Үлдэгдэл» = нэхэмжлэх − Σ төлбөрийн баримт гэдгийг нэг нэхэмжлэх дээр тулгах
+
+## 7. Худалдан авалтын eBarimt ↔ өглөг (TPI `getSaleListERP`)
+
+Албан хуудаст худалдан авалтын ЦОРЫН ГАНЦ сервис — «Толгой татвар төлөгч өөрийн охин
+компанийн худалдан авалт татах сервис» (`POST /api/tpi/receipt/getSaleListERP`; тусдаа «buy»
+зам байхгүй, хариу нь `receiptBuyModelList`). `subPin` хоосон бол `pin`-ий (байгууллагын
+РЕГИСТР — Компанийн мэдээлэл) ӨӨРИЙН худалдан авалт ирнэ. **Борлуулагчийн нэр/регистр
+ДАЛДЛАГДСАН** («ГУР*****МБА», «57***85») тул тааруулалт ЗӨВХӨН ДДТД-ээр.
+
+```
+ticker (борлуулалтын татлагын дараа, ижил хуваарь) → runDueEbarimtPurchaseSyncs
+  → syncEbarimtTaxPurchases: pin = registerNo, 31 хоногийн муж (≤4/удаа), сүүлийн 3 өдрийг
+    давтана, анхдагч эхлэл 2 сарын өмнөх сарын 1 → ebarimt_tax_purchases (ДДТД-ээр upsert)
+loadEbarimtPurchaseChecks: ТЕГ-ийн баримт × өглөг (ap_bill, батлагдсан, буцаагдаагүй;
+  НӨАТ = оролтын НӨАТ-ын дансны мөрүүд, mainAccountOfCode) — ar_ap_documents.supplierEbarimtId
+```
+
+| Ангилал | Нөхцөл | Өнгө |
+|---|---|---|
+| `ok` | ДДТД холбогдсон, дүн/НӨАТ тэнцүү (±1₮) | success |
+| `amount_mismatch` | Холбосон өглөгийн дүн/НӨАТ ≠ ТЕГ | danger |
+| `entry_missing` | ТЕГ-ийн баримт өглөгт холбогдоогүй — ижил дүн ±7 хоногийн ДДТД-гүй өглөгийг САНАЛ | warning |
+| `tax_missing` | Өглөгт бичсэн ДДТД ТЕГ-ийн жагсаалтад алга (3 хоногоос хуучин) | danger |
+| `no_receipt` | НӨАТ-тай өглөгт ДДТД холбогдоогүй (eBarimt-гүй авсан НӨАТ хасагдахгүй) | warning |
+| `pending` / `not_synced` | Сүүлийн 3 хоног / татаагүй хугацаа | muted |
+
+- **Холбох нь хэрэглэгчийн үйлдэл** — `linkApEbarimtReceipt` (ap:write, аудит
+  `arap`/`ebarimt_link`): Өглөг → eBarimt-ийн «Холбох» (санал), өглөгийн панелийн
+  «Нийлүүлэгчийн eBarimt», MCP `link_ap_ebarimt_receipt`. Байгаа холбоосыг автоматаар
+  үүсгэхгүй. Байгууллагад нэг ДДТД нэг л өглөгт (`ar_ap_documents_org_supplier_ebarimt_ux`).
+  Журнал хөндөхгүй (мета) тул хаагдсан үед ч болно.
+- Борлуулалтын тулгалтаас ТУСДАА явц/алдаа (`purchasesSyncedThrough`, `lastPurchaseSync*`) —
+  сервис «толгой татвар төлөгч»-д зориулсан тул эрхгүй байж болно; нэгний алдаа нөгөөг
+  зогсоохгүй. «Анхаарах»: `arap.ebarimt_purchase_mismatch` (ap:write гишүүдэд).
+- MCP: `get_ebarimt_purchase_reconciliation` (унших), `link_ap_ebarimt_receipt`.
+- Staging-д шалгах: `startDate`/`endDate`-ийн хэлбэр («YYYY-MM-DD HH:mm:ss» гэж илгээнэ —
+  албан жишээ хариунд л), хуудаслалт байхгүй тул нэг мужид ирэх дээд хэмжээ, энгийн
+  (толгой биш) байгууллагад эрх олгогдох эсэх, `buyerRegNo` далдлагдах эсэх.
+
+Файлууд: `lib/ebarimt/purchase-reconcile.ts` (ЦЭВЭР, `tests/ebarimt-purchase-reconcile.test.ts`),
+`lib/ebarimt/purchase-sync.ts`, `components/ebarimt/ebarimt-purchase-check-view.tsx`
+(`/payables/ebarimt`), `components/arap/ap-ebarimt-receipt-field.tsx` (панель).

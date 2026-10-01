@@ -1472,10 +1472,20 @@ export const arApDocuments = pgTable(
     ebarimtTotal: numeric("ebarimt_total", { precision: 18, scale: 2 }),
     ebarimtVat: numeric("ebarimt_vat", { precision: 18, scale: 2 }),
     ebarimtCityTax: numeric("ebarimt_city_tax", { precision: 18, scale: 2 }),
+    /**
+     * ӨГЛӨГИЙН нэхэмжлэх (ap_bill): нийлүүлэгчийн олгосон eBarimt-ийн ДДТД —
+     * ТЕГ-ийн худалдан авалттай (TPI getSaleListERP) тулгах түлхүүр (борлуулагч
+     * далдлагдсан тул ДДТД-ээр л). Байгууллагад НЭГ ДДТД нэг л өглөгт.
+     * docs/dev/ebarimt-tax-reconcile.md §7.
+     */
+    supplierEbarimtId: text("supplier_ebarimt_id"),
     postedAt: timestamp("posted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
+    uniqueIndex("ar_ap_documents_org_supplier_ebarimt_ux")
+      .on(table.organizationId, table.supplierEbarimtId)
+      .where(sql`${table.supplierEbarimtId} is not null`),
     foreignKey({
       columns: [table.sourceDocumentId],
       foreignColumns: [table.id],
@@ -4801,6 +4811,17 @@ export const ebarimtTpiConnections = pgTable(
      * «Анхаарах» хөнгөн уншина (бүрэн тулгалтыг панель/жагсаалт амьдаар бодно).
      */
     lastCheckSummary: jsonb("last_check_summary").$type<{ checked: number; problems: number; danger: number }>(),
+    /**
+     * ХУДАЛДАН АВАЛТ (getSaleListERP) — борлуулалтаас ТУСДАА явц: тэр сервис нь
+     * «толгой татвар төлөгч»-д зориулсан тул эрх нь өөр байж болно (алдаа нь
+     * борлуулалтын тулгалтыг зогсоохгүй).
+     */
+    purchasesSyncFrom: text("purchases_sync_from"),
+    purchasesSyncedThrough: text("purchases_synced_through"),
+    lastPurchaseSyncAt: timestamp("last_purchase_sync_at"),
+    lastPurchaseSyncOkAt: timestamp("last_purchase_sync_ok_at"),
+    lastPurchaseSyncError: text("last_purchase_sync_error"),
+    lastPurchaseSummary: jsonb("last_purchase_summary").$type<{ checked: number; problems: number; danger: number }>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -4839,6 +4860,42 @@ export const ebarimtTaxReceipts = pgTable(
     index("ebarimt_tax_receipts_parent_ix")
       .on(table.organizationId, table.parentDdtd)
       .where(sql`${table.parentDdtd} is not null`),
+  ]
+);
+
+/**
+ * TPI `getSaleListERP`-ээс татсан ХУДАЛДАН АВАЛТЫН eBarimt (нийлүүлэгч танд
+ * олгосон). Борлуулагчийн нэр/регистр ТЕГ-ээс ДАЛДЛАГДАЖ ирдэг — тааруулалт
+ * ЗӨВХӨН ДДТД-ээр (`ar_ap_documents.supplierEbarimtId`). ДДТД-ээр upsert.
+ */
+export const ebarimtTaxPurchases = pgTable(
+  "ebarimt_tax_purchases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    ddtd: text("ddtd").notNull(),
+    /** ТЕГ-ийн огноо — эх текст («YYYY-MM-DD HH:mm:ss»). */
+    taxDate: text("tax_date").notNull().default(""),
+    /** Баримтын өдөр (YYYY-MM-DD) — taxDate-ээс, байхгүй бол татсан мужийн эхлэл. */
+    receiptDate: text("receipt_date").notNull(),
+    sellerRegNo: text("seller_reg_no").notNull().default(""),
+    sellerName: text("seller_name").notNull().default(""),
+    buyerRegNo: text("buyer_reg_no").notNull().default(""),
+    total: numeric("total", { precision: 18, scale: 2 }).notNull(),
+    vat: numeric("vat", { precision: 18, scale: 2 }).notNull().default("0"),
+    cityTax: numeric("city_tax", { precision: 18, scale: 2 }).notNull().default("0"),
+    net: numeric("net", { precision: 18, scale: 2 }).notNull().default("0"),
+    /** INVOICE / POS API. */
+    fromType: text("from_type").notNull().default(""),
+    /** ТӨЛБӨРИЙН БАРИМТ / НЭХЭМЖЛЭХ. */
+    receiptType: text("receipt_type"),
+    syncedAt: timestamp("synced_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("ebarimt_tax_purchases_org_ddtd_ux").on(table.organizationId, table.ddtd),
+    index("ebarimt_tax_purchases_org_date_ix").on(table.organizationId, table.receiptDate),
   ]
 );
 

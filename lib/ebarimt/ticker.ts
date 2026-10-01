@@ -9,6 +9,7 @@
 // анхны нөхөлт үргэлжилж байвал 10 мин тутам — tax-reconcile.ts isTaxSyncDue).
 // Унтраах: EBARIMT_WORKER=off.
 
+import { runDueEbarimtPurchaseSyncs } from "./purchase-sync";
 import { runDueEbarimtTaxSyncs } from "./tax-sync";
 import { processPendingEbarimt, releaseStaleClaims, runEbarimtSendData } from "./worker";
 
@@ -29,10 +30,14 @@ function maybeRunTaxSync(): void {
   if (taxSyncRunning || now - taxSyncCheckedAt < TAX_SYNC_CHECK_MS) return;
   taxSyncCheckedAt = now;
   taxSyncRunning = true;
+  // Борлуулалт → худалдан авалт ДАРААЛАН (ТЕГ-ийг зэрэг ачаалахгүй); нэгний алдаа нөгөөд нөлөөлөхгүй.
   void runDueEbarimtTaxSyncs()
-    .then((result) => {
+    .then(async (result) => {
       if (result.synced > 0) console.log(`[ebarimt] ТЕГ-ийн TPI татлага: ${result.synced} байгууллага`);
       for (const error of result.errors) console.error("[ebarimt] TPI", error);
+      const purchases = await runDueEbarimtPurchaseSyncs();
+      if (purchases.synced > 0) console.log(`[ebarimt] ТЕГ-ийн худалдан авалт: ${purchases.synced} байгууллага`);
+      for (const error of purchases.errors) console.error("[ebarimt] TPI худалдан авалт", error);
     })
     .finally(() => {
       taxSyncRunning = false;

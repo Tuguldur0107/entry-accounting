@@ -70,17 +70,22 @@ export function toTpiConnectionView(row: ConnectionRow): EbarimtTpiConnectionVie
     lastSyncError: row.lastSyncError,
     lastSyncSkipped: row.lastSyncSkipped,
     summary: row.lastCheckSummary ?? null,
+    purchasesSyncFrom: row.purchasesSyncFrom,
+    purchasesSyncedThrough: row.purchasesSyncedThrough,
+    lastPurchaseSyncOkAt: row.lastPurchaseSyncOkAt?.toISOString() ?? null,
+    lastPurchaseSyncError: row.lastPurchaseSyncError,
+    purchaseSummary: row.lastPurchaseSummary ?? null,
   };
 }
 
-interface TpiSession {
+export interface TpiSession {
   env: ItcEnvironment;
   apiKey: string | null;
   token(): Promise<Pick<ItcToken, "accessToken">>;
 }
 
 /** Холболтын мөрөөс сесс — token дуусвал (30 сек skew) дахин нэвтэрнэ. Нууц энд л тайлагдана. */
-function sessionOf(row: ConnectionRow): TpiSession {
+export function sessionOf(row: ConnectionRow): TpiSession {
   if (!isItcEnvironment(row.environment)) throw new ItcError(ITC_ERRORS.config, "ITC орчин буруу — тохиргоогоо хадгална уу");
   const env = row.environment;
   const password = decryptSecret(row.passwordEnc);
