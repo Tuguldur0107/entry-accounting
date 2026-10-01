@@ -33,7 +33,7 @@ import {
   GOLOMT_ENVIRONMENT_LABELS,
   GOLOMT_STATEMENT_MAX_DAYS,
   golomtStatementRangeError,
-  type GolomtAccountSummary,
+  type GolomtAccountCheck,
   type GolomtConnectionView,
   type GolomtEnvironment,
 } from "@/lib/bank/golomt/constants";
@@ -42,10 +42,49 @@ import { fmtDateTimeUb } from "@/lib/format/datetime";
 import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { feedback } from "@/lib/ui/feedback";
 
-type TestResult = {
-  accounts: GolomtAccountSummary[];
-  matched: { cashAccountName: string; accountId: string; found: boolean }[];
+type TestResult = { accounts: GolomtAccountCheck[] };
+
+/** Банкны дансны төлөвийн код (OPERACCTDET `status`). */
+const ACCOUNT_STATUS_LABELS: Record<string, string> = {
+  I: "идэвхгүй",
+  D: "унтаа (хөдөлгөөнгүй)",
 };
+
+function fmtBalance(value: number, currency: string): string {
+  return `${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ${currency}`;
+}
+
+/** Нэг дансны шалгалтын мөр — алдаа, валютын зөрүү, идэвхгүй төлөвийг ил. */
+function AccountCheckLine({ item }: { item: GolomtAccountCheck }) {
+  const head = `${item.cashAccountName} · ${item.accountId}`;
+  if (!item.ok)
+    return (
+      <p>
+        {head} — <span className="text-[var(--ea-danger-fg)]">{item.error}</span>
+      </p>
+    );
+  const warnings = [
+    item.currency && item.currency !== item.cashCurrency
+      ? `банкинд ${item.currency}, Entry-д ${item.cashCurrency} валюттай`
+      : null,
+    ACCOUNT_STATUS_LABELS[item.status] ? `данс ${ACCOUNT_STATUS_LABELS[item.status]}` : null,
+  ].filter(Boolean);
+  return (
+    <p>
+      {head} — <span className="text-[var(--ea-success-fg)]">холбогдсон</span>
+      {item.accountName && <> · {item.accountName}</>}
+      {item.availableBalance !== null && (
+        <> · боломжит үлдэгдэл {fmtBalance(item.availableBalance, item.currency || item.cashCurrency)}</>
+      )}
+      {warnings.length > 0 && (
+        <span className="block text-[var(--ea-warning-fg)]">{warnings.join("; ")}</span>
+      )}
+    </p>
+  );
+}
 
 export function GolomtConnectionDialog({
   open,
@@ -53,12 +92,15 @@ export function GolomtConnectionDialog({
   connection,
   defaultRegisterNo,
   onChanged,
+  onChecked,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   connection: GolomtConnectionView | null;
   defaultRegisterNo: string;
   onChanged: (connection: GolomtConnectionView | null) => void;
+  /** Шалгалтын дараах төлөв (огноо, алдаа) — хуудсыг дахин ачаалахгүй. */
+  onChecked: (connection: GolomtConnectionView) => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -116,14 +158,16 @@ export function GolomtConnectionDialog({
     setError("");
     setTestResult(null);
     startTransition(async () => {
-      const { accounts, matched, error: testError } = await testGolomtConnection();
-      if (testError || !accounts || !matched) {
+      const { accounts, connection: checked, error: testError } = await testGolomtConnection();
+      if (testError || !accounts) {
         setError(testError ?? "Голомт банктай холбогдож чадсангүй");
         feedback.error();
         return;
       }
-      setTestResult({ accounts, matched });
-      feedback.saved("Голомт банктай амжилттай холбогдлоо");
+      setTestResult({ accounts });
+      if (checked) onChecked(checked);
+      if (accounts.some((item) => !item.ok)) feedback.error();
+      else feedback.saved("Голомт банктай амжилттай холбогдлоо");
     });
   }
 
@@ -227,7 +271,7 @@ export function GolomtConnectionDialog({
             </FormField>
             <FormField
               label="Client ID"
-              hint="Лавлагаанд — хүсэлтэд банкны OAuth хариунаас ирсэн client_id хэрэглэгдэнэ (SPEC §5)"
+              hint="Лавлагаанд — хүсэлтэд илгээгдэхгүй; банк OAuth зөвшөөрөл шаардвал түүний хариунаас ирсэн client_id хэрэглэгдэнэ (SPEC §5)"
               htmlFor="golomt-client"
               className="sm:col-span-2"
             >
@@ -277,25 +321,16 @@ export function GolomtConnectionDialog({
           {testResult && (
             <div className="space-y-1 rounded-md border border-[var(--ea-border)] px-3 py-2 text-xs text-[var(--ea-text-2)]">
               <p className="font-medium text-[var(--ea-text-1)]">
-                Банкны харилцах данс: {testResult.accounts.length}
+                Банкинд нэвтэрлээ
               </p>
-              {testResult.matched.length === 0 ? (
+              {testResult.accounts.length === 0 ? (
                 <p className="text-[var(--ea-text-3)]">
                   Кассын модульд Голомтын данс (банк + дансны дугаартай) алга —
-                  Мөнгөн хөрөнгө → Данс хэсэгт нэмнэ үү.
+                  Мөнгөн хөрөнгө → Данс хэсэгт нэмбэл тэр дансыг энд шалгана.
                 </p>
               ) : (
-                testResult.matched.map((item) => (
-                  <p key={`${item.cashAccountName}-${item.accountId}`}>
-                    {item.cashAccountName} · {item.accountId} —{" "}
-                    {item.found ? (
-                      <span className="text-[var(--ea-success-fg)]">олдсон</span>
-                    ) : (
-                      <span className="text-[var(--ea-warning-fg)]">
-                        энэ эрхэд харагдахгүй байна
-                      </span>
-                    )}
-                  </p>
+                testResult.accounts.map((item) => (
+                  <AccountCheckLine key={`${item.cashAccountName}-${item.accountId}`} item={item} />
                 ))
               )}
             </div>
@@ -416,7 +451,8 @@ export function GolomtFetchDialog({
           </FormField>
         </div>
         <p className="text-[11px] text-[var(--ea-text-4)]">
-          Нэг удаад {GOLOMT_STATEMENT_MAX_DAYS} хоног хүртэл.
+          Нэг удаад {GOLOMT_STATEMENT_MAX_DAYS} хоног хүртэл — банкнаас сар сараар
+          нь дараалан татна.
         </p>
         {error && (
           <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger-fg)]">

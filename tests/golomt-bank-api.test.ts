@@ -15,6 +15,7 @@ import {
 import {
   GOLOMT_API_BASE,
   golomtAccountId,
+  golomtStatementChunks,
   golomtStatementRangeError,
   isGolomtCashAccount,
 } from "../lib/bank/golomt/constants";
@@ -88,6 +89,24 @@ test("statement range: calendar dates, ordered, not in the future, ≤ 92 days",
   assert.match(golomtStatementRangeError("2026-06-30", "2026-09-30", today) ?? "", /92/);
 });
 
+test("statement chunks split at calendar months (bank allows ≈1 month per OPERACCTSTA call)", () => {
+  // 2026-10-01 UAT: 02-01…03-01 OK, 02-01…03-02 / 04-30…05-31 «Он сар буруу байна».
+  assert.deepEqual(golomtStatementChunks("2026-09-05", "2026-09-30"), [
+    { startDate: "2026-09-05", endDate: "2026-09-30" },
+  ]);
+  assert.deepEqual(golomtStatementChunks("2026-01-15", "2026-03-02"), [
+    { startDate: "2026-01-15", endDate: "2026-01-31" },
+    { startDate: "2026-02-01", endDate: "2026-02-28" },
+    { startDate: "2026-03-01", endDate: "2026-03-02" },
+  ]);
+  assert.deepEqual(golomtStatementChunks("2025-12-31", "2026-01-01"), [
+    { startDate: "2025-12-31", endDate: "2025-12-31" },
+    { startDate: "2026-01-01", endDate: "2026-01-01" },
+  ]);
+  // Өндөр жилийн 2-р сар
+  assert.equal(golomtStatementChunks("2028-02-10", "2028-03-05")[0].endDate, "2028-02-29");
+});
+
 // ── Хуулга → импортын хэлбэр ────────────────────────────────────────────────
 
 const ENTRIES: GolomtStatementEntry[] = [
@@ -113,7 +132,7 @@ const ENTRIES: GolomtStatementEntry[] = [
   },
 ];
 
-test("maps OPERACCSTAINQ rows to the shared import shape (sorted, income/expense, refs)", () => {
+test("maps OPERACCTSTA rows to the shared import shape (sorted, income/expense, refs)", () => {
   const { statement, skipped } = golomtStatementToParsed({
     accountId: "1105000001",
     currency: "MNT",
@@ -141,7 +160,28 @@ test("maps OPERACCSTAINQ rows to the shared import shape (sorted, income/expense
   assert.equal(statement.rows[0].rawData.source, "golomt-api");
 });
 
-test("skips already-imported transactions and duplicates across pages; hash is stable", () => {
+test("counterparty name/account come from accName/accNum (empty on fee rows)", () => {
+  // 2026-10-01 UAT-ийн хэлбэр: гүйлгээ ба шимтгэл ижил tranId, ижил цагтай.
+  const { statement } = golomtStatementToParsed({
+    accountId: "1105000001",
+    currency: "MNT",
+    startDate: "2026-09-01",
+    endDate: "2026-09-30",
+    entries: [
+      { recNum: 1, tranId: "GB1", tranDate: "2026-09-28", drOrCr: "Debit", tranAmount: 100, tranDesc: "Гүйлгээний шимтгэл", tranPostedDate: "2026-09-28T12:20:24", tranCrnCode: "MNT", exchRate: 1, balance: "900.00", accName: "", accNum: "" },
+      { recNum: 2, tranId: "GB1", tranDate: "2026-09-28", drOrCr: "Debit", tranAmount: 50000, tranDesc: "Түрээс", tranPostedDate: "2026-09-28T12:20:24", tranCrnCode: "MNT", exchRate: 1, balance: "1000.00", accName: "ДЭЛГЭРЭХ ХХК", accNum: "5001234567" },
+    ],
+  });
+  const rent = statement.rows.find((row) => row.description === "Түрээс");
+  const fee = statement.rows.find((row) => row.description === "Гүйлгээний шимтгэл");
+  assert.equal(rent?.counterparty, "ДЭЛГЭРЭХ ХХК");
+  assert.equal(rent?.counterAccount, "5001234567");
+  assert.equal(rent?.rawData.balance, "1000.00");
+  assert.equal(fee?.counterparty, "");
+  assert.notEqual(rent?.externalRef, fee?.externalRef);
+});
+
+test("identical rows are kept and numbered; already-imported refs are skipped; hash is stable", () => {
   const ref = golomtExternalRef("1105000001", ENTRIES[1]);
   const first = golomtStatementToParsed({
     accountId: "1105000001",
@@ -152,16 +192,38 @@ test("skips already-imported transactions and duplicates across pages; hash is s
     alreadyImported: new Set([ref]),
   });
   assert.equal(first.skipped, 1);
-  assert.deepEqual(first.statement.rows.map((row) => row.description), ["Түрээс"]);
+  // Нэг гүйлгээний хоёр ижил мөр (ж: хоёр ижил шимтгэл) — алдагдахгүй, 2 дахь нь `:2`.
+  assert.deepEqual(first.statement.rows.map((row) => row.externalRef), [
+    "golomt:1105000001:S200:2026-09-03T10:00:00:D:15000.50",
+    "golomt:1105000001:S200:2026-09-03T10:00:00:D:15000.50:2",
+  ]);
+  // Дахин татахад 2 дахь мөр ч мөн танигдаж алгасагдана.
+  const second = golomtStatementToParsed({
+    accountId: "1105000001",
+    currency: "MNT",
+    startDate: "2026-09-01",
+    endDate: "2026-09-30",
+    entries: [...ENTRIES, ENTRIES[0]],
+    alreadyImported: new Set([ref, ...first.statement.rows.map((row) => row.externalRef ?? "")]),
+  });
+  assert.equal(second.skipped, 3);
+  assert.equal(second.statement.rows.length, 0);
 
-  const again = golomtStatementToParsed({
+  const once = golomtStatementToParsed({
     accountId: "1105000001",
     currency: "MNT",
     startDate: "2026-09-01",
     endDate: "2026-09-30",
     entries: [ENTRIES[0]],
   });
-  assert.equal(again.statement.fileHash, first.statement.fileHash);
+  const onceAgain = golomtStatementToParsed({
+    accountId: "1105000001",
+    currency: "MNT",
+    startDate: "2026-09-01",
+    endDate: "2026-09-30",
+    entries: [ENTRIES[0]],
+  });
+  assert.equal(once.statement.fileHash, onceAgain.statement.fileHash);
 });
 
 test("never invents an FX rate and rejects a currency mismatch", () => {
@@ -254,20 +316,40 @@ test("business calls carry Bearer + checksum of the sent body and decrypt the re
     if (request.url.endsWith("/v1/auth/login")) return { body: JSON.stringify({ token: "T1", refreshToken: "R1" }) };
     return {
       body: encrypted({
-        operAccounts: [
-          { accountId: "1105000001", accountName: "ГАРААНЫ ХОС ХАС", currency: "mnt" },
-          { accountName: "дугааргүй" },
-        ],
+        accountNumber: "1105000001",
+        accountName: "ГАРААНЫ ХОС ХАС",
+        customerName: "ГАРААНЫ ХОС ХАС ТЕХНОЛОГИ",
+        currency: "mnt",
+        status: "a",
       }),
     };
   });
-  const accounts = await new GolomtClient(CREDENTIALS, bank.fetchImpl).listAccounts();
-  assert.deepEqual(accounts, [{ accountId: "1105000001", accountName: "ГАРААНЫ ХОС ХАС", currency: "MNT" }]);
+  const details = await new GolomtClient(CREDENTIALS, bank.fetchImpl).accountDetails("1105000001");
+  assert.deepEqual(details, { accountId: "1105000001", accountName: "ГАРААНЫ ХОС ХАС", currency: "MNT", status: "A" });
   const call = bank.calls[1];
-  assert.match(call.url, /\/v1\/account\/list\?client_id=&state=&scope=$/);
+  assert.match(call.url, /\/v1\/account\/operative\/details\?client_id=&state=&scope=$/);
   assert.equal(call.headers.Authorization, "Bearer T1");
-  assert.equal(call.headers["X-Golomt-Service"], "ACCTLST");
+  assert.equal(call.headers["X-Golomt-Service"], "OPERACCTDET");
   assert.equal(call.headers["X-Golomt-Checksum"], golomtChecksum(call.body ?? "", KEYS));
+  assert.deepEqual(JSON.parse(call.body ?? ""), { accountId: "1105000001", registerNo: "6596177" });
+});
+
+test("available balance reads the AVAIL entry of balanceLL (ACCTBALINQ); missing → null", async () => {
+  const reply = (balanceLL: unknown) =>
+    fakeBank((request) =>
+      request.url.endsWith("/v1/auth/login")
+        ? { body: JSON.stringify({ token: "T1" }) }
+        : { body: encrypted({ accountId: "1105000001", currency: "MNT", balanceLL }) }
+    );
+  const bank = reply([{ type: "AVAIL", amount: { value: 36717365.7, currency: "MNT" } }]);
+  assert.equal(await new GolomtClient(CREDENTIALS, bank.fetchImpl).availableBalance("1105000001"), 36717365.7);
+  assert.equal(bank.calls[1].headers["X-Golomt-Service"], "ACCTBALINQ");
+  assert.match(bank.calls[1].url, /\/v1\/account\/balance\/inq\?/);
+  assert.equal(await new GolomtClient(CREDENTIALS, reply([]).fetchImpl).availableBalance("1105000001"), null);
+  assert.equal(
+    await new GolomtClient(CREDENTIALS, reply([{ type: "AVAIL", amount: {} }]).fetchImpl).availableBalance("1105000001"),
+    null
+  );
 });
 
 test("an OAuth grant reply is retried once with its client_id/state/scope; a second grant fails loudly", async () => {
@@ -275,10 +357,10 @@ test("an OAuth grant reply is retried once with its client_id/state/scope; a sec
   const bank = fakeBank((request) => {
     if (request.url.endsWith("/v1/auth/login")) return { body: JSON.stringify({ token: "T1" }) };
     listCalls++;
-    if (request.url.includes("state=S1")) return { body: encrypted({ operAccounts: [] }) };
+    if (request.url.includes("state=S1")) return { body: encrypted({ accountNumber: "1105000001" }) };
     return { body: encrypted({ clientId: "C1", responseType: "code", redirectUri: "https://x", state: "S1", scope: "SC" }) };
   });
-  await new GolomtClient(CREDENTIALS, bank.fetchImpl).listAccounts();
+  await new GolomtClient(CREDENTIALS, bank.fetchImpl).accountDetails("1105000001");
   assert.equal(listCalls, 2);
   assert.match(bank.calls[2].url, /client_id=C1&state=S1&scope=SC$/);
 
@@ -287,34 +369,32 @@ test("an OAuth grant reply is retried once with its client_id/state/scope; a sec
       ? { body: JSON.stringify({ token: "T1" }) }
       : { body: encrypted({ responseType: "code", redirectUri: "https://x", state: "S" }) }
   );
-  await assert.rejects(new GolomtClient(CREDENTIALS, stubborn.fetchImpl).listAccounts(), /зөвшөөрөл/);
+  await assert.rejects(new GolomtClient(CREDENTIALS, stubborn.fetchImpl).accountDetails("1105000001"), /зөвшөөрөл/);
   assert.equal(isGolomtGrantResponse({ statements: [] }), false);
 });
 
-test("statement paging walks every page with page/size in the checksummed body", async () => {
+test("statement is fetched month by month via OPERACCTSTA (no paging fields)", async () => {
   const bank = fakeBank((request) => {
     if (request.url.endsWith("/v1/auth/login")) return { body: JSON.stringify({ token: "T1" }) };
-    const page = JSON.parse(request.body ?? "{}").page as number;
+    const { startDate } = JSON.parse(request.body ?? "{}") as { startDate: string };
     return {
       body: encrypted({
-        currentPage: page,
-        totalPages: 2,
-        statements: [{ tranId: `S${page}`, drOrCr: "Credit", tranAmount: 1, tranPostedDate: "2026-09-02T00:00:00" }],
+        accountId: "1105000001",
+        statements: [{ tranId: `S${startDate}`, drOrCr: "Credit", tranAmount: 1, tranPostedDate: `${startDate}T00:00:00` }],
       }),
     };
   });
-  const entries = await new GolomtClient(CREDENTIALS, bank.fetchImpl).fetchStatement("1105000001", "2026-09-01", "2026-09-30");
-  assert.deepEqual(entries.map((entry) => entry.tranId), ["S1", "S2"]);
-  const body = JSON.parse(bank.calls[1].body ?? "{}");
-  assert.deepEqual(body, {
-    accountId: "1105000001",
-    registerNo: "6596177",
-    startDate: "2026-09-01",
-    endDate: "2026-09-30",
-    page: 1,
-    size: 100,
-  });
-  assert.equal(bank.calls[1].headers["X-Golomt-Service"], "OPERACCSTAINQ");
+  const entries = await new GolomtClient(CREDENTIALS, bank.fetchImpl).fetchStatement("1105000001", "2026-08-20", "2026-09-30");
+  assert.deepEqual(entries.map((entry) => entry.tranId), ["S2026-08-20", "S2026-09-01"]);
+  const bodies = bank.calls.slice(1).map((call) => JSON.parse(call.body ?? "{}"));
+  assert.deepEqual(bodies, [
+    { accountId: "1105000001", registerNo: "6596177", startDate: "2026-08-20", endDate: "2026-08-31" },
+    { accountId: "1105000001", registerNo: "6596177", startDate: "2026-09-01", endDate: "2026-09-30" },
+  ]);
+  for (const call of bank.calls.slice(1)) {
+    assert.equal(call.headers["X-Golomt-Service"], "OPERACCTSTA");
+    assert.match(call.url, /\/v1\/account\/operative\/statement\/\?client_id=&state=&scope=$/);
+  }
 });
 
 test("refreshes the 300-second token via GET /v1/auth/refresh with the refresh token", async () => {
@@ -322,12 +402,12 @@ test("refreshes the 300-second token via GET /v1/auth/refresh with the refresh t
   const bank = fakeBank((request) => {
     if (request.url.endsWith("/v1/auth/login")) return { body: JSON.stringify({ token: "T1", refreshToken: "R1" }) };
     if (request.url.endsWith("/v1/auth/refresh")) return { body: JSON.stringify({ token: "T2", refreshToken: "R2" }) };
-    return { body: encrypted({ operAccounts: [] }) };
+    return { body: encrypted({ accountNumber: "1105000001" }) };
   });
   const client = new GolomtClient(CREDENTIALS, bank.fetchImpl, () => now);
-  await client.listAccounts();
+  await client.accountDetails("1105000001");
   now = 250_000;
-  await client.listAccounts();
+  await client.accountDetails("1105000001");
   const refresh = bank.calls.find((call) => call.url.endsWith("/v1/auth/refresh"));
   assert.equal(refresh?.method, "GET");
   assert.equal(refresh?.headers.Authorization, "Bearer R1");
@@ -351,16 +431,16 @@ test("bank errors become clear Mongolian messages (generic ‘contact administra
       ? { body: JSON.stringify({ token: "T1" }) }
       : { body: golomtEncrypt("{}", { sessionKey: "ffffffffffffffff", ivKey: KEYS.ivKey }) }
   );
-  await assert.rejects(new GolomtClient(CREDENTIALS, wrongKey.fetchImpl).listAccounts(), /тайлж чадсангүй/);
+  await assert.rejects(new GolomtClient(CREDENTIALS, wrongKey.fetchImpl).accountDetails("1105000001"), /тайлж чадсангүй/);
 });
 
 test("first business call sends EMPTY client_id/state/scope even when a Client ID is configured (SPEC §5 step 2)", async () => {
   const bank = fakeBank((request) =>
     request.url.endsWith("/v1/auth/login")
       ? { body: JSON.stringify({ token: "T1" }) }
-      : { body: encrypted({ operAccounts: [] }) }
+      : { body: encrypted({ accountNumber: "1105000001" }) }
   );
-  await new GolomtClient({ ...CREDENTIALS, clientId: "17270423289641479650" }, bank.fetchImpl).listAccounts();
+  await new GolomtClient({ ...CREDENTIALS, clientId: "17270423289641479650" }, bank.fetchImpl).accountDetails("1105000001");
   assert.match(bank.calls[1].url, /\?client_id=&state=&scope=$/);
 });
 
@@ -380,8 +460,8 @@ test("bank error messages name the failing step and keep the bank's code", async
       : { body: encrypted({ status: "FAILED", errDesc: "account.not.permitted" }) }
   );
   await assert.rejects(
-    new GolomtClient(CREDENTIALS, failed.fetchImpl).listAccounts(),
-    /дансны жагсаалт\): account\.not\.permitted/
+    new GolomtClient(CREDENTIALS, failed.fetchImpl).accountDetails("1105000001"),
+    /дансны мэдээлэл\): account\.not\.permitted/
   );
 });
 
@@ -394,15 +474,15 @@ test("a consent reply in `url` form is parsed and retried; a repeated one surfac
 
   const once = fakeBank((request) => {
     if (request.url.endsWith("/v1/auth/login")) return { body: JSON.stringify({ token: "T1" }) };
-    return request.url.includes("state=S9") ? { body: encrypted({ operAccounts: [] }) } : { body: encrypted(consent) };
+    return request.url.includes("state=S9") ? { body: encrypted({ accountNumber: "1105000001" }) } : { body: encrypted(consent) };
   });
-  await new GolomtClient(CREDENTIALS, once.fetchImpl).listAccounts();
+  await new GolomtClient(CREDENTIALS, once.fetchImpl).accountDetails("1105000001");
   assert.match(once.calls[2].url, /client_id=C9&state=S9&scope=SC9$/);
 
   const always = fakeBank((request) =>
     request.url.endsWith("/v1/auth/login") ? { body: JSON.stringify({ token: "T1" }) } : { body: encrypted(consent) }
   );
-  await assert.rejects(new GolomtClient(CREDENTIALS, always.fetchImpl).listAccounts(), /зөвшөөрлийн холбоос: https:\/\/openapi-uat/);
+  await assert.rejects(new GolomtClient(CREDENTIALS, always.fetchImpl).accountDetails("1105000001"), /зөвшөөрлийн холбоос: https:\/\/openapi-uat/);
 });
 
 test("known bank codes become plain Mongolian: unknown username (MERDET0001) and field validation", async () => {
@@ -436,7 +516,7 @@ test("known bank codes become plain Mongolian: unknown username (MERDET0001) and
 });
 
 test("encrypted 4xx error bodies are decrypted so the bank's real reason is shown", async () => {
-  // 2026-10-01 UAT: ACCTLST / OPERACCSTAINQ-ийн 400 хариу Base64 AES-ээр ирсэн.
+  // 2026-10-01 UAT: 400 хариу (нээгдээгүй сервис, буруу огноо) Base64 AES-ээр ирсэн.
   const bank = fakeBank((request) =>
     request.url.endsWith("/v1/auth/login")
       ? { body: JSON.stringify({ token: "T1" }) }
@@ -446,7 +526,46 @@ test("encrypted 4xx error bodies are decrypted so the bank's real reason is show
         }
   );
   await assert.rejects(
-    new GolomtClient(CREDENTIALS, bank.fetchImpl).listAccounts(),
-    /Голомт банк \(дансны жагсаалт, HTTP 400\): checksum\.invalid \[CHK0001\]/
+    new GolomtClient(CREDENTIALS, bank.fetchImpl).accountDetails("1105000001"),
+    /Голомт банк \(дансны мэдээлэл, HTTP 400\): checksum\.invalid \[CHK0001\]/
+  );
+});
+
+test("service-not-opened and wrong-register replies become plain Mongolian (2026-10-01 UAT)", async () => {
+  const reply = (message: string) =>
+    fakeBank((request) =>
+      request.url.endsWith("/v1/auth/login")
+        ? { body: JSON.stringify({ token: "T1" }) }
+        : { status: 400, body: encrypted({ status: "BAD_REQUEST", message }) }
+    );
+  await assert.rejects(
+    new GolomtClient(CREDENTIALS, reply("Мерчант сервис рүү хандах боломжгүй").fetchImpl).availableBalance("1105000001"),
+    /дансны үлдэгдэл\): Энэ үйлчилгээ таны банкны эрхэд нээгдээгүй/
+  );
+  await assert.rejects(
+    new GolomtClient(CREDENTIALS, reply("only.access.customer.own.account").fetchImpl).fetchStatement("1105000001", "2026-09-01", "2026-09-30"),
+    /хуулга татах\): Энэ данс тохиргооны байгууллагын регистрт бүртгэлгүй/
+  );
+});
+
+test("account-level bank codes: 162 (no such account), 342 (closed); other desc is shown as-is", async () => {
+  // 2026-10-01 UAT-ийн бодит хариуны хэлбэр — message хоосон, тайлбар нь subErrors[].desc-д.
+  const reply = (subError: Record<string, string>) =>
+    fakeBank((request) =>
+      request.url.endsWith("/v1/auth/login")
+        ? { body: JSON.stringify({ token: "T1" }) }
+        : { status: 400, body: encrypted({ status: "BAD_REQUEST", message: null, debugMessage: null, subErrors: [subError] }) }
+    );
+  await assert.rejects(
+    new GolomtClient(CREDENTIALS, reply({ type: "162", desc: "The account does not exist.", code: "162" }).fetchImpl).accountDetails("0000000002"),
+    /дансны мэдээлэл\): Ийм дугаартай данс Голомт банкинд алга.*\[162\]$/
+  );
+  await assert.rejects(
+    new GolomtClient(CREDENTIALS, reply({ type: "342", desc: "The account has been closed.", code: "342" }).fetchImpl).availableBalance("1415140705"),
+    /дансны үлдэгдэл\): Энэ данс банкинд хаагдсан байна \[342\]$/
+  );
+  await assert.rejects(
+    new GolomtClient(CREDENTIALS, reply({ type: "999", desc: "Something else.", code: "999" }).fetchImpl).accountDetails("1105000001"),
+    /дансны мэдээлэл, HTTP 400\): Something else\. \[999\]$/
   );
 });
