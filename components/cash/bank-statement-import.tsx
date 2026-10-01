@@ -65,7 +65,10 @@ import {
 } from "@/components/arap/arap-workspace";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { InvoicePickerDialog } from "@/components/cash/invoice-picker-dialog";
-import { BankRowPreviewDialog } from "@/components/cash/bank-row-preview-dialog";
+import {
+  BankRowPreviewDialog,
+  BankRowPreviewStrip,
+} from "@/components/cash/bank-row-preview-dialog";
 import {
   fillInvoiceCounterAccounts,
   mainAccountOfCode,
@@ -297,6 +300,12 @@ export function BankStatementImport({
   const [selectedCount, setSelectedCount] = useState(0);
   // Бичилтийн урьдчилсан харагдац — сонгосон мөрүүд, эс бөгөөс бүх мөр.
   const [previewRows, setPreviewRows] = useState<ParsedBankStatementRow[] | null>(null);
+  // Хүснэгтийн доорх бичилтийн хэсэг — курсортой (дарсан / гараар шилжсэн) мөр.
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const activeRow = useMemo(
+    () => (activeRowId ? rows.find((row) => row.id === activeRowId) ?? null : null),
+    [activeRowId, rows]
+  );
   const [error, setError] = useState("");
   const [assignmentSide, setAssignmentSide] =
     useState<AssignmentSide>("debit");
@@ -1347,6 +1356,7 @@ export function BankStatementImport({
     setParsed(result);
     setRows(normalizedRows);
     setSelectedCount(0);
+    setActiveRowId(null);
     // Шинэ хуулга ачаалмагц «Хянах» таб руу (өмнө нь түүх нээгдсэн байж болно).
     setView("review");
     // Өмнөх хуулгын chip шүүлт үлдвэл шинэ мөрүүд далдлагдана.
@@ -1637,6 +1647,7 @@ export function BankStatementImport({
     setParsed(null);
     setRows([]);
     setSelectedCount(0);
+    setActiveRowId(null);
     discardDraft();
   }
 
@@ -1668,6 +1679,7 @@ export function BankStatementImport({
         setParsed(null);
         setRows([]);
         setSelectedCount(0);
+        setActiveRowId(null);
         discardDraft();
         router.refresh();
       } catch (caught) {
@@ -2075,10 +2087,24 @@ export function BankStatementImport({
               setSelectedCount(event.api.getSelectedRows().length)
             }
             onCellValueChanged={handleCellValueChanged}
+            onCellFocused={(event) => {
+              if (event.rowIndex == null || event.rowPinned) return;
+              const id = event.api.getDisplayedRowAtIndex(event.rowIndex)?.data?.id;
+              if (id) setActiveRowId(id);
+            }}
             singleClickEdit
             stopEditingWhenCellsLoseFocus
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           />
+
+          {activeRow && (
+            <BankRowPreviewStrip
+              row={activeRow}
+              context={previewContext}
+              accountName={accountNameOf}
+              onClose={() => setActiveRowId(null)}
+            />
+          )}
 
           {/* Тогтмол доод мөр — хүснэгт өндрийг дүүргэх тул үргэлж харагдана. */}
           <div className="flex shrink-0 flex-col gap-3 border-t border-[var(--ea-border)] pt-3 sm:flex-row sm:items-center sm:justify-between">
