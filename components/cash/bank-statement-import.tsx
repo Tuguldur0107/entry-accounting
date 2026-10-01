@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/dropdown";
 import { IconAction } from "@/components/ui/icon-action";
 import { fmtMntCompact } from "@/lib/format/money";
+import { col } from "@/lib/grid/columnTypes";
 import {
   GolomtConnectionDialog,
   GolomtFetchDialog,
@@ -150,7 +151,8 @@ interface Props {
   draft?: StatementDraft | null;
 }
 
-type AssignmentSide = "debit" | "credit";
+/** "counter" — мөр бүрийн ХАРЬЦАХ тал (орлогод CR, зарлагад DR); банкны тал хөндөгдөхгүй. */
+type AssignmentSide = "debit" | "credit" | "counter";
 type AssignmentScope = "selected" | "filtered";
 
 /** «Санал» баганы нэгдсэн төрөл — дүрэм → э-хэтэвчийн settlement → нэхэмжлэх → түүхэн загвар. */
@@ -168,6 +170,14 @@ type ImportContext = MatchContext & {
     supplierAdvanceAccountNumber: string;
   };
 };
+
+/**
+ * «Бүртгэл» баганы түр утга (мөрийн объектоор, WeakMap — мөр солигдмогц
+ * алга). AG Grid valueSetter-ийн дараа шинэ утгыг valueGetter-ээр ДАХИН
+ * уншдаг тул сонголтыг энд барьж, handler өмнөх төлвийг (нэхэмжлэх /
+ * урьдчилгаа) хөндөлгүй applyBookingEdit-ээр бичнэ.
+ */
+const PENDING_BOOKING = new WeakMap<ParsedBankStatementRow, string>();
 
 /** Харилцагч сонгогчийн «+ Шинэ харилцагч» сонголтын утга (бодит ID биш). */
 const NEW_COUNTERPARTY = "__new_counterparty__";
@@ -469,7 +479,28 @@ export function BankStatementImport({
 
   const handleCellValueChanged = useCallback(
     (event: CellValueChangedEvent<ParsedBankStatementRow>) => {
-      const field = event.colDef.field;
+      const colId = event.colDef.colId;
+      // «Бүртгэл» (нэгдсэн): "" ердийн · "action:<төрөл>" · "invoice:<id>".
+      if (colId === "booking") {
+        const value = String(event.newValue ?? "");
+        PENDING_BOOKING.delete(event.data);
+        if (value.startsWith("invoice:"))
+          applyBookingEdit(event.data.id, "settleInvoiceId", value.slice("invoice:".length));
+        else
+          applyBookingEdit(
+            event.data.id,
+            "rowAction",
+            value.startsWith("action:") ? value.slice("action:".length) : null
+          );
+        return;
+      }
+      // «Харьцах данс» — мөрийн чиглэлээр DR эсвэл CR тал.
+      const field =
+        colId === "counterAccountCode"
+          ? event.data.income > 0
+            ? "creditAccountNumber"
+            : "debitAccountNumber"
+          : event.colDef.field;
       if (field === "counterpartyId" && event.newValue === NEW_COUNTERPARTY) {
         // Grid утгыг шууд өөрчилсөн — хуучнаар нь сэргээгээд үүсгэх цонх нээнэ.
         const rowId = event.data.id;
@@ -564,14 +595,36 @@ export function BankStatementImport({
             (item.currency ?? "MNT") === (cashAccount?.currency ?? "MNT") &&
             (!row.counterpartyId || !item.counterpartyId || item.counterpartyId === row.counterpartyId)
         )
+        // Дугаар · харилцагч нь гарчиг (урт бол зүсэгдэнэ), үлдэгдэл баруун талд —
+        // SearchSelect-ийн code/hint шахагдахгүй тул гарчгийг устгахгүйн тулд.
         .map((item) => ({
           value: item.id,
-          label: item.documentNo,
-          code: item.counterpartyName,
-          hint: `үлдэгдэл ${fmtMnt(item.totalAmount - item.paidAmount)}`,
+          label: `${item.documentNo} · ${item.counterpartyName}`,
+          hint: fmtMnt(item.totalAmount - item.paidAmount),
         }));
     },
     [matchContext, cashAccount?.currency]
+  );
+  // «Бүртгэл» сонгогч: мөрийн чиглэлд тохирох төрлүүд + хаах боломжтой нээлттэй
+  // нэхэмжлэхүүд (сонгосон харилцагчаар шүүгдэнэ).
+  const bookingOptionsFor = useCallback(
+    (row: ParsedBankStatementRow | undefined): SearchSelectOption[] => {
+      if (!row) return [];
+      const direction = row.income > 0 ? "income" : "expense";
+      return [
+        ...BANK_ROW_ACTIONS.filter((action) => bankRowActionDirection(action) === direction).map(
+          (action) => ({ value: `action:${action}`, label: BANK_ROW_ACTION_LABELS[action] })
+        ),
+        // Нэхэмжлэх хаах: «Хаах · AR-… · харилцагч» + үлдэгдэл; сонгосны дараа
+        // нүдэнд «Авлага хаах · AR-…».
+        ...invoiceOptionsFor(row).map((option) => ({
+          ...option,
+          value: `invoice:${option.value}`,
+          label: `Хаах · ${option.label}`,
+        })),
+      ];
+    },
+    [invoiceOptionsFor]
   );
 
   // Саналууд нь parse хийсэн эх мөрүүдээс (дүн/харилцагч/утга засагдахгүй
@@ -885,7 +938,11 @@ export function BankStatementImport({
           options: counterpartyOptions,
           emptyLabel: "— бүртгэлгүй (хуулгын нэрээр)",
         },
-        getQuickFilterText: (params) => params.data?.counterparty ?? "",
+        // Хуулгын «харьцсан данс» (текст) тусдаа баганагүй — tooltip, хайлтад.
+        getQuickFilterText: (params) =>
+          `${params.data?.counterparty ?? ""} ${params.data?.counterAccount ?? ""}`,
+        tooltipValueGetter: (params) =>
+          params.data?.counterAccount ? `Харьцсан данс: ${params.data.counterAccount}` : undefined,
         valueFormatter: (params) => params.data?.counterparty ?? "",
         cellClass: (params) =>
           params.data?.counterpartyId
@@ -896,28 +953,18 @@ export function BankStatementImport({
         headerName: "Харьцсан данс",
         field: "counterAccount",
         minWidth: 150,
+        hide: true,
         cellClass: "font-mono text-xs",
       },
-      {
-        headerName: "Орлого",
-        field: "income",
-        width: 140,
-        cellClass:
-          "ag-right-aligned-cell font-mono text-[var(--ea-success)]",
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) =>
-          Number(params.value) > 0 ? fmtMnt(Number(params.value)) : "",
-      },
-      {
-        headerName: "Зарлага",
-        field: "expense",
-        width: 140,
-        cellClass:
-          "ag-right-aligned-cell font-mono text-[var(--ea-danger)]",
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) =>
-          Number(params.value) > 0 ? fmtMnt(Number(params.value)) : "",
-      },
+      // Орлого (+) / зарлага (−) НЭГ багана — стандарт readonly-money.
+      col<ParsedBankStatementRow>({
+        eaType: "readonly-money",
+        headerName: "Дүн",
+        colId: "amount",
+        width: 150,
+        valueGetter: (params: { data?: ParsedBankStatementRow }) =>
+          params.data ? (params.data.income > 0 ? params.data.income : -params.data.expense) : 0,
+      }),
       {
         headerName: "Гүйлгээний ханш",
         field: "exchangeRate",
@@ -957,55 +1004,89 @@ export function BankStatementImport({
           params.value == null ? "" : fmtMnt(Number(params.value)),
       },
       {
-        // Мөрийн бүртгэлийн төрөл (docs/dev/arap.md §5l) — чиглэлээрээ шүүгдэнэ.
+        // Мөрийн бүртгэл (docs/dev/arap.md §5l) — төрөл ба хаах нэхэмжлэх НЭГ
+        // сонгогчид: "" ердийн · "action:<төрөл>" · "invoice:<id>".
         headerName: "Бүртгэл",
-        field: "rowAction",
-        width: 190,
+        colId: "booking",
+        width: 230,
         editable: (params) => !params.data?.ewalletSettlement,
         cellEditor: SearchSelectCellEditor,
         cellEditorPopup: true,
         cellEditorParams: (params: { data?: ParsedBankStatementRow }) => ({
-          options: BANK_ROW_ACTIONS.filter(
-            (action) =>
-              bankRowActionDirection(action) ===
-              ((params.data?.income ?? 0) > 0 ? "income" : "expense")
-          ).map((action) => ({ value: action, label: BANK_ROW_ACTION_LABELS[action] })),
-          emptyLabel: "Ердийн (харьцах данс / нэхэмжлэх)",
+          options: bookingOptionsFor(params.data),
+          emptyLabel: "Ердийн (харьцах данс)",
         }),
+        valueGetter: (params) => {
+          const row = params.data;
+          if (!row) return "";
+          const pending = PENDING_BOOKING.get(row);
+          if (pending !== undefined) return pending;
+          if (row.settleInvoiceId) return `invoice:${row.settleInvoiceId}`;
+          if (row.rowAction) return `action:${row.rowAction}`;
+          return "";
+        },
+        // Шинэ утгыг түр барина — бодит бичилт handleCellValueChanged → applyBookingEdit.
+        valueSetter: (params) => {
+          if (!params.data) return false;
+          PENDING_BOOKING.set(params.data, String(params.newValue ?? ""));
+          return true;
+        },
         valueFormatter: (params) => {
           const row = params.data;
           if (!row) return "";
+          if (row.settleInvoiceId)
+            return `${row.income > 0 ? "Авлага хаах" : "Өглөг хаах"} · ${
+              invoiceLabelById.get(row.settleInvoiceId) ?? "нэхэмжлэх"
+            }`;
           if (row.rowAction && isBankRowAction(row.rowAction))
             return BANK_ROW_ACTION_LABELS[row.rowAction];
-          if (row.settleInvoiceId) return row.income > 0 ? "Авлага хаах" : "Өглөг хаах";
           if (row.ewalletSettlement) return "Э-хэтэвчийн settlement";
           return "Ердийн";
         },
         cellClass: (params) =>
-          params.data?.rowAction || params.data?.settleInvoiceId
+          params.data?.rowAction || params.data?.settleInvoiceId || params.data?.ewalletSettlement
             ? "text-xs font-medium text-[var(--ea-primary)]"
             : "text-xs text-[var(--ea-text-3)]",
       },
       {
-        // Нэхэмжлэхийг гараар сонгож хаах (санал дүнгээр таарахгүй үед ч).
-        headerName: "Нэхэмжлэх",
-        field: "settleInvoiceId",
-        width: 170,
+        // Харьцах тал (орлогод CR, зарлагад DR) — банкны тал нь сонгосон данс
+        // тул тогтмол; DR/CR баганыг баганын тохиргооноос л нээнэ.
+        headerName: "Харьцах данс",
+        colId: "counterAccountCode",
+        width: 260,
         editable: (params) => !params.data?.ewalletSettlement,
-        cellEditor: SearchSelectCellEditor,
-        cellEditorPopup: true,
-        cellEditorParams: (params: { data?: ParsedBankStatementRow }) => ({
-          options: invoiceOptionsFor(params.data),
-          emptyLabel: "— холбохгүй",
-        }),
-        valueFormatter: (params) =>
-          params.value ? invoiceLabelById.get(String(params.value)) ?? "Холбогдсон" : "",
-        cellClass: "font-mono text-xs",
+        singleClickEdit: true,
+        valueGetter: (params) =>
+          params.data
+            ? params.data.income > 0
+              ? params.data.creditAccountNumber
+              : params.data.debitAccountNumber
+            : "",
+        // DR/CR баганатай ижил — мөрийн чиглэлийн талбарыг шууд бичнэ (handler state-д буулгана).
+        valueSetter: (params) => {
+          if (!params.data) return false;
+          const value = String(params.newValue ?? "");
+          if (params.data.income > 0) params.data.creditAccountNumber = value;
+          else params.data.debitAccountNumber = value;
+          return true;
+        },
+        cellClass: (params) =>
+          isCompleteAccountCode(String(params.value ?? ""), activeSegIds, segmentOptions)
+            ? "font-mono text-xs"
+            : "font-mono text-xs bg-[var(--ea-danger-bg)] text-[var(--ea-danger)]",
+        valueFormatter: (params) => fmtAccountDisplay(String(params.value ?? ""), activeSegIds),
+        cellEditor: AccountSegmentEditor,
+        cellEditorParams: {
+          activeSegIds,
+          segOptions: segmentOptions,
+          extraDefaults: defaultSegments,
+        },
       },
       {
         headerName: "DR данс",
         field: "debitAccountNumber",
         width: 260,
+        hide: true,
         editable: true,
         singleClickEdit: true,
         cellClass: (params) =>
@@ -1029,6 +1110,7 @@ export function BankStatementImport({
         headerName: "CR данс",
         field: "creditAccountNumber",
         width: 260,
+        hide: true,
         editable: true,
         singleClickEdit: true,
         cellClass: (params) =>
@@ -1049,19 +1131,34 @@ export function BankStatementImport({
         },
       },
       {
-        headerName: "Санал",
+        // Санал ба шалгалт НЭГ баганад: хэрэглээгүй санал байвал санал +
+        // «Ашиглах», эс бөгөөс мөрийн төлөв (Бэлэн / Данс дутуу / Харилцагч дутуу).
+        headerName: "Санал / төлөв",
         colId: "suggestion",
         width: 280,
-        sortable: false,
+        valueGetter: (params) => validationText(params.data),
         cellRenderer: (
           params: ICellRendererParams<ParsedBankStatementRow>
         ) => {
           const row = params.data;
           if (!row) return null;
           const top = allSuggestions[row.id]?.[0];
-          if (!top) return null;
-          const targetCode = suggestionCode(top);
-          const applied = suggestionApplied(row, top, targetCode);
+          const targetCode = top ? suggestionCode(top) : "";
+          const applied = top ? suggestionApplied(row, top, targetCode) : true;
+          if (!top || applied) {
+            const status = validationText(row);
+            return (
+              <span className="flex h-full items-center">
+                <StatusBadge
+                  tone={status === "Бэлэн" ? "success" : "danger"}
+                  size="sm"
+                  icon={status === "Бэлэн" ? "success" : "error"}
+                >
+                  {status}
+                </StatusBadge>
+              </span>
+            );
+          }
           const label =
             top.kind === "invoice"
               ? top.documentNo
@@ -1080,8 +1177,6 @@ export function BankStatementImport({
                       top.setCounterparty ? ", харилцагч" : ""
                     }${top.setDescription ? ", тайлбар" : ""} бөглөнө.`
                   : `"${top.matchedText}" харилцагчид ${top.count} удаа ашигласан данс`;
-          const settleLinked = applied && !!row.settleInvoiceId;
-          const ewalletLinked = applied && !!row.ewalletSettlement;
           return (
             <span className="flex h-full items-center gap-1.5">
               {/* Итгэлийн түвшний дохио — QBO/Digits загвар: ногоон=хүчтэй;
@@ -1108,20 +1203,7 @@ export function BankStatementImport({
               >
                 {label}
               </span>
-              {applied ? (
-                <span
-                  className="shrink-0 text-xs font-medium text-[var(--ea-success-fg)]"
-                  title={
-                    settleLinked
-                      ? "Хадгалахад нэхэмжлэхийн төлбөр болж бүртгэгдэнэ"
-                      : ewalletLinked
-                        ? "Хадгалахад түр данс → банк шилжүүлэг + шимтгэлийн зарлага үүснэ"
-                        : undefined
-                  }
-                >
-                  {settleLinked ? "Холбогдсон ✓" : ewalletLinked ? "Settlement ✓" : "Ашигласан"}
-                </span>
-              ) : targetCode !== "" ? (
+              {targetCode !== "" ? (
                 <button
                   type="button"
                   title={hint}
@@ -1135,29 +1217,6 @@ export function BankStatementImport({
           );
         },
       },
-      {
-        headerName: "Шалгалт",
-        colId: "validation",
-        width: 124,
-        valueGetter: (params) => validationText(params.data),
-        cellRenderer: (
-          params: ICellRendererParams<ParsedBankStatementRow>
-        ) => {
-          const text = validationText(params.data);
-          return (
-            <span
-              className={cn(
-                "text-xs font-medium",
-                text === "Бэлэн"
-                  ? "text-[var(--ea-success)]"
-                  : "text-[var(--ea-danger)]"
-              )}
-            >
-              {text}
-            </span>
-          );
-        },
-      },
     ],
     [
       activeSegIds,
@@ -1166,7 +1225,7 @@ export function BankStatementImport({
       counterpartyOptions,
       defaultSegments,
       invoiceLabelById,
-      invoiceOptionsFor,
+      bookingOptionsFor,
       segmentOptions,
       suggestionApplied,
       suggestionCode,
@@ -1355,18 +1414,19 @@ export function BankStatementImport({
       setError("Оноох мөр сонгоно уу");
       return;
     }
-    const field =
-      side === "debit" ? "debitAccountNumber" : "creditAccountNumber";
     setRows((current) =>
       current.map((row) => {
         if (!ids.has(row.id)) return row;
         // Харьцах талын данс өөрчлөгдвөл нэхэмжлэхийн холбоос цуцлагдана;
         // банкны талын оноолт settlement-д нөлөөгүй.
         const counterSide = row.income > 0 ? "credit" : "debit";
+        const target = side === "counter" ? counterSide : side;
+        const field =
+          target === "debit" ? "debitAccountNumber" : "creditAccountNumber";
         return {
           ...row,
           [field]: code,
-          ...(side === counterSide ? counterSideReset(row) : {}),
+          ...(target === counterSide ? counterSideReset(row) : {}),
         };
       })
     );
@@ -1862,13 +1922,13 @@ export function BankStatementImport({
                 className="pl-8"
               />
             </div>
-            <Button variant="outline" onClick={() => openAssignment("debit")}>
+            <Button
+              variant="outline"
+              onClick={() => openAssignment("counter")}
+              title="Сонгосон / шүүгдсэн мөрүүдийн харьцах данс (орлогод CR, зарлагад DR) — банкны тал хөндөгдөхгүй"
+            >
               <Icon name="filter" />
-              DR данс оноох
-            </Button>
-            <Button variant="outline" onClick={() => openAssignment("credit")}>
-              <Icon name="filter" />
-              CR данс оноох
+              Данс оноох
             </Button>
             <Button
               variant="ghost"
@@ -2048,7 +2108,12 @@ export function BankStatementImport({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {assignmentSide === "debit" ? "DR" : "CR"} данс олноор оноох
+              {assignmentSide === "counter"
+                ? "Харьцах данс"
+                : assignmentSide === "debit"
+                  ? "DR данс"
+                  : "CR данс"}{" "}
+              олноор оноох
             </DialogTitle>
           </DialogHeader>
 
