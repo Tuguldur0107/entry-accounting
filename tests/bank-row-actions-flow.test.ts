@@ -21,6 +21,7 @@ try {
 
 import { reverseArApOffset } from "../lib/actions/arap";
 import { executeAiTool } from "../lib/ai/tools";
+import { previewBankRowPostings } from "../lib/cash/bank-row-preview";
 import { loadAdvanceBalances } from "../lib/arap/advances";
 import { loadCounterpartyStatement } from "../lib/arap/statement-db";
 import { runAsOrg } from "../lib/auth";
@@ -186,6 +187,33 @@ test("import_bank_statement: авлага үүсгэж борлуулалтад 
   assert.deepEqual(
     receiptLines.map((line) => [main(line.accountNumber), Number(line.debit), Number(line.credit)]).sort(),
     [["11000001", 220_000, 0], [sale.controlAccountNumber, 0, 220_000]].sort()
+  );
+
+  // Урьдчилсан харагдац (suggestions endpoint-ийн өгөгдлөөр) == серверийн бодит
+  // журнал; харьцах дансны санал = энэ харилцагчийн сүүлийн орлогын данс.
+  const { GET } = await import("../app/api/cash/statements/suggestions/route");
+  const contextData = await asOrg(async () => (await GET()).json());
+  const customerId = await counterpartyId("Номин Худалдан авагч");
+  assert.equal(contextData.invoiceAccountHints.ar[customerId], "51100000");
+  assert.equal(contextData.vat.isVatPayer, true);
+  const bankLine = receiptLines.find((line) => Number(line.debit) > 0)!;
+  const preview = previewBankRowPostings(
+    {
+      id: "p", rowNumber: 1, transactionDate: "2026-09-06", description: "", counterparty: "", counterAccount: "",
+      income: 220_000, expense: 0, exchangeRate: 1, baseAmount: 220_000,
+      debitAccountNumber: bankLine.accountNumber,
+      creditAccountNumber: invoiceLines.find((line) => main(line.accountNumber) === "51100000")!.accountNumber,
+      rowAction: "create_ar_invoice", counterpartyId: customerId, rawData: {},
+    },
+    { vat: contextData.vat, counterparties: contextData.counterparties, defaultControl: contextData.defaultControl }
+  );
+  assert.deepEqual(preview.notes, []);
+  const actual = [...invoiceLines, ...receiptLines]
+    .map((line) => [main(line.accountNumber), Number(line.debit), Number(line.credit)])
+    .sort();
+  assert.deepEqual(
+    preview.lines.map((line) => [line.account, line.debit, line.credit]).sort(),
+    actual
   );
 
   // Нийлүүлэгч төрлийн харилцагчид борлуулалт бичигдэхгүй.

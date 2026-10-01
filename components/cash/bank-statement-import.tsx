@@ -65,6 +65,16 @@ import {
 } from "@/components/arap/arap-workspace";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { InvoicePickerDialog } from "@/components/cash/invoice-picker-dialog";
+import { BankRowPreviewDialog } from "@/components/cash/bank-row-preview-dialog";
+import {
+  fillInvoiceCounterAccounts,
+  mainAccountOfCode,
+  suggestInvoiceCounterAccount,
+  type InvoiceAccountHints,
+  type PreviewContext,
+  type PreviewCounterparty,
+  type PreviewVatSettings,
+} from "@/lib/cash/bank-row-preview";
 import type { EntityKindOption } from "@/lib/arap/counterparty-kind";
 import {
   AdvanceSettingsDialog,
@@ -165,7 +175,12 @@ type ImportContext = MatchContext & {
   rules?: BankRule[];
   ewalletMethods?: EwalletSettlementMethod[];
   /** Идэвхтэй харилцагчид — мөрийн харилцагч сонгогч (docs/dev/arap.md §5l). */
-  counterparties?: { id: string; name: string; counterpartyType: string }[];
+  counterparties?: (PreviewCounterparty & { counterpartyType: string })[];
+  /** Нэхэмжлэх үүсгэх мөрийн харьцах дансны санал (өмнөх нэхэмжлэхээс). */
+  invoiceAccountHints?: InvoiceAccountHints;
+  /** Бичилтийн урьдчилсан харагдацад — НӨАТ, default хяналтын данс. */
+  vat?: PreviewVatSettings;
+  defaultControl?: { receivable: string; payable: string };
   /** Урьдчилгааны дансны роль — «Бүртгэл» сонгоход харьцах тал бөглөгдөнө. */
   advanceSettings?: {
     customerAdvanceAccountNumber: string;
@@ -280,6 +295,8 @@ export function BankStatementImport({
   const [rows, setRows] = useState<ParsedBankStatementRow[]>(initialDraft?.rows ?? []);
   const [quickFilter, setQuickFilter] = useState("");
   const [selectedCount, setSelectedCount] = useState(0);
+  // Бичилтийн урьдчилсан харагдац — сонгосон мөрүүд, эс бөгөөс бүх мөр.
+  const [previewRows, setPreviewRows] = useState<ParsedBankStatementRow[] | null>(null);
   const [error, setError] = useState("");
   const [assignmentSide, setAssignmentSide] =
     useState<AssignmentSide>("debit");
@@ -360,6 +377,22 @@ export function BankStatementImport({
             : settings.supplierAdvanceAccountNumber
         );
       };
+      // «Авлага үүсгэж борлуулалтад» / «Өглөг үүсгэж зардалд»: харьцах тал
+      // хоосон бол өмнөх нэхэмжлэхээс санал болгосон орлого / зардлын данс
+      // (lib/cash/bank-row-preview.ts — данс ЗОХИОХГҮЙ, түүхгүй бол хоосон).
+      const invoiceCounterCode = (
+        documentType: "ar_invoice" | "ap_bill" | null,
+        counterpartyId: string | null | undefined,
+        current: string
+      ) => {
+        if (!documentType || mainAccountOfCode(current)) return current;
+        const main = suggestInvoiceCounterAccount(
+          matchContext?.invoiceAccountHints,
+          documentType,
+          counterpartyId
+        );
+        return main ? codeOf(main) : current;
+      };
       const text = value == null ? "" : String(value);
       setRows((current) =>
         current.map((row) => {
@@ -375,10 +408,16 @@ export function BankStatementImport({
             const linked = row.settleInvoiceId
               ? matchContext?.openInvoices.find((item) => item.id === row.settleInvoiceId)
               : undefined;
+            const filled = invoiceCounterCode(
+              bankRowActionInvoiceType(row.rowAction),
+              master?.id ?? null,
+              row[counterField]
+            );
             return {
               ...row,
               counterpartyId: master?.id ?? null,
               counterparty: master?.name ?? original,
+              [counterField]: filled,
               // Өөр харилцагчийн нэхэмжлэх холбоотой үлдэхгүй.
               ...(linked && master && linked.counterpartyId && linked.counterpartyId !== master.id
                 ? { settleInvoiceId: null, [counterField]: blankCode }
@@ -389,11 +428,12 @@ export function BankStatementImport({
             const action = isBankRowAction(text) ? text : null;
             const side = action ? bankRowActionAdvanceSide(action) : null;
             const previousSide = row.rowAction ? bankRowActionAdvanceSide(row.rowAction) : null;
+            const keptCode = previousSide || row.settleInvoiceId || row.ewalletSettlement
+              ? blankCode
+              : row[counterField];
             const nextCode = side
               ? advanceCode(side)
-              : previousSide || row.settleInvoiceId || row.ewalletSettlement
-                ? blankCode
-                : row[counterField];
+              : invoiceCounterCode(bankRowActionInvoiceType(action), row.counterpartyId, keptCode);
             return {
               ...row,
               rowAction: action,
@@ -430,6 +470,44 @@ export function BankStatementImport({
     },
     [activeSegIds, defaultSegments, matchContext, parsed]
   );
+
+  // Саналын лавлах ирмэгц «Бүртгэл» нь нэхэмжлэх үүсгэх боловч харьцах тал
+  // хоосон мөрүүдийг бөглөнө (сэргээсэн ноорог г.м.). Fetch-ийн callback-аас
+  // дуудагддаг тул ref-ээр хамгийн сүүлийн сегментийн тохиргоог авна.
+  const applyInvoiceHintsRef = useRef<(hints: InvoiceAccountHints | undefined) => void>(() => {});
+  useEffect(() => {
+    applyInvoiceHintsRef.current = (hints) =>
+      setRows((current) =>
+        fillInvoiceCounterAccounts(current, hints, (main) =>
+          buildSegCode({ ...defaultSegments, 3: main }, activeSegIds, defaultSegments)
+        )
+      );
+  }, [activeSegIds, defaultSegments]);
+
+  // Бичилтийн урьдчилсан харагдац (lib/cash/bank-row-preview.ts) — сервертэй
+  // ижил дүрмээр; хадгалахаас өмнө давхар бичилтийг харуулна.
+  const previewContext = useMemo<PreviewContext>(
+    () => ({
+      vat: matchContext?.vat ?? null,
+      counterparties: matchContext?.counterparties ?? [],
+      defaultControl: matchContext?.defaultControl ?? null,
+      invoiceControl: (invoiceId) =>
+        matchContext?.openInvoices.find((invoice) => invoice.id === invoiceId)?.controlAccountNumber ?? null,
+    }),
+    [matchContext]
+  );
+  const accountNameOf = useCallback(
+    (main: string) => segmentOptions[3]?.find((option) => option.code === main)?.name ?? "",
+    [segmentOptions]
+  );
+  const openPreview = useCallback(() => {
+    // Сонгосон мөрийг ID-аар ОДООГИЙН төлвөөс авна (grid-ийн хуучин объект биш).
+    const selectedIds = new Set(
+      ((gridRef.current?.api?.getSelectedRows() ?? []) as ParsedBankStatementRow[]).map((row) => row.id)
+    );
+    const selected = rows.filter((row) => selectedIds.has(row.id));
+    setPreviewRows(selected.length > 0 ? selected : rows);
+  }, [rows]);
 
   // «+ Шинэ харилцагч» — нэр, харьцсан данс хуулгын мөрөөс; орлого → авлага,
   // зарлага → өглөгийн харилцагч. Хадгалмагц тухайн мөрөнд шууд холбоно.
@@ -854,7 +932,9 @@ export function BankStatementImport({
     void fetch("/api/cash/statements/suggestions")
       .then((response) => (response.ok ? response.json() : null))
       .then((data: (ImportContext & { error?: string }) | null) => {
-        if (data && !data.error) setMatchContext(data);
+        if (!data || data.error) return;
+        setMatchContext(data);
+        applyInvoiceHintsRef.current(data.invoiceAccountHints);
       })
       .catch(() => {});
   }, []);
@@ -1278,6 +1358,7 @@ export function BankStatementImport({
       .then((data: (ImportContext & { error?: string }) | null) => {
         if (!data || data.error) return;
         setMatchContext(data);
+        applyInvoiceHintsRef.current(data.invoiceAccountHints);
         // «Шууд бөглөх» дүрэм уншигдмагц хэрэгжинэ — хэрэглэгч
         // хадгалахаас өмнө хянаж засна (§9). Аль хэдийн бөглөгдсөн
         // (хэрэглэгчийн засварласан) талыг дарж бичихгүй.
@@ -1518,7 +1599,9 @@ export function BankStatementImport({
     void fetch("/api/cash/statements/suggestions")
       .then((response) => (response.ok ? response.json() : null))
       .then((data: (ImportContext & { error?: string }) | null) => {
-        if (data && !data.error) setMatchContext(data);
+        if (!data || data.error) return;
+        setMatchContext(data);
+        applyInvoiceHintsRef.current(data.invoiceAccountHints);
       })
       .catch(() => {});
     feedback.saved(
@@ -1945,6 +2028,15 @@ export function BankStatementImport({
             <Button
               variant="ghost"
               size="icon"
+              title="Бичилт харах — сонгосон (эсвэл бүх) мөр хадгалагдахад үүсэх журнал"
+              aria-label="Бичилтийн урьдчилсан харагдац"
+              onClick={openPreview}
+            >
+              <Icon name="journal" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               title="Сонгосон мөрөөс дүрэм үүсгэх"
               aria-label="Мөрөөс дүрэм үүсгэх"
               onClick={createRuleFromSelection}
@@ -2055,6 +2147,19 @@ export function BankStatementImport({
           />
         </section>
       )}
+
+      <BankRowPreviewDialog
+        open={previewRows !== null}
+        onOpenChange={(open) => !open && setPreviewRows(null)}
+        rows={previewRows ?? []}
+        context={previewContext}
+        accountName={accountNameOf}
+        scopeLabel={
+          previewRows && previewRows.length !== rows.length
+            ? `Сонгосон ${previewRows.length} мөрийг`
+            : `Бүх ${rows.length} мөрийг`
+        }
+      />
 
       {/* Импортын мөрүүдийн drill — undo зам: мөр → кассын баримт → Буцаах */}
       <Dialog
