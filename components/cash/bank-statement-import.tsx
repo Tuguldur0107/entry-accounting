@@ -35,7 +35,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { FilterChips, PageTabs } from "@/components/ui/tabs";
+import { PageTabs } from "@/components/ui/tabs";
 import {
   Dropdown,
   DropdownItem,
@@ -296,10 +296,7 @@ export function BankStatementImport({
   const [advanceSettings, setAdvanceSettings] = useState<AdvanceSettingsView | null>(null);
 
   const cashAccount = accounts.find((account) => account.id === cashAccountId);
-  const [triageFilter, setTriageFilter] = useState<
-    "all" | "ready" | "suggested" | "missing"
-  >("all");
-  // Мөрийн triage төлөв: бэлэн = данс бүрэн + (валюттай бол) ханш/MNT дүн.
+  // Мөр бэлэн эсэх: данс бүрэн + (валюттай бол) ханш/MNT дүн.
   const rowReady = useCallback(
     (row: ParsedBankStatementRow) =>
       isCompleteAccountCode(
@@ -869,29 +866,6 @@ export function BankStatementImport({
     setRulesOpen(true);
   }, [activeSegIds, segmentOptions]);
 
-  const triageCounts = useMemo(() => {
-    let ready = 0;
-    let suggested = 0;
-    let missing = 0;
-    for (const row of rows) {
-      if (rowReady(row)) ready += 1;
-      else if (allSuggestions[row.id]?.length) suggested += 1;
-      else missing += 1;
-    }
-    return { ready, suggested, missing };
-  }, [rows, rowReady, allSuggestions]);
-
-  const displayedRows = useMemo(() => {
-    if (triageFilter === "all") return rows;
-    return rows.filter((row) => {
-      const ready = rowReady(row);
-      if (triageFilter === "ready") return ready;
-      if (triageFilter === "suggested")
-        return !ready && (allSuggestions[row.id]?.length ?? 0) > 0;
-      return !ready && (allSuggestions[row.id]?.length ?? 0) === 0;
-    });
-  }, [rows, triageFilter, rowReady, allSuggestions]);
-
   const validationText = useCallback(
     (row: ParsedBankStatementRow | undefined) => {
       if (!row) return "";
@@ -1273,7 +1247,6 @@ export function BankStatementImport({
     // Шинэ хуулга ачаалмагц «Хянах» таб руу (өмнө нь түүх нээгдсэн байж болно).
     setView("review");
     // Өмнөх хуулгын chip шүүлт үлдвэл шинэ мөрүүд далдлагдана.
-    setTriageFilter("all");
     applyQuickFilter("");
     // Саналын лавлах дата (нээлттэй нэхэмжлэх + түүхэн загвар + П8
     // дүрмүүд) — фонд ачаална; амжилтгүй бол саналгүйгээр үргэлжилнэ.
@@ -1327,7 +1300,6 @@ export function BankStatementImport({
         return;
       }
       setCashAccountId(account.id);
-      setTriageFilter("all");
       setMatchContext(null);
       applyParsedStatement(opened.statement, account);
       feedback.saved(
@@ -1668,7 +1640,6 @@ export function BankStatementImport({
                     setCashAccountId(next);
                     setParsed(null);
                     setRows([]);
-                    setTriageFilter("all");
                     discardDraft();
                   };
                   // Хадгалаагүй хуулгатай үед данс солих нь түүнийг хаяна — асууна.
@@ -1962,30 +1933,6 @@ export function BankStatementImport({
                 ? `${selectedCount} мөр сонгосон`
                 : `${rows.length} мөр`}
             </span>
-          </div>
-
-          {/* Triage — Xero загвар: төлөвөөр шүүж, өндөр итгэлтэйг нэг товчоор */}
-          <div className="flex flex-wrap items-center gap-2">
-            <FilterChips
-              options={[
-                { value: "all", label: "Бүгд", count: rows.length },
-                { value: "ready", label: "Бэлэн", count: triageCounts.ready },
-                {
-                  value: "suggested",
-                  label: "Саналтай",
-                  count: triageCounts.suggested,
-                  tone: "warning",
-                },
-                {
-                  value: "missing",
-                  label: "Данс дутуу",
-                  count: triageCounts.missing,
-                  tone: "warning",
-                },
-              ]}
-              value={triageFilter}
-              onChange={setTriageFilter}
-            />
             {highConfidencePending.length > 0 && (
               <Button
                 size="sm"
@@ -2001,7 +1948,7 @@ export function BankStatementImport({
 
           <DataGridDynamic<ParsedBankStatementRow>
             ref={gridRef}
-            rowData={displayedRows}
+            rowData={rows}
             columnDefs={columnDefs}
             getRowId={(params) => params.data.id}
             height="flex"
