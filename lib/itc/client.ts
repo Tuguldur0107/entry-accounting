@@ -87,7 +87,7 @@ export async function fetchItcToken(
   credentials: { username: string; password: string },
   clientId: string = ITC_CLIENT_IDS.ebarimtTpi
 ): Promise<ItcToken> {
-  const { body } = await request<unknown>(
+  const { status, body } = await request<unknown>(
     itcAuthTokenUrl(env),
     {
       method: "POST",
@@ -96,7 +96,26 @@ export async function fetchItcToken(
     },
     ITC_TOKEN_TIMEOUT_MS
   );
+  assertKeycloakReply(env, status, body);
   return parseItcTokenResponse(body);
+}
+
+/**
+ * Keycloak JSON-оор хариулаагүй (HTML, прокси/гео-хориг) бол «access_token алга»
+ * гэсэн ойлгомжгүй мессежийн оронд HTTP код + бодит шалтгааныг ил хэлнэ.
+ * auth.itc.gov.mn / st.auth.itc.gov.mn нь ЗӨВХӨН Монголын IP-ээс (docs/integrations/00 §3).
+ */
+function assertKeycloakReply(env: ItcEnvironment, status: number, body: unknown): void {
+  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  if ("access_token" in record || "error" in record) return;
+  const proxy = process.env.ITC_AUTH_BASE?.trim();
+  throw new ItcError(
+    ITC_ERRORS.network,
+    `ITC-ийн нэвтрэлтийн сервер (${env === "staging" ? "туршилтын" : "бодит"} орчин) Keycloak-ийн хариу өгсөнгүй (HTTP ${status})` +
+      (proxy
+        ? ` — ITC_AUTH_BASE прокси (${proxy}) зөв ажиллаж буйг шалгана`
+        : " — auth.itc.gov.mn зөвхөн Монголын IP-ээс хандагддаг; гадаад серверт ITC_AUTH_BASE (Монголд байрлах прокси) тохируулна")
+  );
 }
 
 /** Refresh token-оор сунгах. */

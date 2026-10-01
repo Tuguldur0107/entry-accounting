@@ -194,7 +194,7 @@ export function ebarimtReadiness(input: EbarimtReadinessInput): EbarimtReadiness
     const invoiceReady = isKnownEbarimtPaymentCode(invoiceCode) && /^\d{6,20}$/.test((input.invoice?.bankAccountNo ?? "").replace(/[\s-]/g, ""));
     if (!invoiceReady)
       warnings.push(
-        `«${creditMethods.map((method) => method.name).join("», «")}» борлуулалт eBarimt-д НЭХЭМЖЛЭХ болж явна — POS тохиргоо → eBarimt → Нэхэмжлэх: төлбөрийн код ба ТЕГ-д бүртгэлтэй банкны данс тохируулаагүй бол тэр борлуулалтын eBarimt «Алдаатай» болно`
+        `«${creditMethods.map((method) => method.name).join("», «")}» борлуулалт eBarimt-д НЭХЭМЖЛЭХ болж явна — нэхэмжлэхийн төлбөрийн код сонгоогүй, эсвэл ТЕГ-д бүртгэлтэй дансыг тодорхойлж чадсангүй (олон данс / PosAPI-д хүрэхгүй): POS тохиргоо → eBarimt → Нэхэмжлэх`
       );
     if (input.mode === "browser")
       warnings.push(

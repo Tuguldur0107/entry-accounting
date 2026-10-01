@@ -367,7 +367,9 @@ POS `docs/pos/00-proposal.md` → `01-implementation-contract.md` (функци�
   (`bankAccountNo`) ЗААВАЛ, төлбөр АЛБАН код PAID (`PAY`/«INVOICE» ХЭРЭГЛЭХГҮЙ — спек 3.0.1);
   кассын төлөлт бүр → `invoiceId`-тай *_RECEIPT (`kind "payment"`, сканнер, settlement бүрд
   НЭГ, эх нэхэмжлэхийн ДДТД хөндөгдөхгүй); кредит нэхэмжлэл Q5-ын хариугүйгээр ИЛГЭЭХГҮЙ;
-  POS «Зээлээр» = мөн НЭХЭМЖЛЭХ (`withCreditInvoice` — нэхэмжлэхийн код + данс, PAID) ба
+  POS «Зээлээр» = мөн НЭХЭМЖЛЭХ (`withCreditInvoice` — нэхэмжлэхийн код + данс, PAID; данс нь
+  `resolveInvoiceBank`: тохиргоо → ТЕГ-д бүртгэлтэй ГАНЦ данс → компанийн үндсэн данс, ТЕГ-д
+  бүртгэлгүй данс ХЭЗЭЭ Ч үгүй) ба
   төлөлт бүр *_RECEIPT; `payments[].status` ЗӨВХӨН `PAID`; PosAPI хариу ЗӨВХӨН `SUCCESS`
   амжилт (`PAYMENT` = бүрэн бус баримт — «Алдаатай»);
   ТЕГ ↔ Entry нэхэмжлэхийн үлдэгдлийн тулгалт (`docs/dev/ebarimt-tax-reconcile.md`): TPI-ээс

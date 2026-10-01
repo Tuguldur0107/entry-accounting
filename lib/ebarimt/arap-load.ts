@@ -12,6 +12,7 @@ import { loadVatSettings } from "@/lib/vat/settings";
 
 import { EBARIMT_ERRORS } from "./constants";
 import { arapInvoiceToEbarimtInput } from "./arap-receipt";
+import { resolveInvoiceBank } from "./invoice-bank";
 import { categoryClassificationMap } from "./readiness";
 import { EbarimtError } from "./receipt";
 import type { EbarimtSaleInput } from "./types";
@@ -64,6 +65,10 @@ export async function loadArapInvoiceForEbarimt(
     : [];
   const categoryClassification = categoryClassificationMap(categories);
 
+  // Данс: тохиргоо эсвэл ТЕГ-д бүртгэлтэй ганц данс (POS «Зээлээр»-тэй НЭГ эх).
+  const bank = await resolveInvoiceBank(settingsRow);
+  if (!bank.ok) throw new EbarimtError(EBARIMT_ERRORS.settings, bank.reason);
+
   return arapInvoiceToEbarimtInput(
     {
       id: doc.id,
@@ -100,8 +105,8 @@ export async function loadArapInvoiceForEbarimt(
       isVatPayer: vat.isVatPayer,
       outputVatAccount: vat.outputVatAccountNumber ?? null,
       paymentCode: settingsRow.ebarimtArapPaymentCode,
-      bankAccountNo: settingsRow.ebarimtArapBankAccountNo,
-      iBan: settingsRow.ebarimtArapIban || null,
+      bankAccountNo: bank.bankAccountNo,
+      iBan: bank.iBan,
       defaultClassificationCode: settingsRow.ebarimtArapClassificationCode,
       accountClassificationCodes: settingsRow.ebarimtArapAccountCodes ?? {},
     }
