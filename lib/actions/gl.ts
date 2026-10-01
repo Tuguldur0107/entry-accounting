@@ -1,5 +1,6 @@
 "use server";
 
+import { stateChangedError } from "@/lib/state-guard";
 import { db } from "@/lib/db";
 import {
   arApDocuments,
@@ -1312,13 +1313,23 @@ async function updateVoucherCore(
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
     await assertPeriodOpenInTx(tx, orgId, data.date);
-    const existing = await tx.query.journalVouchers.findFirst({
-      where: and(
-        eq(journalVouchers.id, id),
-        eq(journalVouchers.organizationId, orgId)
-      ),
-      columns: { status: true, documentNo: true, externalRef: true },
-    });
+    // Мөрийг ТҮГЖИНЭ (C4): мөрүүдийг устгаж дахин бичих зуур зэрэгцээ
+    // postVoucher батлаад, энэ засвар батлагдсан журналыг ноорог болгож
+    // дарж бичихээс сэргийлнэ — post-ийн claim энэ транзакцийг хүлээнэ.
+    const [existing] = await tx
+      .select({
+        status: journalVouchers.status,
+        documentNo: journalVouchers.documentNo,
+        externalRef: journalVouchers.externalRef,
+      })
+      .from(journalVouchers)
+      .where(
+        and(
+          eq(journalVouchers.id, id),
+          eq(journalVouchers.organizationId, orgId)
+        )
+      )
+      .for("update");
     if (!existing) throw new Error("Бичилт олдсонгүй");
     if (existing.status !== "draft")
       throw new Error("Зөвхөн ноорог журналыг засах боломжтой");
@@ -1358,7 +1369,7 @@ async function updateVoucherCore(
       }))
     );
 
-    await tx
+    const [written] = await tx
       .update(journalVouchers)
       .set({
         date: data.date,
@@ -1372,9 +1383,12 @@ async function updateVoucherCore(
       .where(
         and(
           eq(journalVouchers.id, id),
-          eq(journalVouchers.organizationId, orgId)
+          eq(journalVouchers.organizationId, orgId),
+          eq(journalVouchers.status, "draft")
         )
-      );
+      )
+      .returning({ id: journalVouchers.id });
+    if (!written) throw stateChangedError("Журнал");
   });
 
   // Засварын формоос шууд post хийхэд ч subledger sync-үүд ажиллана —

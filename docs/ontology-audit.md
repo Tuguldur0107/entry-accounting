@@ -291,8 +291,8 @@ Severity: **C** = өгөгдөл/дэвтэр эвдэрнэ, **H** = мөнгө
 | C1 | **C → шийдвэрлэгдсэн 2026-10-01** | ✅ Product owner: нээлттэй үед батлагдсан баримтыг устгаж БОЛНО (аудитын мөр үлдэнэ) — eBarimt-д бүртгэгдсэн, QPay төлбөрийн баримтыг устгах цоорхой хаагдсан, үеийн шалгалт транзакц дотор (`docs/dev/arap.md` §5k). Анхны тодорхойлолт: AI «алдаатай нэхэмжлэхийг засъя» гээд `delete_arap_document` дуудаж, дахин `create`. Кассын баримтад мөн адил. | Батлагдсан баримт болон журнал нь **ул мөргүй устна**. Хаалттай биш өмнөх сард ч ажилладаг бөгөөд үеийн тайлан өөрчлөгдөнө. Зөвхөн аудитын бичлэг үлдэнэ. | arap.ts:2090-2174, cash.ts:1552-1646, T:7218, T:5001 |
 | C2 | **C → засагдсан 2026-10-01** | ✅ DB trigger + `journal_lines_dr_xor_cr` deploy бүрд тавигдана (`scripts/apply-ledger-invariants.mjs`, §7.4); CI-ийн DB тестүүд хамгаалалттай ажиллана. Анх: модуль эсвэл fork-ийн custom код тэнцээгүй журнал бичиж болох байсан. | `scripts/lib/ledger-invariants.mjs`, `tests/ledger-invariants.test.ts` |
 | C3 | **C → засагдсан 2026-10-01** | ✅ `reverse_fa_depreciation` — журнал бүхэлдээ нэг tx-д буцаж, бичилтүүд хамт `reversed` (`reverseDepreciationVouchersInTx`). `reverse_cost_entry` — зөвхөн өөрийн мөрийг сторно хийж, журнал СҮҮЛИЙН идэвхтэй бичилт буцахад л `reversed`; хуучин «reversed» журналын үлдсэн бичилт буцна, GL-ээс бүтэн буцаасан журналд татгалзана; `reverseCostAllocation` алдааг залгихгүй. Тест `tests/fa-fx-tool-regressions.test.ts`, `tests/cost-entry-reversal.test.ts` | Анх: GL журнал буцаагдсан ч дэд дэвтэр `posted`, эсвэл нэг мөрийг буцаахад бүх журнал `reversed` → дараагийн бичилт гацна. | fa.ts, costing.ts `reverseCostEntryCore`, cost-allocation.ts |
-| C4 | **C** | AI `update_journal_voucher` ба `post_journal_voucher`-ийг зэрэг дуудна (MCP клиент tool-уудыг параллель дуудах боломжтой) | Батлагдсан журналыг ноорог/шинэ мөрөөр дарж бичнэ | gl.ts:1361-1377, arap.ts:2403, cash.ts:2412 |
-| H1 | H | `run_fx_revaluation` → алдаа гарна → AI «амжилттай» гэж хэрэглэгчид хэлнэ → сар хаана | Ханшийн тэгшитгэлгүй хаалт хийгдэж, тайлан буруу гарна | T:9141 |
+| C4 | **C → засагдсан 2026-10-01** | ✅ Засах/устгах/батлах бичилт уншсан төлөвтөө нөхцөлтэй (`lib/state-guard.ts`: `WHERE status = … AND <түлхүүр талбар өөрчлөгдөөгүй> RETURNING`, 0 мөр → `[STATE_CHANGED]`); журналын засвар мөрийг `FOR UPDATE` түгжинэ; АР/АП, кассын батлалт транзакцаас гадна уншсан дүн/мөрөө claim-д тулгана (`tests/concurrent-state-guards.test.ts` — 8 уралдаан, засваргүй кодод бүгд унасан). Анхны тодорхойлолт: AI `update_journal_voucher` ба `post_journal_voucher`-ийг зэрэг дуудна (MCP клиент tool-уудыг параллель дуудах боломжтой) | Батлагдсан журналыг ноорог/шинэ мөрөөр дарж бичнэ | gl.ts:1361-1377, arap.ts:2403, cash.ts:2412 |
+| H1 | **H → засагдсан** | ✅ `unwrapAction` (`tests/fa-fx-tool-regressions.test.ts`). Анхны тодорхойлолт: `run_fx_revaluation` → алдаа гарна → AI «амжилттай» гэж хэрэглэгчид хэлнэ → сар хаана | Ханшийн тэгшитгэлгүй хаалт хийгдэж, тайлан буруу гарна | T:9141 |
 | H2 | **H → засагдсан 2026-10-01** | Сүлжээний timeout болоход AI `pay_arap_document` / `create_pos_sale`-ийг дахин дуудна | **Давхар төлбөр/борлуулалт** | §4.2 externalRef-гүй tool-ууд |
 | H3 | H → ✅ засагдсан 2026-10-01 | AI хуучин журналыг дугаараар нь олж чадахгүй тул «олдсонгүй» гэдгийг «байхгүй» гэж ойлгоод шинээр үүсгэнэ | Давхар бичилт | T:4880 (500-ийн хязгаар) |
 | H4 | **H → засагдсан 2026-10-01** | Хэрэглэгч «хуулгаа оруул» гэхэд AI `import_bank_statement` дуудна | Олон зуун журнал хязгааргүй, InTx lock-гүй батлагдана. Сар хаалттай зэрэгцвэл хаалттай үед бичигдэж болно. | import-statement.ts:60, 168 |
@@ -825,8 +825,8 @@ V01/V02-оор урьдчилан шалгаж зөрчилтэй бол тух�
 
 ### 8.2 Quick wins (ontology-оос өмнө, 1–2 долоо хоног)
 
-1. `run_fx_revaluation` / `reverse_fx_revaluation`-д `unwrapAction` нэмэх (T:9141, 9203). **~1 цаг.**
-2. Update/delete замуудад `status` predicate нэмэх:
+1. ✅ `run_fx_revaluation` / `reverse_fx_revaluation`-д `unwrapAction` нэмэх (T:9141, 9203). **~1 цаг.**
+2. ✅ (2026-10-01, C4) Update/delete замуудад `status` predicate нэмэх:
    - update: gl.ts:1361, arap.ts:2403, cash.ts:2412;
    - delete: arap.ts:2186, cash.ts:1535, inventory.ts:1369, fa.ts:539/895, costing.ts:650/690.
    

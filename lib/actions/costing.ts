@@ -1,5 +1,6 @@
 "use server";
 
+import { stateChangedError } from "@/lib/state-guard";
 import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -647,9 +648,12 @@ async function deleteCostEntryCore(id: string) {
     entry.entryType === "nrv_writedown" ||
     entry.entryType === "nrv_reversal"
   ) {
-    await db
+    // Ноорог хэвээр үед л (C4) — зэрэгцээ батлалтын журнал GL-д өнчин үлдэхгүй.
+    const [removedNrv] = await db
       .delete(costEntries)
-      .where(and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)));
+      .where(and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId), eq(costEntries.status, "draft")))
+      .returning({ id: costEntries.id });
+    if (!removedNrv) throw stateChangedError("Өртгийн бичилт");
     await logAuditEvent({
       userId,
       organizationId: orgId,
@@ -687,9 +691,11 @@ async function deleteCostEntryCore(id: string) {
       "Энэ барааны хожмын бичилтүүд энэ үнэлгээнээс хамаарна — эхлээд тэдгээрийг устгаж/буцаана үү"
     );
 
-  await db
+  const [removed] = await db
     .delete(costEntries)
-    .where(and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)));
+    .where(and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId), eq(costEntries.status, "draft")))
+    .returning({ id: costEntries.id });
+  if (!removed) throw stateChangedError("Өртгийн бичилт");
   await logAuditEvent({
     userId,
     organizationId: orgId,

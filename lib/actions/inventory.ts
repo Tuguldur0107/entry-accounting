@@ -1,5 +1,6 @@
 "use server";
 
+import { stateChangedError } from "@/lib/state-guard";
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
@@ -1392,11 +1393,19 @@ async function deleteInventoryMovementCore(id: string) {
         and(eq(costEntries.organizationId, orgId), eq(costEntries.movementId, id))
       );
 
-    await tx
+    // Уншсан төлөвтэй ИЖИЛ үед л (C4): ноорог гэж уншсан хөдөлгөөнийг
+    // хооронд нь баталгаажуулсан бол өртөг/үлдэгдлийн шалгалтгүй устгахгүй.
+    const [removed] = await tx
       .delete(inventoryMovements)
       .where(
-        and(eq(inventoryMovements.id, id), eq(inventoryMovements.organizationId, orgId))
-      );
+        and(
+          eq(inventoryMovements.id, id),
+          eq(inventoryMovements.organizationId, orgId),
+          eq(inventoryMovements.status, movement.status)
+        )
+      )
+      .returning({ id: inventoryMovements.id });
+    if (!removed) throw stateChangedError("Бараа хөдөлгөөн");
     await logAuditEvent(
       {
         userId,
