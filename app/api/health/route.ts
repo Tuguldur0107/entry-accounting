@@ -9,11 +9,13 @@ import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { deploymentMode } from "@/lib/deployment-mode";
 import { APP_VERSION, GIT_SHA } from "@/lib/version";
 import { gatewayAuthConfigured, serverGatewayEnv } from "@/lib/ebarimt/gateway-auth";
+import { ledgerGuardStatus } from "@/lib/db/ledger-guard-status";
 
 export const dynamic = "force-dynamic";
 
 // Railway healthcheck + fork/deploy-ийн хувилбар шалгах цэг (нэвтрэлтгүй,
-// нууцгүй): { ok, version, sha, license, ebarimt, qpay, knowledge, aiLog }.
+// нууцгүй): { ok, version, sha, license, ebarimt, qpay, knowledge, aiLog, ledger }.
+// ledger — журналын DB хамгаалалт (trigger, Дт xor Кт) тавигдсан эсэх (scripts/apply-ledger-invariants.mjs).
 // license.reason нь хэрэглэгчид харуулах ерөнхий текст — нууц агуулаагүй. ebarimt нь Entry Console-ийн
 // хяналтад (docs/pos/03 §3.1): зөвхөн тоолуур — ТТД, нууц байхгүй.
 async function ebarimtHealth() {
@@ -93,12 +95,13 @@ export async function GET() {
     const ebarimt = await ebarimtHealth();
     // aiLog — ML сургалтын шошготой бүртгэл хуримтлагдаж буй эсэх (зөвхөн тоо,
     // docs/ai-logging.md §11).
-    const [qpay, knowledge, aiLog] = await Promise.all([
+    const [qpay, knowledge, aiLog, ledger] = await Promise.all([
       qpayHealth(),
       knowledgeHealth(),
       aiLoggingHealthStats(),
+      ledgerGuardStatus(),
     ]);
-    return NextResponse.json({ ok: true, ...meta, ebarimt, qpay, knowledge, aiLog });
+    return NextResponse.json({ ok: true, ...meta, ebarimt, qpay, knowledge, aiLog, ledger });
   } catch (err) {
     return NextResponse.json(
       { ok: false, ...meta, error: err instanceof Error ? err.message : String(err) },

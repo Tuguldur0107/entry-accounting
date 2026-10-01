@@ -107,6 +107,21 @@ tests/gl-currency.test.ts Хөрвүүлэлт, шингээлт, тэнцэл, 
 - **Нээлтийн журнал** (`isOpeningBalanceVoucher`: externalRef `opening-*` /
   `[ОНБ`) кассын толин баримт, барааны «(бараагүй) × 0» ноорог ҮҮСГЭХГҮЙ —
   нээлт дэд дэвтэрт тусдаа бүртгэгддэг (SIM2-011/009)
+- **DB түвшний хамгаалалт** (2026-10-01, `scripts/lib/ledger-invariants.mjs` — эх
+  НЭГ): `ea_journal_lines_balanced` + `ea_journal_vouchers_balanced` (батлагдсан /
+  буцаагдсан журнал commit үед ΣДт = ΣКт ±0.011, deferred), `ea_journal_lines_protect`
+  (батлагдсан журналын МӨРИЙГ дангаар UPDATE/DELETE хориглоно — журналыг бүтнээр нь
+  устгах cascade саадгүй), `journal_lines_dr_xor_cr` CHECK (Дт, Кт зэрэг биш). Тэмдэг
+  хязгаарлахгүй (улаан сторно). `db:predeploy` нь `drizzle-kit push`-ийн ДАРАА
+  `scripts/apply-ledger-invariants.mjs`-ээр deploy бүрд тавина — push нь схемд
+  зарлагдаагүй CHECK-ийг УСТГАДАГ тул өмнө нь тавибал алга болно. Trigger-ийг
+  ДУТУУ үед л үүсгэнэ (апп ажиллаж байх зуур deploy бүрд түгжихгүй), constraint
+  `NOT VALID` → `VALIDATE`, `lock_timeout` 15с. Зөрчилтэй DB-д (V01/V02 > 0)
+  тухайн хамгаалалтыг АЛГАСАЖ чанга анхааруулна — зөрчлийг нягтлан залруулна,
+  автоматаар нөхөхгүй. Төлөв `/api/health` → `ledger`. Батлагдсан мөрийг засах
+  шинэ зам НЭМЭХГҮЙ (ноорог байх зуур л — `postVoucherCore`-ийн валютын
+  дахин бодолт г.м.); тестийн fixture хуучин өгөгдөл дуурайхдаа
+  `set local session_replication_role = replica`. Тест `tests/ledger-invariants.test.ts`
 - Sim harness: `tests/sim/README.md` — засварын дараа `compare.py` 0 зөрүү
 
 ### 3a. Сегментийн утгын стандарт жагсаалт + компанийн автомат сегмент

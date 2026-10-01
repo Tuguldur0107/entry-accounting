@@ -665,6 +665,14 @@ drop хийхгүй), хасагдсан БАГАНЫГ утгыг нь шинэ
 preDeploy-г унагаана (#5955 — composite ба баганы түвшний аль алинд). Unique
 INDEX нь `pg_indexes`-ээс зөв танигдаж, ижил баталгаа өгнө.
 
+⚠️ **Журналын DB хамгаалалт (trigger + `journal_lines_dr_xor_cr`) deploy бүрд
+`scripts/apply-ledger-invariants.mjs`-ээр push-ийн ДАРАА тавигдана** (эх
+`scripts/lib/ledger-invariants.mjs`, `docs/dev/gl.md` §2c). push нь схемд
+зарлагдаагүй CHECK-ийг УСТГАДАГ тул тэр алхмыг push-ийн өмнө рүү ЗӨӨХГҮЙ;
+CHECK-ийг drizzle схемд НЭМЭХГҮЙ (зөрчилтэй fork DB дээр push бүхэлдээ унана).
+Батлагдсан журналын мөрийг UPDATE/DELETE хийх зам НЭМЭХГҮЙ — DB хориглоно.
+2026-10-01 хүртэл гараар тавьдаг байсан тул SmartGPS DB-д огт байгаагүй.
+
 ⚠️ **`public` схемд өргөтгөлийн view байвал push мөн унана** — схемд
 зарлагдаагүй view бүрийг DROP хийх гэж оролдоод
 `cannot drop view pg_stat_statements_info because extension … requires it`
