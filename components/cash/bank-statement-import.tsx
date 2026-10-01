@@ -65,6 +65,8 @@ import {
 } from "@/components/arap/arap-workspace";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { InvoicePickerDialog } from "@/components/cash/invoice-picker-dialog";
+import { StatementPreviewDialog } from "@/components/cash/statement-preview-dialog";
+import type { BankStatementPreview } from "@/lib/cash/statement-preview";
 import type { EntityKindOption } from "@/lib/arap/counterparty-kind";
 import {
   AdvanceSettingsDialog,
@@ -302,6 +304,8 @@ export function BankStatementImport({
   const [advanceSettings, setAdvanceSettings] = useState<AdvanceSettingsView | null>(null);
   // Нэхэмжлэх сонгох цонх — мөрийн ID.
   const [invoicePicker, setInvoicePicker] = useState<string | null>(null);
+  // Батлахаас өмнөх бичилтийн харагдац (previewBankStatement).
+  const [postingPreview, setPostingPreview] = useState<BankStatementPreview | null>(null);
 
   const cashAccount = accounts.find((account) => account.id === cashAccountId);
   // Мөр бэлэн эсэх: данс бүрэн + (валюттай бол) ханш/MNT дүн.
@@ -1557,12 +1561,34 @@ export function BankStatementImport({
     discardDraft();
   }
 
-  function saveStatement() {
+  // «Хуулга хадгалж батлах» — эхлээд бичилтийг харуулна (docs/dev/arap.md §5l):
+  // сервер ЯГ ТЭР хадгалах кодыг ажиллуулаад буцаадаг тул харсан = бичигдэх.
+  function reviewStatement() {
     if (!parsed || !cashAccount) return;
     if (totals.invalid > 0) {
       setError(`${totals.invalid} мөрийн DR/CR данс дутуу байна`);
       return;
     }
+    setError("");
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/cash/statements/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...parsed, cashAccountId: cashAccount.id, rows }),
+        });
+        const result = (await response.json()) as BankStatementPreview & { error?: string };
+        if (!response.ok || result.error)
+          throw new Error(result.error || "Бичилтийг урьдчилж бодож чадсангүй");
+        setPostingPreview(result);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Бичилтийг урьдчилж бодож чадсангүй");
+      }
+    });
+  }
+
+  function saveStatement() {
+    if (!parsed || !cashAccount) return;
     setError("");
     startTransition(async () => {
       try {
@@ -1582,12 +1608,14 @@ export function BankStatementImport({
         };
         if (!response.ok || result.error)
           throw new Error(result.error || "Хуулга хадгалж чадсангүй");
+        setPostingPreview(null);
         setParsed(null);
         setRows([]);
         setSelectedCount(0);
         discardDraft();
         router.refresh();
       } catch (caught) {
+        setPostingPreview(null);
         setError(
           caught instanceof Error ? caught.message : "Хуулга хадгалж чадсангүй"
         );
@@ -2019,7 +2047,7 @@ export function BankStatementImport({
               Хаях
             </Button>
             <Button
-              onClick={saveStatement}
+              onClick={reviewStatement}
               disabled={isPending || totals.invalid > 0}
             >
               <Icon name="approve" />
@@ -2209,6 +2237,14 @@ export function BankStatementImport({
         />
       )}
       {confirmDialog}
+      {postingPreview && (
+        <StatementPreviewDialog
+          preview={postingPreview}
+          isPending={isPending}
+          onConfirm={saveStatement}
+          onClose={() => setPostingPreview(null)}
+        />
+      )}
       {(() => {
         const pickerRow = invoicePicker ? rows.find((row) => row.id === invoicePicker) : undefined;
         if (!pickerRow) return null;
