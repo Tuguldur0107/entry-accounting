@@ -201,30 +201,12 @@ export function ArApWorkspace({
     null
   );
   function emptyCounterpartyForm() {
-    return {
-      name: "",
-      code: "",
+    return blankCounterpartyForm({
       counterpartyType: config.counterpartyType,
-      entityKind: DEFAULT_COUNTERPARTY_ENTITY_KIND as string,
-      registerNo: "",
-      tin: "",
-      defaultReceivableAccountNumber: defaultAccountNumbers.receivable
-        ? buildSegCode({ 3: defaultAccountNumbers.receivable }, activeSegIds, defaultSegments)
-        : "",
-      defaultPayableAccountNumber: defaultAccountNumbers.payable
-        ? buildSegCode({ 3: defaultAccountNumbers.payable }, activeSegIds, defaultSegments)
-        : "",
-      defaultCurrency: "MNT",
-      paymentTermsDays: "30",
-      email: "",
-      phone: "",
-      address: "",
-      contactPerson: "",
-      bankName: "",
-      bankAccountNo: "",
-      customerGroup: "",
-      creditLimit: "",
-    };
+      defaultAccountNumbers,
+      activeSegIds,
+      defaultSegments,
+    });
   }
   const [counterpartyForm, setCounterpartyForm] = useState(emptyCounterpartyForm);
   // Харилцагчийн dialog нээгдэх агшны snapshot (JSON) — хаах үед үүнтэй
@@ -608,14 +590,7 @@ export function ArApWorkspace({
     setError("");
     startTransition(async () => {
       try {
-        const payload = {
-          ...counterpartyForm,
-          paymentTermsDays: Number(counterpartyForm.paymentTermsDays) || 0,
-          creditLimit:
-            counterpartyForm.creditLimit.trim() === ""
-              ? null
-              : Number(counterpartyForm.creditLimit),
-        };
+        const payload = counterpartyPayload(counterpartyForm);
         // Server action нь алдааг УТГААР буцаана (production дээр шидсэн
         // алдаа React #441 болж нуугддаг — lib/action-result.ts).
         const result = editingCounterpartyId
@@ -1359,7 +1334,77 @@ function OffsetDialog({
   );
 }
 
-function CounterpartyDialog({
+/** Харилцагчийн формын төлөв — CounterpartyDialog ба дуудагч бүрд НЭГ хэлбэр. */
+export type CounterpartyFormState = {
+  name: string;
+  code: string;
+  counterpartyType: "customer" | "supplier" | "both";
+  /** Төрлийн код — систем эсвэл нэмсэн (kind_<n>). */
+  entityKind: string;
+  registerNo: string;
+  /** ТТД — регистрээс тусдаа; «ТЕГ-ээс лавлах» товчоор бөглөгдөнө. */
+  tin: string;
+  defaultReceivableAccountNumber: string;
+  defaultPayableAccountNumber: string;
+  defaultCurrency: string;
+  paymentTermsDays: string;
+  email: string;
+  phone: string;
+  address: string;
+  contactPerson: string;
+  bankName: string;
+  bankAccountNo: string;
+  customerGroup: string;
+  creditLimit: string;
+};
+
+/**
+ * Шинэ харилцагчийн анхны форм — АР/АП workspace ба банкны хуулгын
+ * «+ Шинэ харилцагч» (docs/dev/arap.md §5l) хоёулаа ЭНЭ НЭГ функцээр.
+ */
+export function blankCounterpartyForm(input: {
+  counterpartyType: CounterpartyFormState["counterpartyType"];
+  defaultAccountNumbers: { receivable: string; payable: string };
+  activeSegIds: number[];
+  defaultSegments: Record<number, string>;
+}): CounterpartyFormState {
+  const { defaultAccountNumbers, activeSegIds, defaultSegments } = input;
+  return {
+    name: "",
+    code: "",
+    counterpartyType: input.counterpartyType,
+    entityKind: DEFAULT_COUNTERPARTY_ENTITY_KIND as string,
+    registerNo: "",
+    tin: "",
+    defaultReceivableAccountNumber: defaultAccountNumbers.receivable
+      ? buildSegCode({ 3: defaultAccountNumbers.receivable }, activeSegIds, defaultSegments)
+      : "",
+    defaultPayableAccountNumber: defaultAccountNumbers.payable
+      ? buildSegCode({ 3: defaultAccountNumbers.payable }, activeSegIds, defaultSegments)
+      : "",
+    defaultCurrency: "MNT",
+    paymentTermsDays: "30",
+    email: "",
+    phone: "",
+    address: "",
+    contactPerson: "",
+    bankName: "",
+    bankAccountNo: "",
+    customerGroup: "",
+    creditLimit: "",
+  };
+}
+
+/** Формын утгыг createCounterparty / updateCounterparty-ийн payload болгоно. */
+export function counterpartyPayload(form: CounterpartyFormState) {
+  return {
+    ...form,
+    paymentTermsDays: Number(form.paymentTermsDays) || 0,
+    creditLimit: form.creditLimit.trim() === "" ? null : Number(form.creditLimit),
+  };
+}
+
+export function CounterpartyDialog({
   open,
   onOpenChange,
   title,
@@ -1376,29 +1421,8 @@ function CounterpartyDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  form: {
-    name: string;
-    code: string;
-    counterpartyType: "customer" | "supplier" | "both";
-    /** Төрлийн код — систем эсвэл нэмсэн (kind_<n>). */
-    entityKind: string;
-    registerNo: string;
-    /** ТТД — регистрээс тусдаа; «ТЕГ-ээс лавлах» товчоор бөглөгдөнө. */
-    tin: string;
-    defaultReceivableAccountNumber: string;
-    defaultPayableAccountNumber: string;
-    defaultCurrency: string;
-    paymentTermsDays: string;
-    email: string;
-    phone: string;
-    address: string;
-    contactPerson: string;
-    bankName: string;
-    bankAccountNo: string;
-    customerGroup: string;
-    creditLimit: string;
-  };
-  setForm: React.Dispatch<React.SetStateAction<typeof form>>;
+  form: CounterpartyFormState;
+  setForm: React.Dispatch<React.SetStateAction<CounterpartyFormState>>;
   entityKinds: EntityKindOption[];
   activeSegIds: number[];
   segmentOptions: Record<number, SegOption[]>;

@@ -219,3 +219,32 @@ test("apply_advance_to_invoice → нэхэмжлэх хаагдана; буца
   const restored = await asOrg(() => loadAdvanceBalances(orgId, { side: "customer" }));
   assert.equal(restored[0]?.balance, 1_100_000);
 });
+
+test("хадгалаагүй хуулгын ноорог: хэрэглэгч бүрд НЭГ, upsert, устгал; өөр байгууллагын данс хориотой", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const { deleteStatementDraft, loadStatementDraft, saveStatementDraft } = await import("../lib/cash/statement-draft");
+  const account = await db.query.cashAccounts.findFirst({
+    where: (table, { and: both, eq: equals }) => both(equals(table.organizationId, orgId), equals(table.name, "Голомт банк")),
+    columns: { id: true },
+  });
+  assert.ok(account);
+  const row = {
+    id: "r1", rowNumber: 1, transactionDate: "2026-09-20", description: "Түрээс", counterparty: "Түрээслүүлэгч ХХК",
+    counterAccount: "", income: 0, expense: 50_000, exchangeRate: 1, baseAmount: 50_000,
+    debitAccountNumber: "", creditAccountNumber: "", rowAction: "prepaid_paid" as const, rawData: {},
+  };
+  const statement = { fileName: "test.csv", fileHash: "h", bankName: "Голомт", periodStart: "2026-09-20", periodEnd: "2026-09-20", rows: [row] };
+  await saveStatementDraft({ orgId, userId, cashAccountId: account.id, statement, rows: [row] });
+  await saveStatementDraft({ orgId, userId, cashAccountId: account.id, statement, rows: [{ ...row, description: "Түрээс (засвар)" }] });
+  const loaded = await loadStatementDraft(orgId, userId);
+  assert.equal(loaded?.rows.length, 1);
+  assert.equal(loaded?.rows[0].description, "Түрээс (засвар)");
+  assert.equal(loaded?.rows[0].rowAction, "prepaid_paid");
+  assert.deepEqual(loaded?.statement.rows, []); // эх мөрүүдийг давхар хадгалахгүй
+  await assert.rejects(
+    saveStatementDraft({ orgId, userId, cashAccountId: "00000000-0000-0000-0000-000000000000", statement, rows: [row] }),
+    /банкны данс олдсонгүй/
+  );
+  await deleteStatementDraft(orgId, userId);
+  assert.equal(await loadStatementDraft(orgId, userId), null);
+});

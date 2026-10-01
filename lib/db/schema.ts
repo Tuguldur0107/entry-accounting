@@ -1082,6 +1082,34 @@ export const bankApiConnections = pgTable(
   ]
 );
 
+// Хянаж буй (ХАДГАЛААГҮЙ) банкны хуулгын ноорог — хэрэглэгч бүрд НЭГ.
+// Файл / Голомтоос татсан хуулга, түүн дээрх данс оноолт, бүртгэлийн сонголт
+// хуудаснаас гарахад алга болохгүй (docs/dev/arap.md §5l). GL-д ХЭЗЭЭ Ч
+// бичигдэхгүй — «Хадгалах» (saveBankStatement) амжилттай болмогц устна.
+export const bankStatementDrafts = pgTable(
+  "bank_statement_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cashAccountId: uuid("cash_account_id")
+      .notNull()
+      .references(() => cashAccounts.id, { onDelete: "cascade" }),
+    /** Эх хуулга (ParsedBankStatement — parse / Голомтоос ирсэн хэлбэр). */
+    statement: jsonb("statement").notNull(),
+    /** Хэрэглэгчийн засварласан мөрүүд (данс, харилцагч, бүртгэл, нэхэмжлэх). */
+    rows: jsonb("rows").notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("bank_statement_drafts_org_user_ux").on(table.organizationId, table.userId),
+  ]
+);
+
 // Банкны API-аас АВТОМАТААР татсан, хянагдаагүй хуулга (docs/dev/bank-api.md §7).
 // `statement` нь ParsedBankStatement (файлын импорттой ижил хэлбэр) — «Хянах»
 // дарахад импортын хүснэгтэд ачаалагдаж, ердийн saveBankStatement-ээр л GL-д
