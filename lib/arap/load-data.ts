@@ -10,6 +10,8 @@ import { activeInvoiceLinkUrl } from "@/lib/arap/invoice-link";
 import { qrSvgPath } from "@/lib/qr/matrix";
 import { loadArapPaymentEbarimt } from "@/lib/ebarimt/queue";
 import { EBARIMT_POS_CREDIT_PAYMENTS_SINCE } from "@/lib/ebarimt/constants";
+import { loadEbarimtTaxChecks } from "@/lib/ebarimt/tax-sync";
+import type { EbarimtTaxCheckRow } from "@/lib/ebarimt/tax-reconcile";
 import type { ArapPaymentEbarimtRow } from "@/lib/ebarimt/types";
 import { loadEntityKinds } from "@/lib/arap/entity-kinds";
 import {
@@ -105,6 +107,10 @@ export type ArApDocumentDetail = ArApDocumentView & {
      * дахин илгээх нь POS панелиас (энд зөвхөн төлөлтийн баримт).
      */
     posSourced: boolean;
+    /** ТЕГ-ийн TPI тулгалт (холболттой, нэхэмжлэх ТЕГ-д бүртгэлтэй үед) — үлдэгдэл, шалтгаан. */
+    taxCheck: EbarimtTaxCheckRow | null;
+    /** ТЕГ-ээс сүүлд амжилттай татсан мөч (ISO). */
+    taxSyncedAt: string | null;
   } | null;
   /**
    * АР нэхэмжлэхийн ХҮЧИНТЭЙ нийтийн линк (хэвлэх хуудасны QR) — линк үүсгээгүй
@@ -455,6 +461,12 @@ export async function loadArApDocumentDetail(
         })
       : null;
   const posInvoice = posSale?.ebarimtStatus && posSale.ebarimtType?.endsWith("_INVOICE") ? posSale : null;
+  const taxChecks =
+    row.ebarimtStatus === "sent" || posInvoice?.ebarimtStatus === "sent"
+      ? await loadEbarimtTaxChecks(orgId, { documentId })
+      : null;
+  const taxCheck = taxChecks?.rows[0] ?? null;
+  const taxSyncedAt = taxChecks?.connection?.lastSyncOkAt ?? null;
   const paymentEbarimt =
     row.ebarimtStatus === "sent"
       ? await loadArapPaymentEbarimt(orgId, documentId)
@@ -475,6 +487,8 @@ export async function loadArApDocumentDetail(
           payments: paymentEbarimt.payments,
           unqueuedPayments: paymentEbarimt.unqueued,
           posSourced: false,
+          taxCheck,
+          taxSyncedAt,
         }
       : posInvoice
         ? {
@@ -486,6 +500,8 @@ export async function loadArApDocumentDetail(
             payments: paymentEbarimt.payments,
             unqueuedPayments: paymentEbarimt.unqueued,
             posSourced: true,
+            taxCheck,
+            taxSyncedAt,
           }
         : null,
     purchaseOrderNo: row.purchaseOrder?.documentNo ?? null,

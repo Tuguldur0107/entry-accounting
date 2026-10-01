@@ -50,6 +50,19 @@ export const EBARIMT_STATUS_TONES: Record<string, StatusTone> = {
   skipped: "warning",
 };
 
+/** ТЕГ ↔ Entry нэхэмжлэхийн үлдэгдлийн тулгалт (lib/ebarimt/tax-reconcile.ts EBARIMT_TAX_CHECKS). */
+export const EBARIMT_TAX_CHECK_TONES: Record<string, StatusTone> = {
+  ok: "success",
+  pending: "muted",
+  tax_extra: "danger",
+  tax_missing_payment: "danger",
+  entry_unreported: "warning",
+  entry_reversed: "danger",
+  total_mismatch: "danger",
+  tax_missing_invoice: "danger",
+  not_synced: "muted",
+};
+
 /** Давтамжтай нэхэмжлэхийн төлөвийн өнгө (lib/arap/recurring RECURRING_STATUS_LABELS). */
 export const RECURRING_STATUS_TONES: Record<string, StatusTone> = {
   active: "success",

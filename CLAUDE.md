@@ -29,7 +29,7 @@
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 | Landing-ийн чат (entry.mn) — нийтийн өрөө + зочин ↔ Entry баг хувийн яриа, Telegram-аар хариулах, модерац, «AI туслах» (борлуулалтын өмнөх мэдээлэл, §9f) | ✅ backend (widget `entry-landing`-д) | SSE realtime |
 | Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1–2 (агуулга хувийн `entry-knowledge` repo-д) | dedicated харилцагчид лицензээр sync |
-| Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
+| Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ eBarimt TPI-ээр нэхэмжлэхийн үлдэгдлийн автомат тулгалт (`docs/dev/ebarimt-tax-reconcile.md`, staging баталгаажуулалт хүлээгдэж буй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
 
 ## Файлын бүтэц
 
@@ -365,6 +365,9 @@ POS `docs/pos/00-proposal.md` → `01-implementation-contract.md` (функци�
   POS «Зээлээр» = мөн НЭХЭМЖЛЭХ (`withCreditInvoice` — нэхэмжлэхийн код + данс, PAID) ба
   төлөлт бүр *_RECEIPT; `payments[].status` ЗӨВХӨН `PAID`; PosAPI хариу ЗӨВХӨН `SUCCESS`
   амжилт (`PAYMENT` = бүрэн бус баримт — «Алдаатай»);
+  ТЕГ ↔ Entry нэхэмжлэхийн үлдэгдлийн тулгалт (`docs/dev/ebarimt-tax-reconcile.md`): TPI-ээс
+  ЗӨВХӨН унших, өдөр бүр автомат (Excel/гар татлага БИШ), нууц шифртэй write-only, дүн
+  ЗОХИОХГҮЙ / автоматаар засахгүй — зөрүү (порталд гараар нэмсэн төлөлт г.м.) «Анхаарах»-д ил;
   ТЕГ/ITC-д хүрэх ажлууд `docs/deployment/mongolia-network-runbook.md`
 
 **QPay Quick QR**

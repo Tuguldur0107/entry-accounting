@@ -4,17 +4,40 @@
 // 20 сек тутам: хугацаа нь болсон pending submission-уудыг PosAPI руу илгээнэ
 // (server горимтой байгууллагууд). Өдөр бүр 23:30 УБ-аас хойш нэг удаа
 // `sendData` (PosAPI-ийн дотоод санд үлдсэнийг ТЕГ рүү). 10 минут гацсан
-// claimed мөрүүдийг чөлөөлнө. Унтраах: EBARIMT_WORKER=off.
+// claimed мөрүүдийг чөлөөлнө. 10 мин тутам ТЕГ-ийн TPI-ээс нэхэмжлэхийн
+// үлдэгдэл татах хугацаа болсон байгууллагыг шалгана (өдөрт нэг, 06:00 УБ-аас;
+// анхны нөхөлт үргэлжилж байвал 10 мин тутам — tax-reconcile.ts isTaxSyncDue).
+// Унтраах: EBARIMT_WORKER=off.
 
+import { runDueEbarimtTaxSyncs } from "./tax-sync";
 import { processPendingEbarimt, releaseStaleClaims, runEbarimtSendData } from "./worker";
 
 const TICK_MS = 20 * 1000;
 const FIRST_TICK_DELAY_MS = 45 * 1000;
 const SEND_DATA_HOUR_UB = 23;
 const SEND_DATA_MINUTE_UB = 30;
+const TAX_SYNC_CHECK_MS = 10 * 60 * 1000;
 
 let started = false;
 let sendDataDoneFor = "";
+let taxSyncCheckedAt = 0;
+let taxSyncRunning = false;
+
+/** ТЕГ-ийн TPI татлага — урт (≤31 өдөр × хуудас) тул тикийг БЛОКЛОХГҮЙ, давхар эхлэхгүй. */
+function maybeRunTaxSync(): void {
+  const now = Date.now();
+  if (taxSyncRunning || now - taxSyncCheckedAt < TAX_SYNC_CHECK_MS) return;
+  taxSyncCheckedAt = now;
+  taxSyncRunning = true;
+  void runDueEbarimtTaxSyncs()
+    .then((result) => {
+      if (result.synced > 0) console.log(`[ebarimt] ТЕГ-ийн TPI татлага: ${result.synced} байгууллага`);
+      for (const error of result.errors) console.error("[ebarimt] TPI", error);
+    })
+    .finally(() => {
+      taxSyncRunning = false;
+    });
+}
 
 function ulaanbaatarParts(now = new Date()): { date: string; hour: number; minute: number } {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -44,6 +67,7 @@ export async function ebarimtTick(): Promise<void> {
       if (sent.organizations > 0) console.log(`[ebarimt] sendData: ${sent.organizations} байгууллага, ${sent.errors.length} алдаа`);
       for (const error of sent.errors) console.error("[ebarimt] sendData", error);
     }
+    maybeRunTaxSync();
   } catch (error) {
     console.error("[ebarimt] ticker:", error);
   }

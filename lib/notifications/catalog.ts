@@ -243,6 +243,22 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  // ТЕГ-ийн TPI-ээс татсан нэхэмжлэхийн үлдэгдэл Entry-тэй зөрсөн / татлага зогссон
+  // (lib/ebarimt/tax-reconcile.ts; attention.ts, өдөр тутам).
+  "arap.ebarimt_tax_mismatch": {
+    category: "documents",
+    severity: "danger",
+    label: "eBarimt нэхэмжлэхийн үлдэгдэл ТЕГ-тэй зөрсөн",
+    email: "instant",
+    inApp: true,
+  },
+  "arap.ebarimt_tax_sync_failed": {
+    category: "documents",
+    severity: "warning",
+    label: "ТЕГ-ээс eBarimt нэхэмжлэх татагдахгүй байна",
+    email: "instant",
+    inApp: true,
+  },
   "pos.ebarimt_posapi_down": {
     category: "documents",
     severity: "danger",
