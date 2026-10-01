@@ -48,7 +48,8 @@
 | Checksum | `AES-CBC(sha256_hex(ИЛГЭЭХ body-ийн ЯГ ТЭР текст))` → Base64. Объектыг дахин stringify хийхгүй |
 | Шифр | AES-CBC/PKCS7, түлхүүр = session key-ийн UTF-8 байт (16/24/32), IV = IV key (16) |
 | Хариу | Base64 шифртэй JSON; алдаа, нэвтрэх, `/v1/utility` шифргүй JSON (`{status, message, debugMessage}`) |
-| OAuth | `client_id/state/scope` хоосон үед банк grant (`clientId, state, scope, redirectUri`) буцааж болно — клиент түүгээр НЭГ удаа дахин илгээнэ; дахиад grant бол «зөвшөөрөл дутуу» ил алдаа |
+| OAuth | Эхний хүсэлтэд `client_id/state/scope` ГУРВУУЛАА хоосон (SPEC §5 алхам 2 — тохиргооны Client ID-г илгээхгүй: 2026-10-01 UAT-д client_id-тай эхний хүсэлт `merchant.details.not.present` буцаасан). Банк grant (`clientId, state, scope, redirectUri` эсвэл `url: …?response_type=code&client_id=…`) буцаавал түүгээр НЭГ удаа дахин илгээнэ; дахиад grant бол зөвшөөрлийн холбоостой ил алдаа |
+| Алдаа | Мессеж алхмыг нэрлэнэ (нэвтрэх / дансны жагсаалт / хуулга татах) + HTTP статус + банкны код; 200 хариутай `status: FAILED` / `errDesc` ч алдаа. Серверийн логт `[golomt] <service> …` (нууц, токен, өгөгдөлгүй) |
 | Хуулга | `OPERACCSTAINQ` `{accountId, registerNo, startDate, endDate, page, size:100}` → `statements[]{tranId, drOrCr, tranAmount, tranDesc, tranPostedDate, tranCrnCode, exchRate}`, `totalPages` |
 
 Хуулгад харьцсан данс/харилцагчийн нэр ИРДЭГГҮЙ — харилцагчийн саналыг гүйлгээний

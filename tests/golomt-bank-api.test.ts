@@ -6,7 +6,12 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import { GolomtApiError, GolomtClient, isGolomtGrantResponse } from "../lib/bank/golomt/client";
+import {
+  GolomtApiError,
+  GolomtClient,
+  golomtGrantParams,
+  isGolomtGrantResponse,
+} from "../lib/bank/golomt/client";
 import {
   GOLOMT_API_BASE,
   golomtAccountId,
@@ -336,7 +341,8 @@ test("bank errors become clear Mongolian messages (generic ‘contact administra
   }));
   await assert.rejects(
     new GolomtClient(CREDENTIALS, bank.fetchImpl).login(),
-    (error: unknown) => error instanceof GolomtApiError && error.status === 500 && /HTTP 500/.test(error.message)
+    (error: unknown) =>
+      error instanceof GolomtApiError && error.status === 500 && /нэвтрэх алхамд/.test(error.message) && /HTTP 500/.test(error.message)
   );
   const denied = fakeBank(() => ({ status: 401, body: "" }));
   await assert.rejects(new GolomtClient(CREDENTIALS, denied.fetchImpl).login(), /нууц үг/);
@@ -346,4 +352,55 @@ test("bank errors become clear Mongolian messages (generic ‘contact administra
       : { body: golomtEncrypt("{}", { sessionKey: "ffffffffffffffff", ivKey: KEYS.ivKey }) }
   );
   await assert.rejects(new GolomtClient(CREDENTIALS, wrongKey.fetchImpl).listAccounts(), /тайлж чадсангүй/);
+});
+
+test("first business call sends EMPTY client_id/state/scope even when a Client ID is configured (SPEC §5 step 2)", async () => {
+  const bank = fakeBank((request) =>
+    request.url.endsWith("/v1/auth/login")
+      ? { body: JSON.stringify({ token: "T1" }) }
+      : { body: encrypted({ operAccounts: [] }) }
+  );
+  await new GolomtClient({ ...CREDENTIALS, clientId: "17270423289641479650" }, bank.fetchImpl).listAccounts();
+  assert.match(bank.calls[1].url, /\?client_id=&state=&scope=$/);
+});
+
+test("bank error messages name the failing step and keep the bank's code", async () => {
+  const bank = fakeBank((request) =>
+    request.url.endsWith("/v1/auth/login")
+      ? { body: JSON.stringify({ token: "T1" }) }
+      : { status: 400, body: JSON.stringify({ status: 400, message: "merchant.details.not.present" }) }
+  );
+  await assert.rejects(
+    new GolomtClient(CREDENTIALS, bank.fetchImpl).fetchStatement("1105000001", "2026-09-01", "2026-09-30"),
+    /Голомт банк \(хуулга татах, HTTP 400\): merchant\.details\.not\.present/
+  );
+  const failed = fakeBank((request) =>
+    request.url.endsWith("/v1/auth/login")
+      ? { body: JSON.stringify({ token: "T1" }) }
+      : { body: encrypted({ status: "FAILED", errDesc: "account.not.permitted" }) }
+  );
+  await assert.rejects(
+    new GolomtClient(CREDENTIALS, failed.fetchImpl).listAccounts(),
+    /дансны жагсаалт\): account\.not\.permitted/
+  );
+});
+
+test("a consent reply in `url` form is parsed and retried; a repeated one surfaces the consent link", async () => {
+  const consent = {
+    url: "https://openapi-uat.golomtbank.com/authorize?response_type=code&client_id=C9&redirect_uri=x&scope=SC9&state=S9",
+  };
+  assert.equal(isGolomtGrantResponse(consent), true);
+  assert.deepEqual(golomtGrantParams(consent), { clientId: "C9", state: "S9", scope: "SC9" });
+
+  const once = fakeBank((request) => {
+    if (request.url.endsWith("/v1/auth/login")) return { body: JSON.stringify({ token: "T1" }) };
+    return request.url.includes("state=S9") ? { body: encrypted({ operAccounts: [] }) } : { body: encrypted(consent) };
+  });
+  await new GolomtClient(CREDENTIALS, once.fetchImpl).listAccounts();
+  assert.match(once.calls[2].url, /client_id=C9&state=S9&scope=SC9$/);
+
+  const always = fakeBank((request) =>
+    request.url.endsWith("/v1/auth/login") ? { body: JSON.stringify({ token: "T1" }) } : { body: encrypted(consent) }
+  );
+  await assert.rejects(new GolomtClient(CREDENTIALS, always.fetchImpl).listAccounts(), /зөвшөөрлийн холбоос: https:\/\/openapi-uat/);
 });
