@@ -131,6 +131,8 @@ export async function GET() {
           currency: invoice.currency,
           // Огнооны зөрүүгээр санал сулруулна (ENT-056).
           dueDate: invoice.dueDate,
+          // Нэхэмжлэх сонгох цонхонд (огноогоор эрэмбэлэх, харуулах).
+          date: invoice.date,
         }))
         .filter((invoice) => invoice.totalAmount - invoice.paidAmount > 0),
       historicalPatterns: buildHistoricalPatterns(

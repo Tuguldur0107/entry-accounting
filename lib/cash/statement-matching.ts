@@ -47,6 +47,8 @@ export type OpenInvoiceRef = {
   currency?: string;
   /** Төлөх огноо YYYY-MM-DD (сонголтоор). */
   dueDate?: string;
+  /** Нэхэмжлэхийн огноо YYYY-MM-DD (сонголтоор). */
+  date?: string;
 };
 
 export type HistoricalPattern = {
