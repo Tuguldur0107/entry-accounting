@@ -50,6 +50,17 @@ export const EBARIMT_STATUS_TONES: Record<string, StatusTone> = {
   skipped: "warning",
 };
 
+/** Худалдан авалтын eBarimt ↔ өглөг (lib/ebarimt/purchase-reconcile.ts EBARIMT_PURCHASE_CHECKS). */
+export const EBARIMT_PURCHASE_CHECK_TONES: Record<string, StatusTone> = {
+  ok: "success",
+  amount_mismatch: "danger",
+  entry_missing: "warning",
+  tax_missing: "danger",
+  no_receipt: "warning",
+  pending: "muted",
+  not_synced: "muted",
+};
+
 /** ТЕГ ↔ Entry нэхэмжлэхийн үлдэгдлийн тулгалт (lib/ebarimt/tax-reconcile.ts EBARIMT_TAX_CHECKS). */
 export const EBARIMT_TAX_CHECK_TONES: Record<string, StatusTone> = {
   ok: "success",

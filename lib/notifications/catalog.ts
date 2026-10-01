@@ -252,6 +252,13 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  "arap.ebarimt_purchase_mismatch": {
+    category: "documents",
+    severity: "warning",
+    label: "eBarimt худалдан авалт өглөгтэй зөрсөн",
+    email: "instant",
+    inApp: true,
+  },
   "arap.ebarimt_tax_sync_failed": {
     category: "documents",
     severity: "warning",
