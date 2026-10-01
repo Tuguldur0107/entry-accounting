@@ -35,7 +35,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { FilterChips } from "@/components/ui/tabs";
+import { FilterChips, PageTabs } from "@/components/ui/tabs";
+import {
+  Dropdown,
+  DropdownItem,
+  DropdownLabel,
+  DropdownSeparator,
+} from "@/components/ui/dropdown";
+import { IconAction } from "@/components/ui/icon-action";
+import { fmtMntCompact } from "@/lib/format/money";
 import {
   GolomtConnectionDialog,
   GolomtFetchDialog,
@@ -230,6 +238,12 @@ export function BankStatementImport({
     form: CounterpartyFormState;
   } | null>(null);
   const [newCounterpartyError, setNewCounterpartyError] = useState("");
+  // Хуудасны цэгц: «Хуулга оруулах ▾», ⚙ тохиргоо, автомат татлагын chip,
+  // хянах үед «Хянах | Импортын түүх» таб.
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
+  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+  const [pullsMenuOpen, setPullsMenuOpen] = useState(false);
+  const [view, setView] = useState<"review" | "history">("review");
   const fileRef = useRef<HTMLInputElement>(null);
   const gridRef = useRef<DataGridHandle>(null);
   // Хадгалаагүй хуулгын ноорог (§5l) — идэвхтэй банкны данстай бол анхны
@@ -1197,6 +1211,8 @@ export function BankStatementImport({
     setParsed(result);
     setRows(normalizedRows);
     setSelectedCount(0);
+    // Шинэ хуулга ачаалмагц «Хянах» таб руу (өмнө нь түүх нээгдсэн байж болно).
+    setView("review");
     // Өмнөх хуулгын chip шүүлт үлдвэл шинэ мөрүүд далдлагдана.
     setTriageFilter("all");
     applyQuickFilter("");
@@ -1564,8 +1580,12 @@ export function BankStatementImport({
     []
   );
 
+  // Хоёр горим: хуулга хянаж байх үед зөвхөн хүснэгт (түүх — тусдаа таб),
+  // үгүй бол импортын хэсэг + автомат татлага + импортын түүх.
+  const reviewing = rows.length > 0 && !!parsed;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <section className="flex flex-col gap-3">
         <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
           <div>
@@ -1577,34 +1597,7 @@ export function BankStatementImport({
               данс оноосны дараа GL-д бичнэ.
             </p>
           </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            <Button
-              variant="outline"
-              className="h-8"
-              onClick={() => {
-                setRuleDraft(null);
-                setRulesOpen(true);
-              }}
-            >
-              <Icon name="settings" size="sm" />
-              Дүрэм{rules?.length ? ` (${rules.length})` : ""}
-            </Button>
-            <a
-              href="/examples/golomt-bank-statement-sample.xlsx"
-              download
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[var(--ea-border)] px-2.5 text-sm font-medium text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-2)]"
-            >
-              <Icon name="download" size="sm" />
-              Жишээ XLSX
-            </a>
-            <a
-              href="/examples/golomt-bank-statement-sample.csv"
-              download
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[var(--ea-border)] px-2.5 text-sm font-medium text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-2)]"
-            >
-              <Icon name="download" size="sm" />
-              Жишээ CSV
-            </a>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <select
               value={cashAccountId}
               onChange={(event) => {
@@ -1656,61 +1649,126 @@ export function BankStatementImport({
                 if (file) void parseFile(file);
               }}
             />
-            <Button
-              onClick={() => fileRef.current?.click()}
-              disabled={!cashAccountId || isPending}
+            {/* Өдөр бүр хэрэглэх ГАНЦ үйлдэл — эх сурвалжаа цэснээс сонгоно. */}
+            <Dropdown
+              open={importMenuOpen}
+              onOpenChange={setImportMenuOpen}
+              panelClassName="w-64"
+              trigger={
+                <Button
+                  onClick={() => setImportMenuOpen((open) => !open)}
+                  disabled={!cashAccountId || isPending}
+                  aria-haspopup="menu"
+                  aria-expanded={importMenuOpen}
+                  title={!cashAccountId ? "Эхлээд банкны данс сонгоно уу" : undefined}
+                >
+                  <Icon name="upload" />
+                  Хуулга оруулах
+                  <Icon name="chevronDown" size="sm" />
+                </Button>
+              }
             >
-              <Icon name="upload" />
-              Хуулга сонгох
-            </Button>
-            {golomtConnection?.isEnabled && (
-              <Button
-                variant="outline"
-                onClick={() => setGolomtFetchOpen(true)}
-                disabled={
-                  !cashAccount || !isGolomtCashAccount(cashAccount) || isPending
-                }
-                title={
-                  cashAccount && !isGolomtCashAccount(cashAccount)
-                    ? "Сонгосон данс Голомтын данс биш (банк, дансны дугаараа шалгана уу)"
-                    : undefined
-                }
+              <DropdownItem
+                onSelect={() => {
+                  setImportMenuOpen(false);
+                  fileRef.current?.click();
+                }}
               >
-                <Icon name="bank" />
-                Голомтоос татах
-              </Button>
-            )}
-            {golomt?.canManage && (
-              <Button
-                variant="outline"
-                className="h-8"
-                onClick={() => setGolomtSettingsOpen(true)}
+                <Icon name="spreadsheet" size="sm" className="text-[var(--ea-text-3)]" />
+                Файлаас (XLSX / CSV)
+              </DropdownItem>
+              {golomtConnection?.isEnabled && (
+                <DropdownItem
+                  disabled={!cashAccount || !isGolomtCashAccount(cashAccount)}
+                  onSelect={() => {
+                    setImportMenuOpen(false);
+                    setGolomtFetchOpen(true);
+                  }}
+                >
+                  <Icon name="bank" size="sm" className="text-[var(--ea-text-3)]" />
+                  Голомтоос татах
+                  {cashAccount && !isGolomtCashAccount(cashAccount) && (
+                    <span className="ml-auto text-[10px] text-[var(--ea-text-4)]">Голомтын данс биш</span>
+                  )}
+                </DropdownItem>
+              )}
+            </Dropdown>
+            {/* Нэг удаа тохируулах зүйлс — ⚙ цэсэнд. */}
+            <Dropdown
+              open={settingsMenuOpen}
+              onOpenChange={setSettingsMenuOpen}
+              trigger={
+                <IconAction
+                  name="settings"
+                  label="Хуулгын тохиргоо"
+                  variant="outline"
+                  aria-haspopup="menu"
+                  aria-expanded={settingsMenuOpen}
+                  onClick={() => setSettingsMenuOpen((open) => !open)}
+                />
+              }
+            >
+              <DropdownItem
+                onSelect={() => {
+                  setSettingsMenuOpen(false);
+                  setRuleDraft(null);
+                  setRulesOpen(true);
+                }}
               >
-                <Icon name="key" size="sm" />
-                Голомт API
-              </Button>
-            )}
-            {golomt?.canManage && (
-              <Button
-                variant="outline"
-                className="h-8"
-                disabled={isPending}
-                title="Урьдчилж орсон орлого / урьдчилж төлсөн зардлын данс"
-                onClick={() =>
-                  startTransition(async () => {
-                    const result = await getAdvanceSettings();
-                    if (result.error || !result.settings) {
-                      setError(result.error ?? "Урьдчилгааны тохиргоог уншиж чадсангүй");
-                      return;
-                    }
-                    setAdvanceSettings(result.settings);
-                  })
-                }
-              >
-                <Icon name="settings" size="sm" />
-                Урьдчилгааны данс
-              </Button>
-            )}
+                <Icon name="settings" size="sm" className="text-[var(--ea-text-3)]" />
+                Дүрэм{rules?.length ? ` (${rules.length})` : ""}
+              </DropdownItem>
+              {golomt?.canManage && (
+                <DropdownItem
+                  onSelect={() => {
+                    setSettingsMenuOpen(false);
+                    setGolomtSettingsOpen(true);
+                  }}
+                >
+                  <Icon name="key" size="sm" className="text-[var(--ea-text-3)]" />
+                  Голомт API
+                </DropdownItem>
+              )}
+              {golomt?.canManage && (
+                <DropdownItem
+                  disabled={isPending}
+                  onSelect={() => {
+                    setSettingsMenuOpen(false);
+                    startTransition(async () => {
+                      const result = await getAdvanceSettings();
+                      if (result.error || !result.settings) {
+                        setError(result.error ?? "Урьдчилгааны тохиргоог уншиж чадсангүй");
+                        return;
+                      }
+                      setAdvanceSettings(result.settings);
+                    });
+                  }}
+                >
+                  <Icon name="settings" size="sm" className="text-[var(--ea-text-3)]" />
+                  Урьдчилгааны данс
+                </DropdownItem>
+              )}
+              <DropdownSeparator />
+              <DropdownLabel>Жишээ файл</DropdownLabel>
+              {[
+                { href: "/examples/golomt-bank-statement-sample.xlsx", label: "Жишээ XLSX" },
+                { href: "/examples/golomt-bank-statement-sample.csv", label: "Жишээ CSV" },
+              ].map((sample) => (
+                <DropdownItem
+                  key={sample.href}
+                  onSelect={() => {
+                    setSettingsMenuOpen(false);
+                    const link = document.createElement("a");
+                    link.href = sample.href;
+                    link.download = "";
+                    link.click();
+                  }}
+                >
+                  <Icon name="download" size="sm" className="text-[var(--ea-text-3)]" />
+                  {sample.label}
+                </DropdownItem>
+              ))}
+            </Dropdown>
           </div>
         </div>
 
@@ -1720,47 +1778,77 @@ export function BankStatementImport({
           </p>
         )}
 
-        {(golomt?.pendingPulls.length ?? 0) > 0 && (
-          <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface-raised)] px-3 py-2 text-xs text-[var(--ea-text-2)]">
-            <p className="mb-1 font-medium text-[var(--ea-text-1)]">
-              Голомтоос автоматаар татсан, хянагдаагүй хуулга — GL-д бичигдээгүй
-            </p>
-            <div className="space-y-1">
+        {/* Автомат татлага — нэг мөрт chip, жагсаалт нь цэсэнд (хянаагүй үед л). */}
+        {!reviewing && (golomt?.pendingPulls.length ?? 0) > 0 && (
+          <div className="flex">
+            <Dropdown
+              open={pullsMenuOpen}
+              onOpenChange={setPullsMenuOpen}
+              panelClassName="left-0 right-auto w-96"
+              trigger={
+                <button
+                  type="button"
+                  onClick={() => setPullsMenuOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={pullsMenuOpen}
+                >
+                  <StatusBadge tone="warning" size="sm" icon="bank">
+                    Голомтоос {golomt?.pendingPulls.length} хуулга хүлээгдэж байна
+                    <Icon name="chevronDown" size="sm" />
+                  </StatusBadge>
+                </button>
+              }
+            >
+              <DropdownLabel>Хянагдаагүй — GL-д бичигдээгүй</DropdownLabel>
               {golomt?.pendingPulls.map((pull) => (
-                <div key={pull.id} className="flex flex-wrap items-center gap-2">
-                  <span>
-                    {pull.cashAccountName} ·{" "}
-                    {pull.startDate === pull.endDate
-                      ? pull.startDate
-                      : `${pull.startDate} – ${pull.endDate}`}{" "}
-                    · {pull.newRows} шинэ гүйлгээ
-                  </span>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() => reviewGolomtPull(pull)}
+                <div key={pull.id} className="flex items-center gap-1">
+                  <DropdownItem
                     disabled={isPending}
+                    onSelect={() => {
+                      setPullsMenuOpen(false);
+                      reviewGolomtPull(pull);
+                    }}
+                    className="min-w-0 flex-1"
                   >
-                    <Icon name="search" size="sm" />
-                    Хянах
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="ghost"
+                    <Icon name="search" size="sm" className="text-[var(--ea-text-3)]" />
+                    <span className="truncate">
+                      {pull.cashAccountName} ·{" "}
+                      {pull.startDate === pull.endDate
+                        ? pull.startDate
+                        : `${pull.startDate} – ${pull.endDate}`}
+                    </span>
+                    <span className="ml-auto shrink-0 text-[var(--ea-text-3)]">
+                      {pull.newRows} гүйлгээ
+                    </span>
+                  </DropdownItem>
+                  <IconAction
+                    name="close"
+                    label="Хэрэгсэхгүй"
+                    size="sm"
+                    disabled={isPending}
                     onClick={() => dismissPull(pull)}
-                    disabled={isPending}
-                  >
-                    Хэрэгсэхгүй
-                  </Button>
+                  />
                 </div>
               ))}
-            </div>
+            </Dropdown>
           </div>
         )}
       </section>
 
-      {rows.length > 0 && parsed && (
-        <section className="flex min-h-0 flex-col gap-3">
+      {reviewing && (
+        <PageTabs
+          tabs={[
+            { value: "review", label: `Хянах (${rows.length})` },
+            { value: "history", label: "Импортын түүх" },
+          ]}
+          value={view}
+          onChange={setView}
+          ariaLabel="Банкны хуулга"
+        />
+      )}
+
+      {reviewing && parsed && view === "review" && (
+        <section className="flex min-h-0 flex-1 flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-56 flex-1 sm:max-w-sm">
               <Icon name="search" size="sm" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--ea-text-4)]" />
@@ -1853,7 +1941,7 @@ export function BankStatementImport({
             rowData={displayedRows}
             columnDefs={columnDefs}
             getRowId={(params) => params.data.id}
-            height={620}
+            height="flex"
             showSelectionCheckboxes
             pagination
             paginationPageSize={100}
@@ -1867,29 +1955,27 @@ export function BankStatementImport({
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           />
 
-          <div className="flex flex-col gap-3 border-t border-[var(--ea-border)] pt-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
-              <span className="text-[var(--ea-text-3)]">
-                Файл: <strong className="text-[var(--ea-text-1)]">{parsed.fileName}</strong>
+          {/* Тогтмол доод мөр — хүснэгт өндрийг дүүргэх тул үргэлж харагдана. */}
+          <div className="flex shrink-0 flex-col gap-3 border-t border-[var(--ea-border)] pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+              <span className="max-w-64 truncate text-[var(--ea-text-3)]" title={parsed.fileName}>
+                {parsed.fileName}
               </span>
-              <span className="text-[var(--ea-success)]">
-                Орлого: {fmtMnt(totals.income)}
+              <span className="font-mono text-[var(--ea-success-fg)]" title={`Орлого ${fmtMnt(totals.income)}`}>
+                +{fmtMntCompact(totals.income)}
               </span>
-              <span className="text-[var(--ea-danger)]">
-                Зарлага: {fmtMnt(totals.expense)}
+              <span className="font-mono text-[var(--ea-danger-fg)]" title={`Зарлага ${fmtMnt(totals.expense)}`}>
+                −{fmtMntCompact(totals.expense)}
               </span>
-              <span
-                className={
-                  totals.invalid > 0
-                    ? "text-[var(--ea-danger)]"
-                    : "text-[var(--ea-success)]"
-                }
+              <StatusBadge
+                tone={totals.invalid > 0 ? "danger" : "success"}
+                size="sm"
+                icon={totals.invalid > 0 ? "error" : "success"}
               >
-                {totals.invalid > 0
-                  ? `${totals.invalid} мөрийн данс дутуу`
-                  : "Бүх мөр бэлэн"}
-              </span>
+                {totals.invalid > 0 ? `${totals.invalid} мөр дутуу` : "Бүх мөр бэлэн"}
+              </StatusBadge>
             </div>
+            <div className="flex shrink-0 gap-2">
             <Button
               variant="outline"
               onClick={() => void discardStatement()}
@@ -1906,11 +1992,12 @@ export function BankStatementImport({
               <Icon name="approve" />
               Хуулга хадгалж батлах
             </Button>
+            </div>
           </div>
         </section>
       )}
 
-      {statements.length > 0 && (
+      {statements.length > 0 && (!reviewing || view === "history") && (
         <section className="flex min-h-0 flex-1 flex-col">
           <div className="mb-2 flex items-center gap-2">
             <Icon name="spreadsheet" className="text-[var(--ea-primary)]" />
