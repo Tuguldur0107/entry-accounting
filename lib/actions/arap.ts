@@ -675,6 +675,111 @@ export async function updateCounterparty(
   }
 }
 
+/**
+ * Харилцагчийн ЗӨВХӨН өгсөн талбаруудыг засна (AI/MCP-ийн update_counterparty,
+ * create_counterparty-ийн чиглэл нэгтгэх зам). Өмнө нь tool `db.update`-ийг
+ * ШУУД дууддаг байсан тул эрх шалгахгүй (viewer ч нийлүүлэгчийн банкны дансыг
+ * сольж чадна), аудит бичихгүй байв (ontology-audit §4.2).
+ * Аудитын текстэд талбарын НЭР л — банкны данс, утас зэрэг УТГА бичихгүй.
+ */
+export type CounterpartyPatch = Partial<{
+  name: string;
+  counterpartyType: "customer" | "supplier" | "both";
+  entityKind: string;
+  paymentTermsDays: number;
+  defaultCurrency: string;
+  code: string | null;
+  registerNo: string | null;
+  tin: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  contactPerson: string | null;
+  bankName: string | null;
+  bankAccountNo: string | null;
+  isActive: boolean;
+  defaultReceivableAccountNumber: string;
+  defaultPayableAccountNumber: string;
+}>;
+
+const COUNTERPARTY_PATCH_KEYS = [
+  "name",
+  "counterpartyType",
+  "entityKind",
+  "paymentTermsDays",
+  "defaultCurrency",
+  "code",
+  "registerNo",
+  "tin",
+  "email",
+  "phone",
+  "address",
+  "contactPerson",
+  "bankName",
+  "bankAccountNo",
+  "isActive",
+  "defaultReceivableAccountNumber",
+  "defaultPayableAccountNumber",
+] as const satisfies readonly (keyof CounterpartyPatch)[];
+
+async function patchCounterpartyCore(id: string, patch: CounterpartyPatch) {
+  const { orgId, userId } = await requireAnyModuleAction([
+    ["ar", "write"],
+    ["ap", "write"],
+  ]);
+  const current = await db.query.counterparties.findFirst({
+    where: and(eq(counterparties.id, id), eq(counterparties.organizationId, orgId)),
+    columns: { id: true, name: true },
+  });
+  if (!current) throw new Error("Харилцагч олдсонгүй");
+
+  const changes: CounterpartyPatch = {};
+  for (const key of COUNTERPARTY_PATCH_KEYS)
+    if (patch[key] !== undefined) (changes as Record<string, unknown>)[key] = patch[key];
+  if (Object.keys(changes).length === 0)
+    throw new Error("Өөрчлөх талбар өгөгдөөгүй байна");
+  if (changes.name !== undefined && !changes.name.trim())
+    throw new Error("Харилцагчийн нэр оруулна уу");
+  if (
+    changes.counterpartyType !== undefined &&
+    !["customer", "supplier", "both"].includes(changes.counterpartyType)
+  )
+    throw new Error("Харилцагчийн төрөл буруу байна");
+  if (changes.defaultReceivableAccountNumber)
+    await assertEnabledMainAccount(orgId, changes.defaultReceivableAccountNumber);
+  if (changes.defaultPayableAccountNumber)
+    await assertEnabledMainAccount(orgId, changes.defaultPayableAccountNumber);
+  if (changes.code !== undefined)
+    await assertCounterpartyCodeAvailable(orgId, changes.code, id);
+
+  await db
+    .update(counterparties)
+    .set(changes)
+    .where(and(eq(counterparties.id, id), eq(counterparties.organizationId, orgId)));
+  const renamed = changes.name && changes.name !== current.name ? ` → ${changes.name}` : "";
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "update",
+    entityType: "counterparty",
+    entityId: id,
+    summary: `Харилцагч засагдав — ${current.name}${renamed} (${Object.keys(changes).join(", ")})`,
+  });
+  revalidateArAp();
+  return { id, name: current.name, fields: Object.keys(changes) };
+}
+
+export async function patchCounterparty(
+  id: string,
+  patch: CounterpartyPatch
+): Promise<ActionResult<{ id: string; name: string; fields: string[] }>> {
+  try {
+    return await patchCounterpartyCore(id, patch);
+  } catch (caught) {
+    return actionError("patchCounterparty", caught, "Харилцагч хадгалагдсангүй");
+  }
+}
+
 // ── Харилцагчийн ДИНАМИК төрөл (counterparty_entity_kinds) ───────────────────
 // Систем төрөл («Байгууллага» / «Хувь хүн») устгагдахгүй, суурь нь
 // өөрчлөгдөхгүй — зөвхөн НЭРИЙГ засна (мөр upsert). Шинэ төрөл `kind_<n>`

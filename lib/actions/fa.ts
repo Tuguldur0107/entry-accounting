@@ -747,6 +747,22 @@ async function runDepreciationCore(data: { month: string }) {
         }),
       ]);
 
+      // Батлагдсан сарыг дахин бодох = журналыг БУЦААЖ батлах — бичих биш
+      // БАТЛАХ эрх (fa:post). Өмнө нь fa:write-аар батлагдсан журнал
+      // сторно болдог байв (ontology-audit §4.2). Түгжээний ДАРАА шалгана.
+      const [postedInMonth] = await tx
+        .select({ id: faDepreciationEntries.id })
+        .from(faDepreciationEntries)
+        .where(
+          and(
+            eq(faDepreciationEntries.organizationId, orgId),
+            eq(faDepreciationEntries.periodMonth, data.month),
+            eq(faDepreciationEntries.status, "posted")
+          )
+        )
+        .limit(1);
+      if (postedInMonth) await requireModuleAction("fa", "post");
+
       // ── Тухайн сарын батлагдсан элэгдлийг журналаар буцаана ──────────
       // (нэгдсэн зам — буцаагдсан журналыг ДАХИН сторно хийхгүй).
       const { vouchers: reversed } = await reverseDepreciationVouchersInTx(tx, {

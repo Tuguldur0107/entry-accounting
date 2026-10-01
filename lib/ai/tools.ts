@@ -22,9 +22,11 @@ import {
   createCounterparty,
   deleteArApDocument,
   deleteCounterparty,
+  patchCounterparty,
   postArApDocument,
   updateArApDocument,
   settleArApOffset,
+  type CounterpartyPatch,
 } from "@/lib/actions/arap";
 import { createCreditNote, getCreditNoteSource } from "@/lib/actions/arap-credit-note";
 import {
@@ -1747,7 +1749,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "run_fa_depreciation",
     description:
-      "Тухайн сарын элэгдлийг бүх идэвхтэй хөрөнгөд бодож НООРОГ бичилтүүд үүсгэнэ (аль хэдийн бодогдсон хөрөнгө алгасагдана).",
+      "Тухайн сарын элэгдлийг бүх идэвхтэй хөрөнгөд бодож НООРОГ бичилтүүд үүсгэнэ (өмнөх ноорог дарж бичигдэнэ). Тухайн сарын элэгдэл аль хэдийн БАТЛАГДСАН бол журналыг буцааж дахин боддог тул зөвхөн 'Шууд бичих' горимд, батлах хязгаар дотор, батлах эрхтэй хэрэглэгчид ([DIRECT_MODE_REQUIRED] / [AMOUNT_LIMIT_EXCEEDED]).",
     inputSchema: {
       type: "object",
       properties: {
@@ -2805,7 +2807,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "import_bank_statement",
     description:
-      "Банкны хуулгын мөрүүдийг импортлон мөр бүрд кассын баримт + GL журнал ШУУД бичнэ (вэбийн хуулга импорттой нэг зам). settleInvoice өгсөн мөр нэхэмжлэхтэй холбогдож төлсөн дүнг шинэчилнэ. Ижил мөрүүдийг дахин импортлохоос hash-аар хамгаална. Зөвхөн 'Шууд бичих' горимд; max 500 мөр.",
+      "Банкны хуулгын мөрүүдийг импортлон мөр бүрд кассын баримт + GL журнал ШУУД бичнэ (вэбийн хуулга импорттой нэг зам). settleInvoice өгсөн мөр нэхэмжлэхтэй холбогдож төлсөн дүнг шинэчилнэ. Ижил мөрүүдийг дахин импортлохоос hash-аар хамгаална. Зөвхөн 'Шууд бичих' горимд, мөр бүр батлах хязгаар дотор ([AMOUNT_LIMIT_EXCEEDED] бол юу ч бичигдэхгүй — том мөрийг вэбээр), батлах эрхтэй (cash:post), хаагдсан тайлант үед бичихгүй; max 500 мөр.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5569,10 +5571,7 @@ async function runCreateCounterparty(
     duplicate.counterpartyType !== "both" &&
     input.counterpartyType !== duplicate.counterpartyType
   ) {
-    await db
-      .update(counterparties)
-      .set({ counterpartyType: "both" })
-      .where(and(eq(counterparties.id, duplicate.id), eq(counterparties.organizationId, orgId)));
+    unwrapAction(await patchCounterparty(duplicate.id, { counterpartyType: "both" }));
     return {
       resultText: `Аль хэдийн бүртгэгдсэн "${duplicate.name}" — чиглэлийг нэгтгэв: ${CP_TYPE_LABELS[duplicate.counterpartyType] ?? duplicate.counterpartyType} → ${CP_TYPE_LABELS.both ?? "both"} (ID ${duplicate.id})`,
       dedup: true,
@@ -5813,10 +5812,8 @@ async function runUpdateCounterparty(
   if (Object.keys(changes).length === 0)
     throw new Error("Өөрчлөх талбар өгөгдөөгүй байна");
 
-  await db
-    .update(counterparties)
-    .set(changes)
-    .where(and(eq(counterparties.id, counterparty.id), eq(counterparties.organizationId, orgId)));
+  // Эрх (ar|ap:write) + аудит action дотор — tool DB-г шууд засахгүй.
+  unwrapAction(await patchCounterparty(counterparty.id, changes as CounterpartyPatch));
   return {
     resultText: `Харилцагч шинэчлэгдлээ: ${counterparty.name}${input.newName ? ` → ${input.newName}` : ""} (${Object.keys(changes).join(", ")})`,
   };
@@ -7869,15 +7866,36 @@ async function runListFixedAssets(
 }
 
 async function runFaDepreciation(
-  _orgId: string,
-  input: { month: string }
+  orgId: string,
+  input: { month: string },
+  mode: AiWriteMode
 ): Promise<AiToolResult> {
+  // Батлагдсан сарыг дахин бодох нь журналыг БУЦААЖ батална — бусад батлах
+  // tool-той ИЖИЛ: зөвхөн «Шууд бичих» горимд, батлах хязгаар дотор
+  // (ontology-audit §4.2; эрх fa:post — action дотор).
+  const posted = await db.query.faDepreciationEntries.findMany({
+    where: and(
+      eq(faDepreciationEntries.organizationId, orgId),
+      eq(faDepreciationEntries.periodMonth, input.month),
+      eq(faDepreciationEntries.status, "posted")
+    ),
+    columns: { amount: true },
+  });
+  const postedTotal = posted.reduce((sum, entry) => sum + Number(entry.amount), 0);
+  if (posted.length > 0) {
+    assertPostMode(mode);
+    assertPostLimit(postedTotal);
+  }
   const result = unwrapAction(await runDepreciation({ month: input.month }));
+  const reversedNote =
+    result.reversed > 0
+      ? ` Өмнө батлагдсан ${input.month} сарын элэгдлийг (${fmt(postedTotal)}₮) журналаар БУЦААЖ дахин бодов — шинэ бичилт ноорог.`
+      : "";
   return {
     resultText:
       result.created === 0
-        ? `${input.month} сард шинээр бодох элэгдэл алга (бүгд бодогдсон эсвэл идэвхтэй хөрөнгө байхгүй)`
-        : `${input.month} сарын элэгдэл: ${result.created} хөрөнгөд НООРОГ бичилт үүслээ — /fa/depreciation дээрээс шалгаж батлана`,
+        ? `${input.month} сард шинээр бодох элэгдэл алга (бүгд бодогдсон эсвэл идэвхтэй хөрөнгө байхгүй).${reversedNote}`
+        : `${input.month} сарын элэгдэл: ${result.created} хөрөнгөд НООРОГ бичилт үүслээ — /fa/depreciation дээрээс шалгаж батлана.${reversedNote}`,
   };
 }
 
@@ -10296,6 +10314,34 @@ async function runImportBankStatement(
         feeAmount: suggestion.feeAmount,
       };
     }
+  }
+
+  // Батлах хязгаар (§9) — мөр бүр БАТЛАГДСАН кассын баримт + журнал болдог
+  // тул баримт тус бүрийн ₮ дүнгээр шалгана (ontology-audit §4.2: өмнө нь 500
+  // хүртэлх мөрийг хязгааргүй батладаг байв). Валютын дансанд мөрийн ханш,
+  // эс бөгөөс тухайн өдрийн албан ханш — ханш ЗОХИОХГҮЙ, олдохгүй бол шиднэ.
+  for (const [index, row] of parsedRows.entries()) {
+    const amount = Math.max(row.income, row.expense);
+    let rate = 1;
+    if (account.currency !== "MNT") {
+      if (Number(row.exchangeRate) > 0) rate = Number(row.exchangeRate);
+      else {
+        try {
+          rate = (await getOfficialRateForDate(account.currency, row.transactionDate)).rate;
+        } catch {
+          throw codedError(
+            "RATE_REQUIRED",
+            `rows[${index}] (${row.transactionDate}): ${account.currency}-ийн ханш олдсонгүй — exchangeRate өгнө үү`
+          );
+        }
+      }
+    }
+    const baseAmount = Math.round(amount * rate * 100) / 100;
+    if (baseAmount > currentAiPostLimit())
+      throw codedError(
+        "AMOUNT_LIMIT_EXCEEDED",
+        `rows[${index}] (${row.transactionDate}, ${fmt(baseAmount)}₮) нь ${fmt(currentAiPostLimit())}₮-ийн батлах хязгаараас их — тэр мөрийг хасаж импортлоод, том гүйлгээг нягтланч вэбээр (Мөнгөн хөрөнгө → Хуулга) оруулна. Юу ч бичигдээгүй.`
+      );
   }
 
   // Идемпотент hash — ижил данс + ижил мөрүүд хоёр дахь удаад импортлогдохгүй.
@@ -12825,7 +12871,7 @@ async function dispatchAiTool(
       case "get_inventory_valuation":
         return await runInventoryValuation(orgId, args);
       case "run_fa_depreciation":
-        return await runFaDepreciation(orgId, args);
+        return await runFaDepreciation(orgId, args, mode);
       case "post_fa_depreciation":
         return await runPostFaDepreciation(orgId, args, mode);
       case "list_periods":

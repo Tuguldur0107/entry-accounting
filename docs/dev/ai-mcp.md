@@ -111,6 +111,17 @@ unique index. Давхардлыг create_counterparty нэр
 буцаахгүй. Шинэ «үүсгэх» tool нэмэхдээ ижил хэв маягаар; тест
 `tests/tool-idempotency.test.ts` (давтан + зэрэгцээ), `tests/idempotency.test.ts`.
 
+**Эрх, хязгаар — tool бүр server action-аар** (2026-10-01, ontology-audit §4.2):
+`executeAiTool` нь tool бүрийн модулийн эрхийг тусад нь ШАЛГАДАГГҮЙ — эрх
+(`requireModuleAction`) ба аудит action дотор. Тиймээс tool DB-д ШУУД бичихгүй
+(`tests/ai-tools-no-direct-writes.test.ts` статикаар барина). Засагдсан цоорхой:
+`update_counterparty` / `create_counterparty`-ийн чиглэл нэгтгэх → `patchCounterparty`
+(ar|ap:write + аудит; viewer нийлүүлэгчийн банкны дансыг сольж чаддаг байв);
+`run_fa_depreciation` → батлагдсан сарыг буцаахад шууд горим + хязгаар + fa:post;
+`import_bank_statement` → мөр бүрийн ₮ хязгаар, `cash:post` (requireRole биш —
+entitlement-ийн read-only-г тойрдог байв), сар бүрд `assertPeriodOpenInTx`.
+Тест `tests/ai-guardrail-gaps.test.ts`.
+
 **Алдааны кодууд:** tool-ийн алдаа `[CODE] текст` форматтай —
 COUNTERPARTY_NOT_FOUND (ойролцоо нэрс санал болгоно), COUNTERPARTY_AMBIGUOUS,
 ACCOUNT_NOT_FOUND, CONFLICT, AMOUNT_LIMIT_EXCEEDED, DIRECT_MODE_REQUIRED г.м.
