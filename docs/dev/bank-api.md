@@ -8,7 +8,7 @@
 ```
 Касс → Банкны хуулга → [данс сонгох] → «Голомтоос татах» (огнооны муж)
   → fetchGolomtStatement (lib/actions/bank-api.ts, cash:write)
-      → GolomtClient: LGIN → OPERACCSTAINQ (хуудас бүр) — lib/bank/golomt/client.ts
+      → GolomtClient: LGIN → OPERACCTSTA (хуанлийн сар бүрд нэг) — lib/bank/golomt/client.ts
       → golomtStatementToParsed (ЦЭВЭР) + өмнө импортлогдсоныг алгасах (externalRef)
   → файлын импорттой ЯГ ИЖИЛ хянах хүснэгт (данс оноох, дүрэм, санал)
   → «Хадгалах» → saveBankStatement (lib/cash/import-statement.ts) → GL
@@ -17,7 +17,10 @@
 - Татах нь **GL-д юу ч бичихгүй** — хэрэглэгч хянаж, данс оноож «Хадгалах» дарна
   (§9 human-in-the-loop). Тусдаа импортын логик ХОРИОТОЙ — нэг `saveBankStatement`.
 - Давхардал: мөр бүр `externalRef` = `golomt:<данс>:<tranId>:<tranPostedDate>:<C|D>:<дүн>`
-  (`recNum` оролцохгүй — хүсэлт бүрд өөрчлөгддөг). Татахад өмнө хадгалагдсаныг
+  (`recNum` оролцохгүй — хүсэлт бүрд өөрчлөгддөг). Нэг `tranId` олон мөртэй ирдэг
+  (гүйлгээ + шимтгэл ижил tranId, ижил цагтай — дүнгээр ялгагдана); бүх талбар
+  ижил мөр давтагдвал 2 дахь нь `…:2`, 3 дахь нь `…:3` — ХАЯХГҮЙ (эхнийх нь хуучин
+  хэлбэрээрээ тул өмнөх импортын түлхүүр хөндөгдөхгүй). Татахад өмнө хадгалагдсаныг
   алгасна, хадгалахад дахин шалгаж татгалзана (`lib/cash/statement-external-refs.ts`,
   байгууллагын түвшинд). Огнооны муж давхцсан татал ижил гүйлгээг ДАХИН бичихгүй.
 - Кассын данс Голомтынх гэж тооцогдох нь: `bankCode = 150000` эсвэл банкны нэрэнд
@@ -25,7 +28,7 @@
 
 ## 2. Аюулгүй байдал (ХАТУУ)
 
-- **Фаз 1 зөвхөн унших:** ACCTLST, OPERACCSTAINQ (+ нэвтрэх). Гүйлгээ хийх
+- **Фаз 1 зөвхөн унших:** OPERACCTDET, ACCTBALINQ, OPERACCTSTA (+ нэвтрэх). Гүйлгээ хийх
   (CGWTXNADD, CGWBLKTXN) болон түүний TOTP түлхүүр (**X-GOLOMT-KEY**) Entry-д
   ОРУУЛАХГҮЙ, хадгалахгүй — тохиргоо алдагдсан ч мөнгө хөдлөхгүй.
 - Нууц (нууц үг, session key, IV key) `bank_api_connections`-д `encryptSecret`
@@ -39,6 +42,22 @@
 
 ## 3. Протокол (SPEC-ээс, UAT дээр батлагдсан хэсэг тэмдэглэгдсэн)
 
+**Entry-д нээгдсэн сервисүүд** (банкны 2026-09-29-ний захидал, 2026-10-01 UAT-д
+бодит эрхээр шалгав):
+
+| Сервис | Зам | Entry-д | UAT |
+|--------|-----|---------|-----|
+| LGIN | `/v1/auth/login` | нэвтрэх | ✅ |
+| OPERACCTDET | `/v1/account/operative/details` | холболт шалгах (эзэмшигч, валют, төлөв) | ✅ |
+| ACCTBALINQ | `/v1/account/balance/inq` | холболт шалгах (боломжит үлдэгдэл `balanceLL[type=AVAIL].amount.value`) | ✅ |
+| OPERACCTSTA | `/v1/account/operative/statement/` (төгсгөлийн `/`-тэй) | хуулга татах | ✅ |
+| ACCCHK | `/v1/account/check/account` | ашиглаагүй (данс эзэмшигч шалгах) | ✅ |
+| CGWTXNADD | — | ХЭЗЭЭ Ч дуудахгүй (Фаз 2, X-GOLOMT-KEY) | — |
+
+**Нээгдээгүй:** ACCTLST (дансны жагсаалт), OPERACCSTAINQ (хуудаслалттай хуулга) —
+400 «Мерчант сервис рүү хандах боломжгүй». Тиймээс холболт шалгалт кассын
+Голомтын данс бүрийг ДУГААРААР нь шалгана (жагсаалт татахгүй).
+
 | Зүйл | Утга |
 |------|------|
 | Хост | UAT `https://openapi-uat.golomtbank.com/api`, үндсэн `https://openbank.golomtbank.com/api` |
@@ -50,16 +69,22 @@
 | Хариу | Base64 шифртэй JSON; алдаа, нэвтрэх, `/v1/utility` шифргүй JSON (`{status, message, debugMessage}`) |
 | OAuth | Эхний хүсэлтэд `client_id/state/scope` ГУРВУУЛАА хоосон (SPEC §5 алхам 2 — тохиргооны Client ID-г илгээхгүй: 2026-10-01 UAT-д client_id-тай эхний хүсэлт `merchant.details.not.present` буцаасан). Банк grant (`clientId, state, scope, redirectUri` эсвэл `url: …?response_type=code&client_id=…`) буцаавал түүгээр НЭГ удаа дахин илгээнэ; дахиад grant бол зөвшөөрлийн холбоостой ил алдаа |
 | Алдааны хариу | 4xx/5xx хариу ч Base64 AES-ээр шифрлэгдэж ирдэг (2026-10-01 UAT: ACCTLST / OPERACCSTAINQ-ийн 400) — клиент тайлж уншина (`plainErrorBody`); шифртэй текст логт бичигдэхгүй |
+| Алдааны код (данс) | `subErrors[]{code, desc}`, `message` хоосон: `162` «The account does not exist.» = данс алга, `342` «The account has been closed.» = хаагдсан (2026-10-01 UAT) — монгол тайлбартай; бусад кодын `desc` шууд харагдана |
 | Алдааны код | `subErrors[].code` — `MERDET0001` (`merchant.details.not.present`) = нэвтрэх нэр банкинд бүртгэлгүй (2026-10-01 UAT-д зохиомол нэрээр батлав); талбарын шалгалтын монгол мессеж (ж: «Нэвтрэх нууц үг оруулна уу») шууд харагдана (`KNOWN_BANK_ERRORS`, client.ts) |
 | Алдаа | Мессеж алхмыг нэрлэнэ (нэвтрэх / дансны жагсаалт / хуулга татах) + HTTP статус + банкны код; 200 хариутай `status: FAILED` / `errDesc` ч алдаа. Серверийн логт `[golomt] <service> …` (нууц, токен, өгөгдөлгүй) |
-| Хуулга | `OPERACCSTAINQ` `{accountId, registerNo, startDate, endDate, page, size:100}` → `statements[]{tranId, drOrCr, tranAmount, tranDesc, tranPostedDate, tranCrnCode, exchRate}`, `totalPages` |
+| Хуулга | `OPERACCTSTA` `{accountId, registerNo, startDate, endDate}` → `{requestId, accountId, statements[]}`, хуудаслалтгүй. Мөр: `recNum, tranId, tranDate, drOrCr, tranAmount, tranDesc, tranPostedDate, tranCrnCode, exchRate, balance, accName, accNum` (сүүлийн 3 нь SPEC-д байхгүй — UAT-д ирсэн) |
+| Хуулгын хугацаа | Нэг хүсэлтэд `дуусах − эхлэх ≤ эхлэх сарын хоногийн тоо` (UAT: 02-01…03-01 OK, 02-01…03-02 / 04-30…05-31 / ирээдүйн огноо → 400 «Он сар буруу байна»). Клиент хуанлийн САРААР хуваана (`golomtStatementChunks`) |
+| Регистр | Данс эзэмшигчийнх байх ёстой — өөр бол 400 `only.access.customer.own.account` |
+| OAuth | UAT-д нээгдсэн сервисүүд grant ШААРДААГҮЙ (хоосон `client_id`-аар шууд хариу) |
 
-Хуулгад харьцсан данс/харилцагчийн нэр ИРДЭГГҮЙ — харилцагчийн саналыг гүйлгээний
-утга (tranDesc) болон П8 дүрмээр гаргана.
+`accName` / `accNum` = харьцсан тал (шимтгэл, хүүгийн мөрөнд хоосон) → импортын
+`counterparty` / `counterAccount` — харилцагчийн санал, П8 дүрэм файлын импортынх
+шиг ажиллана. `balance` нь гүйлгээний ДАРААХ үлдэгдэл (`rawData`-д хадгална).
+Валютын гүйлгээний MNT мөрөнд банкны ханш (жишээ нь 3590) ирдэг — MNT дансанд
+ханш 1 хэвээр.
 
-**UAT-д бодит нууцаар шалгах үлдсэн зүйл:** нэвтрэх нууц үгийн Base64 төрөл
-(standard уу, URL-safe уу — жишээ кодууд зөрдөг, standard сонгосон), grant-ийн
-урсгал корпорацын эрхэд хэрэгтэй эсэх, `exchRate`-ийн утга валютын дансанд.
+**UAT-д шалгах үлдсэн зүйл:** `exchRate`-ийн утга ВАЛЮТЫН дансанд (UAT-д зөвхөн
+MNT данс бий), OPERACCTSTA-ийн нэг хариунд мөрийн дээд хязгаар байгаа эсэх.
 
 ## 4. Ханш, валют
 
@@ -84,5 +109,6 @@
 
 - Хаан банк, ХХБ — гэрээ/туршилтын эрх ирмэгц ижил `bank_api_connections` + adapter.
 - Автомат өдөр тутмын татлага (scheduler) — одоогоор гараар.
-- Үлдэгдлийн тулгалт (ACCTBALINQ) тулгалтын хуудсанд.
+- Үлдэгдлийн тулгалт тулгалтын хуудсанд — ACCTBALINQ одоо зөвхөн холболт
+  шалгалтад харагдана; хуулгын `balance`-аар хаалтын үлдэгдлийг шалгаж болно.
 - Гүйлгээ хийх (Фаз 2) — maker/checker, AI эхлүүлэх ХОРИОТОЙ; тусдаа шийдвэр.

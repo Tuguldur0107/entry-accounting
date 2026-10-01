@@ -1,4 +1,4 @@
-// Голомтын хуулга (OPERACCSTAINQ, SPEC §5.6) → банкны хуулгын импортын НЭГ
+// Голомтын хуулга (OPERACCTSTA, SPEC §5.5) → банкны хуулгын импортын НЭГ
 // хэлбэр (ParsedBankStatement). ЦЭВЭР — DB-гүй, тесттэй
 // (tests/golomt-statement.test.ts). Үр дүн нь файлаас уншсан хуулгатай ЯГ
 // ИЖИЛ хянах → данс оноох → хадгалах (saveBankStatement) урсгалаар явна.
@@ -12,16 +12,24 @@ import type {
 
 import { GOLOMT_STATEMENT_MAX_ROWS } from "./constants";
 
-/** SPEC §5.6 — хуулгын нэг мөр (банкнаас ирсэн түүхий утга). */
+/**
+ * SPEC §5.5 — хуулгын нэг мөр (банкнаас ирсэн түүхий утга). `tranDate`,
+ * `balance`, `accName`, `accNum` нь SPEC-д байхгүй ч 2026-10-01 UAT-д ирсэн:
+ * харьцсан талын нэр/данс (шимтгэлийн мөрөнд хоосон), гүйлгээний дараах үлдэгдэл.
+ */
 export type GolomtStatementEntry = {
   recNum?: number | string | null;
   tranId?: string | null;
+  tranDate?: string | null;
   drOrCr?: string | null;
   tranAmount?: number | string | null;
   tranDesc?: string | null;
   tranPostedDate?: string | null;
   tranCrnCode?: string | null;
   exchRate?: number | string | null;
+  balance?: number | string | null;
+  accName?: string | null;
+  accNum?: string | null;
 };
 
 function text(value: unknown): string {
@@ -35,23 +43,28 @@ function money(value: unknown): number {
 
 /**
  * Гүйлгээний тогтвортой түлхүүр. `recNum` нь хүсэлтийн доторх дараалал тул
- * огнооны муж өөрчлөгдөхөд солигдоно — ОРОЛЦУУЛАХГҮЙ. Finacle-ийн tranId нь
- * огноо дотроо давтагдашгүй; нэг tranId-ийн хэд хэдэн хэсэг нэг дансанд
- * орохыг чиглэл + дүнгээр ялгана.
+ * огнооны муж өөрчлөгдөхөд солигдоно — ОРОЛЦУУЛАХГҮЙ. Нэг tranId олон мөртэй
+ * ирдэг (2026-10-01 UAT: гүйлгээ + түүний шимтгэл ижил tranId, ижил цагтай) —
+ * чиглэл + дүнгээр ялгана. Бүх талбар ижил мөр давтагдвал (ж: нэг гүйлгээний
+ * хоёр ижил шимтгэл) 2 дахь нь `:2`, 3 дахь нь `:3` (`occurrence`) — эхнийх нь
+ * хуучин хэлбэрээрээ тул өмнө импортолсон түлхүүр хөндөгдөхгүй.
  */
 export function golomtExternalRef(
   accountId: string,
-  entry: GolomtStatementEntry
+  entry: GolomtStatementEntry,
+  occurrence = 1
 ): string {
   const direction = /^c/i.test(text(entry.drOrCr)) ? "C" : "D";
-  return [
+  const parts = [
     "golomt",
     accountId,
     text(entry.tranId),
     text(entry.tranPostedDate),
     direction,
     money(entry.tranAmount).toFixed(2),
-  ].join(":");
+  ];
+  if (occurrence > 1) parts.push(String(occurrence));
+  return parts.join(":");
 }
 
 export type GolomtStatementInput = {
@@ -75,7 +88,7 @@ export function golomtStatementToParsed(
   input: GolomtStatementInput
 ): GolomtStatementResult {
   const currency = input.currency.toUpperCase();
-  const seen = new Set<string>();
+  const occurrences = new Map<string, number>();
   let skipped = 0;
 
   const sorted = [...input.entries].sort((left, right) => {
@@ -110,14 +123,16 @@ export function golomtStatementToParsed(
         `${label}: валют ${tranCurrency} — сонгосон кассын данс ${currency}`
       );
 
-    const externalRef = golomtExternalRef(input.accountId, entry);
+    // OPERACCTSTA-ийн сарын хэсгүүд давхцахгүй тул ижил мөр = банкны жинхэнэ
+    // тусдаа мөр — хаяхгүй, дарааллын дугаараар ялгана.
+    const baseRef = golomtExternalRef(input.accountId, entry);
+    const occurrence = (occurrences.get(baseRef) ?? 0) + 1;
+    occurrences.set(baseRef, occurrence);
+    const externalRef = golomtExternalRef(input.accountId, entry, occurrence);
     if (input.alreadyImported?.has(externalRef)) {
       skipped++;
       continue;
     }
-    // Нэг хариунд давхар ирвэл (хуудаслалтын давхцал) нэг л удаа.
-    if (seen.has(externalRef)) continue;
-    seen.add(externalRef);
 
     // Ханш ЗОХИОХГҮЙ — валютын дансанд банкны ханш ирээгүй (эсвэл 1) бол
     // хоосон үлдэж, хэрэглэгч хадгалахаас өмнө бөглөнө (saveBankStatement шалгана).
@@ -138,8 +153,10 @@ export function golomtStatementToParsed(
       rowNumber: rows.length + 1,
       transactionDate,
       description: text(entry.tranDesc),
-      counterparty: "",
-      counterAccount: "",
+      // Харьцсан тал (шимтгэл, хүүгийн мөрөнд банк хоосон ирүүлнэ) — П8
+      // дүрэм / харилцагчийн санал файлын импортынх шиг эндээс уншина.
+      counterparty: text(entry.accName),
+      counterAccount: text(entry.accNum),
       income: isCredit ? amount : 0,
       expense: isCredit ? 0 : amount,
       exchangeRate,
@@ -151,12 +168,16 @@ export function golomtStatementToParsed(
         source: "golomt-api",
         accountId: input.accountId,
         tranId,
+        tranDate: text(entry.tranDate),
         drOrCr: direction,
         tranAmount: text(entry.tranAmount),
         tranDesc: text(entry.tranDesc),
         tranPostedDate: text(entry.tranPostedDate),
         tranCrnCode: text(entry.tranCrnCode),
         exchRate: text(entry.exchRate),
+        balance: text(entry.balance),
+        accName: text(entry.accName),
+        accNum: text(entry.accNum),
       },
     });
   }

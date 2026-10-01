@@ -1,7 +1,9 @@
-// Голомт OBI-ийн HTTP клиент — ЗӨВХӨН унших үйлчилгээ (Фаз 1): нэвтрэх,
-// дансны жагсаалт (ACCTLST), үлдэгдэл (ACCTBALINQ), хуудаслалттай хуулга
-// (OPERACCSTAINQ). Гүйлгээ хийх (CGWTXNADD, TOTP X-Golomt-Code) энд
-// БАЙХГҮЙ — тэр түлхүүрийг Entry авахгүй (docs/dev/bank-api.md §2).
+// Голомт OBI-ийн HTTP клиент — ЗӨВХӨН унших үйлчилгээ (Фаз 1): нэвтрэх
+// (LGIN), харилцах дансны мэдээлэл (OPERACCTDET), үлдэгдэл (ACCTBALINQ),
+// хуулга (OPERACCTSTA — сараар хувааж). Банк Entry-д нээж өгсөн сервисүүд
+// эдгээр (2026-10-01 UAT-д шалгав); ACCTLST, OPERACCSTAINQ нээгдээгүй —
+// «Мерчант сервис рүү хандах боломжгүй». Гүйлгээ хийх (CGWTXNADD, TOTP
+// X-Golomt-Key) энд БАЙХГҮЙ — тэр түлхүүрийг Entry авахгүй (docs/dev/bank-api.md §2).
 //
 // DB-гүй: нууцыг дуудагч (lib/bank/golomt/connection.ts) тайлж өгнө.
 // `fetchImpl` / `now`-ийг тест солино (tests/golomt-client.test.ts).
@@ -9,8 +11,7 @@
 import {
   GOLOMT_API_BASE,
   GOLOMT_STATEMENT_MAX_ROWS,
-  GOLOMT_STATEMENT_PAGE_SIZE,
-  type GolomtAccountSummary,
+  golomtStatementChunks,
   type GolomtEnvironment,
 } from "./constants";
 import { golomtChecksum, golomtDecrypt, golomtEncrypt } from "./crypto";
@@ -29,14 +30,19 @@ export type GolomtCredentials = {
 };
 
 export type GolomtGrant = { clientId: string; state: string; scope: string };
+
+/** OPERACCTDET-ийн хариунаас хэрэгтэй талбарууд. */
+export type GolomtAccountDetails = {
+  accountId: string;
+  accountName: string;
+  currency: string;
+  status: string;
+};
 type Json = Record<string, unknown>;
 
 const REQUEST_TIMEOUT_MS = 20_000;
 /** Access token 300 сек — 60 секундын нөөцтэйгөөр сэргээнэ (SPEC §4.2). */
 const TOKEN_REFRESH_AFTER_MS = 240_000;
-const MAX_STATEMENT_PAGES = Math.ceil(
-  GOLOMT_STATEMENT_MAX_ROWS / GOLOMT_STATEMENT_PAGE_SIZE
-);
 
 export class GolomtApiError extends Error {
   constructor(
@@ -88,9 +94,9 @@ export function golomtGrantParams(record: Json): GolomtGrant {
 /** Алдааны мессежид аль алхам унасныг хэрэглэгчид нэрлэнэ. */
 const STEP_LABELS: Record<string, string> = {
   LGIN: "нэвтрэх",
-  ACCTLST: "дансны жагсаалт",
+  OPERACCTDET: "дансны мэдээлэл",
   ACCTBALINQ: "дансны үлдэгдэл",
-  OPERACCSTAINQ: "хуулга татах",
+  OPERACCTSTA: "хуулга татах",
 };
 
 function stepLabel(service: string): string {
@@ -129,32 +135,65 @@ const KNOWN_BANK_ERRORS: { match: RegExp; text: string }[] = [
     match: /MERDET0001|merchant\.details\.not\.present/i,
     text: "Нэвтрэх нэр банкинд бүртгэлгүй — «Голомт API» тохиргооны нэвтрэх нэрийг банкнаас ирсэн баримтаас хуулж, сонгосон орчин (UAT / үндсэн) зөв эсэхийг шалгана уу",
   },
+  {
+    // 2026-10-01 UAT: регистр данс эзэмшигчийнхээс өөр бол.
+    match: /only\.access\.customer\.own\.account/i,
+    text: "Энэ данс тохиргооны байгууллагын регистрт бүртгэлгүй — «Голомт API» тохиргооны регистр болон кассын дансны дугаарыг шалгана уу",
+  },
+  {
+    // 2026-10-01 UAT: `subErrors: [{code: "162", desc: "The account does not exist."}]`.
+    match: /^162$/,
+    text: "Ийм дугаартай данс Голомт банкинд алга — кассын дансны дугаарыг шалгана уу",
+  },
+  {
+    // 2026-10-01 UAT: `{code: "342", desc: "The account has been closed."}`.
+    match: /^342$/,
+    text: "Энэ данс банкинд хаагдсан байна",
+  },
+  {
+    // 2026-10-01 UAT: банк Entry-д нээгээгүй сервис (ж: ACCTLST) дуудахад.
+    match: /Мерчант сервис рүү хандах боломжгүй/i,
+    text: "Энэ үйлчилгээ таны банкны эрхэд нээгдээгүй байна — банкны менежертэй холбогдоно уу",
+  },
 ];
 
-function bankErrorDetails(parsed: Json): { codes: string[]; fieldMessages: string[] } {
+function bankErrorDetails(parsed: Json): {
+  codes: string[];
+  fieldMessages: string[];
+  descriptions: string[];
+} {
   const subErrors = Array.isArray(parsed.subErrors) ? parsed.subErrors : [];
   const codes: string[] = [];
   const fieldMessages: string[] = [];
+  const descriptions: string[] = [];
   for (const item of subErrors) {
     if (!item || typeof item !== "object") continue;
     const record = item as Json;
     const code = stringField(record, "code", "type");
     if (code) codes.push(code);
+    // Банкны тайлбар (ж: «The account does not exist.») — message хоосон үед.
+    const desc = stringField(record, "desc");
+    if (desc) descriptions.push(desc);
     // Талбарын шалгалтын монгол мессеж (ж: «Нэвтрэх нууц үг оруулна уу») —
     // `{…}` загвар болон англи ерөнхий текстийг алгасна.
     const message = stringField(record, "message");
     if (message && /[А-Яа-яӨөҮүЁё]/.test(message)) fieldMessages.push(message);
   }
-  return { codes, fieldMessages };
+  return { codes, fieldMessages, descriptions };
 }
 
 function describeFailure(service: string, status: number, body: string): string {
   let message = "";
-  let details: { codes: string[]; fieldMessages: string[] } = { codes: [], fieldMessages: [] };
+  let details: ReturnType<typeof bankErrorDetails> = {
+    codes: [],
+    fieldMessages: [],
+    descriptions: [],
+  };
   try {
     const parsed = JSON.parse(body) as Json;
-    message = stringField(parsed, "errDesc", "message", "error");
     details = bankErrorDetails(parsed);
+    message =
+      stringField(parsed, "errDesc", "message", "error") || details.descriptions[0] || "";
   } catch {
     // шифрлэгдсэн эсвэл хоосон
   }
@@ -394,54 +433,65 @@ export class GolomtClient {
     );
   }
 
-  /** SPEC §5.11 — харилцах данснууд. */
-  async listAccounts(): Promise<GolomtAccountSummary[]> {
-    const result = await this.call("ACCTLST", "/v1/account/list", {
+  /** SPEC §5.4 — харилцах дансны дэлгэрэнгүй (эзэмшигч, валют, төлөв). */
+  async accountDetails(accountId: string): Promise<GolomtAccountDetails> {
+    const result = await this.call("OPERACCTDET", "/v1/account/operative/details", {
+      accountId,
       registerNo: this.credentials.registerNo,
     });
-    const accounts = Array.isArray(result.operAccounts) ? result.operAccounts : [];
-    return accounts
-      .filter((item): item is Json => !!item && typeof item === "object")
-      .map((item) => ({
-        accountId: stringField(item, "accountId"),
-        accountName: stringField(item, "accountName", "shortName"),
-        currency: stringField(item, "currency").toUpperCase(),
-      }))
-      .filter((item) => item.accountId);
+    return {
+      accountId: stringField(result, "accountNumber", "accountId") || accountId,
+      accountName: stringField(result, "accountName", "customerName", "accountShortName"),
+      currency: stringField(result, "currency").toUpperCase(),
+      status: stringField(result, "status").toUpperCase(),
+    };
   }
 
-  /** SPEC §5.6 — хуудас бүрийг дуусталаа (дээд хязгаартай) татна. */
+  /** SPEC §5.1 — боломжит үлдэгдэл (balanceLL-ийн AVAIL); ирээгүй бол null. */
+  async availableBalance(accountId: string): Promise<number | null> {
+    const result = await this.call("ACCTBALINQ", "/v1/account/balance/inq", {
+      accountId,
+      registerNo: this.credentials.registerNo,
+    });
+    const balances = Array.isArray(result.balanceLL) ? result.balanceLL : [];
+    const available = balances.find(
+      (item): item is Json =>
+        !!item && typeof item === "object" && stringField(item as Json, "type").toUpperCase() === "AVAIL"
+    );
+    const amount = available?.amount;
+    const value =
+      amount && typeof amount === "object" ? (amount as Json).value : undefined;
+    const parsed = Number(value);
+    return value === undefined || value === null || value === "" || !Number.isFinite(parsed)
+      ? null
+      : parsed;
+  }
+
+  /**
+   * SPEC §5.5 (OPERACCTSTA) — хуудаслалтгүй, нэг хүсэлтэд ≈1 сар л зөвшөөрдөг
+   * тул хуанлийн сараар хувааж дараалан татна (golomtStatementChunks).
+   * Хуудаслалттай OPERACCSTAINQ (§5.6) Entry-ийн эрхэд нээгдээгүй.
+   */
   async fetchStatement(
     accountId: string,
     startDate: string,
     endDate: string
   ): Promise<GolomtStatementEntry[]> {
     const entries: GolomtStatementEntry[] = [];
-    for (let page = 1; page <= MAX_STATEMENT_PAGES; page++) {
-      const result = await this.call(
-        "OPERACCSTAINQ",
-        "/v1/account/operative/statement/inquiry",
-        {
-          accountId,
-          registerNo: this.credentials.registerNo,
-          startDate,
-          endDate,
-          page,
-          size: GOLOMT_STATEMENT_PAGE_SIZE,
-        }
-      );
+    for (const chunk of golomtStatementChunks(startDate, endDate)) {
+      const result = await this.call("OPERACCTSTA", "/v1/account/operative/statement/", {
+        accountId,
+        registerNo: this.credentials.registerNo,
+        startDate: chunk.startDate,
+        endDate: chunk.endDate,
+      });
       const statements = Array.isArray(result.statements) ? result.statements : [];
       entries.push(...(statements as GolomtStatementEntry[]));
-      const totalPages = Number(result.totalPages);
-      if (
-        statements.length === 0 ||
-        !Number.isFinite(totalPages) ||
-        page >= totalPages
-      )
-        return entries;
+      if (entries.length > GOLOMT_STATEMENT_MAX_ROWS)
+        throw new GolomtApiError(
+          `Хуулга ${GOLOMT_STATEMENT_MAX_ROWS.toLocaleString("en-US")} мөрөөс их байна — хугацааг богиносгоно уу`
+        );
     }
-    throw new GolomtApiError(
-      `Хуулга ${GOLOMT_STATEMENT_MAX_ROWS.toLocaleString("en-US")} мөрөөс их байна — хугацааг богиносгоно уу`
-    );
+    return entries;
   }
 }

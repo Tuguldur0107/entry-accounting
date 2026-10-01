@@ -12,7 +12,7 @@ import { actionError, type ActionResult } from "@/lib/action-result";
 import { encryptSecret } from "@/lib/ai/crypto";
 import { logAuditEvent } from "@/lib/audit";
 import { requireModuleAction, requireRole } from "@/lib/auth";
-import { GolomtClient } from "@/lib/bank/golomt/client";
+import { GolomtApiError, GolomtClient } from "@/lib/bank/golomt/client";
 import {
   GOLOMT_BANK_KEY,
   fetchGolomtStatementForOrg,
@@ -26,7 +26,7 @@ import {
   golomtStatementRangeError,
   isGolomtCashAccount,
   isGolomtEnvironment,
-  type GolomtAccountSummary,
+  type GolomtAccountCheck,
   type GolomtConnectionView,
   type GolomtEnvironment,
 } from "@/lib/bank/golomt/constants";
@@ -166,14 +166,13 @@ export async function saveGolomtConnection(input: {
 }
 
 /**
- * Холболт шалгах — нэвтэрч, харилцах дансны жагсаалтыг (ACCTLST) татна.
- * Кассын аль Голомтын данс банкны жагсаалтад байгаа/байхгүйг буцаана.
+ * Холболт шалгах — нэвтэрч, кассын Голомтын данс бүрийг дугаараар нь
+ * OPERACCTDET + ACCTBALINQ-ээр шалгана (ACCTLST Entry-ийн эрхэд нээгдээгүй —
+ * docs/dev/bank-api.md §3). Нэвтрэлт унавал бүхэлдээ алдаа; данс тус бүрийн
+ * алдаа тухайн мөрөнд, сүүлийн шалгалтын төлөвт эхний алдаа нь бичигдэнэ.
  */
 export async function testGolomtConnection(): Promise<
-  ActionResult<{
-    accounts: GolomtAccountSummary[];
-    matched: { cashAccountName: string; accountId: string; found: boolean }[];
-  }>
+  ActionResult<{ accounts: GolomtAccountCheck[]; connection: GolomtConnectionView }>
 > {
   let connectionId: string | null = null;
   try {
@@ -182,20 +181,49 @@ export async function testGolomtConnection(): Promise<
     if (!row) throw new Error("Эхлээд Голомтын холболтоо хадгална уу");
     connectionId = row.id;
     const client = new GolomtClient(golomtCredentialsFromRow(row));
-    const accounts = await client.listAccounts();
-    const bankIds = new Set(accounts.map((account) => account.accountId));
+    await client.login();
+
     const cashRows = await db.query.cashAccounts.findMany({
       where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
     });
-    const matched = cashRows
-      .filter((account) => isGolomtCashAccount(account))
-      .map((account) => {
-        const accountId = golomtAccountId(account.accountNumber) ?? "";
-        return { cashAccountName: account.name, accountId, found: bankIds.has(accountId) };
-      });
-    await recordGolomtCheck(row.id, null);
+    const accounts: GolomtAccountCheck[] = [];
+    // Дараалан — банкны нэг session-оор, зэрэгцээ ачаалал үүсгэхгүй.
+    for (const account of cashRows.filter((item) => isGolomtCashAccount(item))) {
+      const accountId = golomtAccountId(account.accountNumber) ?? "";
+      const check: GolomtAccountCheck = {
+        cashAccountName: account.name,
+        accountId,
+        cashCurrency: account.currency.toUpperCase(),
+        ok: false,
+        accountName: "",
+        currency: "",
+        status: "",
+        availableBalance: null,
+        error: null,
+      };
+      try {
+        const details = await client.accountDetails(accountId);
+        check.accountName = details.accountName;
+        check.currency = details.currency;
+        check.status = details.status;
+        check.availableBalance = await client.availableBalance(accountId);
+        check.ok = true;
+      } catch (caught) {
+        // Банкны алдаа (эрхгүй, регистр зөрсөн г.м.) тухайн дансанд; бусад нь шидэгдэнэ.
+        if (!(caught instanceof GolomtApiError)) throw caught;
+        check.error = caught.message;
+      }
+      accounts.push(check);
+    }
+    const firstError = accounts.find((item) => item.error);
+    await recordGolomtCheck(
+      row.id,
+      firstError ? `${firstError.cashAccountName}: ${firstError.error}` : null
+    );
     revalidatePath("/cash/statements");
-    return { accounts, matched };
+    // Шалгалтын шинэ төлөвийг (огноо, алдаа) цонхонд шууд харуулна.
+    const checked = await loadGolomtConnectionRow(orgId);
+    return { accounts, connection: toGolomtConnectionView(checked ?? row) };
   } catch (caught) {
     if (connectionId) await recordGolomtCheck(connectionId, errorText(caught)).catch(() => {});
     return actionError("testGolomtConnection", caught, "Голомт банктай холбогдож чадсангүй");

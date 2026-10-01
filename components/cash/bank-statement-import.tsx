@@ -1527,6 +1527,7 @@ export function BankStatementImport({
             setGolomtConnection(connection);
             router.refresh();
           }}
+          onChecked={setGolomtConnection}
         />
       )}
       {golomtFetchOpen && cashAccount && (
