@@ -52,6 +52,8 @@ import {
 } from "@/lib/arap/counterparty-kind";
 import { ORG_REGISTER_RE } from "@/lib/pos/ebarimt-buyer";
 import { lookupCounterpartyTaxpayer } from "@/lib/actions/ebarimt";
+import { checkGolomtAccountHolder } from "@/lib/actions/bank-api";
+import { isGolomtBank } from "@/lib/bank/golomt/constants";
 import { lookupTinPreferBrowser } from "@/lib/ebarimt/browser-lookup";
 import { EBARIMT_STATUS_LABELS, MERCHANT_TIN_RE, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -1410,6 +1412,30 @@ function CounterpartyDialog({
   // ТЕГ-ийн лавлах (ТТД → нэр/НӨАТ; байгууллагын регистр → ТТД) — нэг удаа,
   // үр дүн нь картад хадгалагдана. Лавлах хүрэхгүй бол хадгалалт зогсохгүй.
   const [tinLookup, setTinLookup] = useState<{ tone?: "warning"; text: string } | null>(null);
+  // Голомтын данс эзэмшигч (ACCCHK) — нэрийг банк далдалж буцаана; хадгалахгүй.
+  const [holderCheck, setHolderCheck] = useState<{ tone?: "warning"; text: string } | null>(null);
+  const [holderPending, startHolderCheck] = useTransition();
+  const canCheckHolder =
+    !holderPending && isGolomtBank(form.bankName) && /\d{6,}/.test(form.bankAccountNo);
+  function runHolderCheck() {
+    setHolderCheck(null);
+    startHolderCheck(async () => {
+      const result = await checkGolomtAccountHolder({
+        bankName: form.bankName,
+        accountNo: form.bankAccountNo,
+      });
+      if (result.error || !result.holder) {
+        setHolderCheck({ tone: "warning", text: result.error ?? "Шалгаж чадсангүй" });
+        return;
+      }
+      const { holder } = result;
+      const inactive = holder.status && holder.status !== "A";
+      setHolderCheck({
+        tone: inactive ? "warning" : undefined,
+        text: `Эзэмшигч: ${holder.maskedName || "—"}${holder.currency ? ` · ${holder.currency}` : ""}${inactive ? " · данс идэвхгүй" : ""}`,
+      });
+    });
+  }
   const [tinPending, startTinLookup] = useTransition();
   const tinCheck = normalizeTin(form.tin);
   const tinDigits = form.tin.replace(/[\s-]/g, "");
@@ -1634,16 +1660,36 @@ function CounterpartyDialog({
               placeholder="Хаан банк"
             />
           </FormField>
-          <FormField label="Банкны данс">
-            <Input
-              value={form.bankAccountNo}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  bankAccountNo: event.target.value,
-                }))
-              }
-            />
+          <FormField
+            label="Банкны данс"
+            hint={holderCheck?.text}
+            hintTone={holderCheck?.tone}
+          >
+            <div className="flex gap-2">
+              <Input
+                value={form.bankAccountNo}
+                onChange={(event) => {
+                  setHolderCheck(null);
+                  setForm((current) => ({
+                    ...current,
+                    bankAccountNo: event.target.value,
+                  }));
+                }}
+              />
+              {isGolomtBank(form.bankName) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 shrink-0"
+                  disabled={!canCheckHolder}
+                  onClick={runHolderCheck}
+                  title="Голомт банкнаас дансны эзэмшигчийн нэрийг шалгана"
+                >
+                  {holderPending ? "Шалгаж байна…" : "Эзэмшигч шалгах"}
+                </Button>
+              )}
+            </div>
           </FormField>
           <FormField label="Төлбөрийн нөхцөл /хоног/">
             <Input

@@ -178,6 +178,22 @@ function numberOrBlank(value: number | null) {
   return value == null ? "" : fmtMnt(value);
 }
 
+/**
+ * Банкны API-аас авсан өдрийн хаалтын үлдэгдэл (bank_balance_snapshots) ↔
+ * Entry-ийн кассын үлдэгдэл ИЖИЛ огноогоор (docs/dev/bank-api.md §7).
+ */
+export type BankApiBalanceRow = {
+  id: string;
+  accountName: string;
+  currency: string;
+  /** Банкны үлдэгдлийн огноо — тулгалтын огноо буюу түүнээс өмнөх сүүлийнх. */
+  asOfDate: string;
+  bankBalance: number;
+  /** Entry-ийн кассын үлдэгдэл тэр өдөр (дансны валютаар). */
+  entryBalance: number;
+  difference: number;
+};
+
 export function CashReconciliationWorkspace({
   asOf,
   periodCode,
@@ -187,6 +203,7 @@ export function CashReconciliationWorkspace({
   rows,
   history,
   fxAccountOptions,
+  bankApiBalances = [],
 }: {
   asOf: string;
   /** Тэгшитгэлийн огноо хамаарах тайлант үе — "2025-12". */
@@ -199,6 +216,7 @@ export function CashReconciliationWorkspace({
   rows: CashReconciliationRow[];
   history: CashFxHistoryRow[];
   fxAccountOptions: Array<{ number: string; name: string }>;
+  bankApiBalances?: BankApiBalanceRow[];
 }) {
   const router = useRouter();
   const [date, setDate] = useState(asOf);
@@ -699,6 +717,45 @@ export function CashReconciliationWorkspace({
       },
     ],
     [adjustment, fxPostBlockReason, isPending, postFx]
+  );
+
+  const bankApiColumns = useMemo<ColDef<BankApiBalanceRow>[]>(
+    () => [
+      { headerName: "Данс", field: "accountName", minWidth: 200, flex: 1 },
+      { headerName: "Валют", field: "currency", width: 84 },
+      { headerName: "Огноо", field: "asOfDate", width: 112 },
+      {
+        headerName: "Банкны үлдэгдэл",
+        field: "bankBalance",
+        width: 170,
+        cellClass: "ag-right-aligned-cell font-mono",
+        headerClass: "ag-right-aligned-header",
+        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+      },
+      {
+        headerName: "Entry-ийн үлдэгдэл",
+        field: "entryBalance",
+        width: 170,
+        cellClass: "ag-right-aligned-cell font-mono",
+        headerClass: "ag-right-aligned-header",
+        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+      },
+      {
+        headerName: "Зөрүү",
+        field: "difference",
+        width: 150,
+        cellClass: (params) =>
+          cn(
+            "ag-right-aligned-cell font-mono font-semibold",
+            Math.abs(Number(params.value ?? 0)) > 0.005
+              ? "text-[var(--ea-danger-fg)]"
+              : "text-[var(--ea-success-fg)]"
+          ),
+        headerClass: "ag-right-aligned-header",
+        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+      },
+    ],
+    []
   );
 
   const historyColumns = useMemo<ColDef<CashFxHistoryRow>[]>(
@@ -1280,6 +1337,30 @@ export function CashReconciliationWorkspace({
           </p>
         )}
       </section>
+
+      {bankApiBalances.length > 0 && (
+        <section>
+          <div className="mb-2 flex items-center gap-2">
+            <Icon name="bank" className="text-[var(--ea-primary)]" />
+            <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
+              Банкны API-ийн үлдэгдэл
+            </h2>
+          </div>
+          <p className="mb-2 text-xs text-[var(--ea-text-3)]">
+            Голомтын хуулгын гүйлгээний дараах үлдэгдлээс тухайн өдрийн хаалтын
+            үлдэгдэл. Entry-ийн үлдэгдлийг ИЖИЛ огноогоор харьцуулна — зөрүү нь
+            импортлоогүй эсвэл буруу бүртгэсэн гүйлгээг илтгэнэ.
+          </p>
+          <DataGridDynamic<BankApiBalanceRow>
+            rowData={bankApiBalances}
+            columnDefs={bankApiColumns}
+            getRowId={(params) => params.data.id}
+            height={Math.min(320, 48 + bankApiBalances.length * 38)}
+            wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+            suppressCellFocus
+          />
+        </section>
+      )}
 
       {history.length > 0 && (
         <section>

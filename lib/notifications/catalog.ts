@@ -305,6 +305,21 @@ export const NOTIFICATION_CATALOG = {
     email: "digest",
     inApp: true,
   },
+  // Банкны API-ийн өдрийн автомат хуулга (lib/bank/golomt/auto-pull.ts).
+  "bank.statement_pulled": {
+    category: "documents",
+    severity: "info",
+    label: "Банкнаас хуулга автоматаар татагдлаа",
+    email: "digest",
+    inApp: true,
+  },
+  "bank.auto_fetch_failed": {
+    category: "documents",
+    severity: "warning",
+    label: "Банкны хуулга автоматаар татагдсангүй",
+    email: "instant",
+    inApp: true,
+  },
   // AI-ийн шууд батлах хязгаар өөрчлөгдсөн — эзэн/админд ЯГ ОДОО мэдэгдэнэ
   // (агент өөрөө өсгөсөн бол хүн тэр даруй харна, lib/ai/post-limit.ts).
   "settings.ai_limit_changed": {

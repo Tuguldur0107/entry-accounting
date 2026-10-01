@@ -205,3 +205,52 @@ export function golomtStatementToParsed(
     skipped,
   };
 }
+
+/**
+ * Хуулгын мөр бүрийн «гүйлгээний дараах үлдэгдэл» (`balance`)-ээс өдөр бүрийн
+ * ХААЛТЫН үлдэгдэл. Банк мөрийг ШИНЭЭС хуучин руу (`recNum` 1 = хамгийн сүүлийн)
+ * ирүүлдэг (2026-10-01 UAT: ижил цагтай гүйлгээ + шимтгэлийн хувьд шимтгэл нь
+ * recNum бага, үлдэгдэл нь бага) — тиймээс он цагаар, дараа нь recNum ИХЭЭС бага.
+ *
+ * Мужийн эхний мөрөөс өмнөх өдрүүдийн үлдэгдэл = эхний мөрийн өмнөх үлдэгдэл
+ * (дараах үлдэгдэл − тухайн гүйлгээ). Мөр огт ирээгүй бол [] — үлдэгдэл
+ * ТААХГҮЙ. `endDate` нь бүтэн өнгөрсөн өдөр байх ёстой (дуудагч шалгана).
+ */
+export function golomtDailyClosingBalances(
+  entries: GolomtStatementEntry[],
+  startDate: string,
+  endDate: string
+): { date: string; balance: number }[] {
+  const rows = entries
+    .map((entry) => ({
+      posted: text(entry.tranPostedDate),
+      recNum: Number(entry.recNum ?? 0),
+      balance: money(entry.balance),
+      signed: (/^c/i.test(text(entry.drOrCr)) ? 1 : -1) * money(entry.tranAmount),
+    }))
+    .filter(
+      (row) =>
+        /^\d{4}-\d{2}-\d{2}/.test(row.posted) &&
+        Number.isFinite(row.balance) &&
+        Number.isFinite(row.signed)
+    )
+    .sort((left, right) => left.posted.localeCompare(right.posted) || right.recNum - left.recNum);
+  if (rows.length === 0) return [];
+
+  const opening = Math.round((rows[0].balance - rows[0].signed) * 100) / 100;
+  const result: { date: string; balance: number }[] = [];
+  let index = 0;
+  let closing = opening;
+  for (
+    let day = startDate;
+    day <= endDate;
+    day = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+  ) {
+    while (index < rows.length && rows[index].posted.slice(0, 10) <= day) {
+      closing = rows[index].balance;
+      index++;
+    }
+    result.push({ date: day, balance: closing });
+  }
+  return result;
+}

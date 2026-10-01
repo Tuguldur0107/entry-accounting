@@ -6,7 +6,8 @@
 // (б) tick бүрд и-мэйлийн хүргэлт (instant ≤15 мин, digest цагт нь),
 // (в) tick бүрд нэмэлт сувгууд (Telegram, custom/),
 // (г) 09:00-оос давтамжтай нэхэмжлэх (§5h), 10:00-оос харилцагчид төлбөрийн
-// сануулга (docs/dev/arap.md §5g).
+// сануулга (docs/dev/arap.md §5g),
+// (д) 07:00-оос банкны хуулгын автомат татлага (docs/dev/bank-api.md §7).
 // Ажил бүр notification_runs-аар байгууллага × өдөрт НЭГ удаа л ажиллах тул
 // давтан tick, олон instance, cron route-тэй давхцал бүгд аюулгүй.
 //
@@ -22,6 +23,8 @@ export const DAILY_JOB_HOUR_UB = 8;
 export const RECURRING_JOB_HOUR_UB = 9;
 /** Харилцагч руу захиа ажлын цагаар л — шөнө/өглөө эрт сануулга явуулахгүй. */
 export const REMINDER_JOB_HOUR_UB = 10;
+/** Өчигдрийн хуулга бүрэн болсны дараа, ажлын өдөр эхлэхээс өмнө. */
+export const BANK_PULL_JOB_HOUR_UB = 7;
 const TICK_MS = 15 * 60 * 1000;
 /** Deploy болмогц шууд биш — DB migration/push дуусах зайг өгнө. */
 const FIRST_TICK_DELAY_MS = 60 * 1000;
@@ -43,6 +46,18 @@ export async function tick(): Promise<void> {
   if (running) return;
   running = true;
   try {
+    if (hourInUlaanbaatar() >= BANK_PULL_JOB_HOUR_UB) {
+      // Хойшлуулсан import — банкны клиентыг instrumentation-ийн эхлэлд татахгүй.
+      const { runGolomtAutoPull } = await import("@/lib/bank/golomt/auto-pull");
+      const bank = await runGolomtAutoPull();
+      if (bank.claimed > 0 || bank.errors.length > 0)
+        console.log(
+          `[bank] ${bank.today}: ${bank.claimed} байгууллага, ${bank.newRows} шинэ гүйлгээ` +
+            (bank.errors.length ? `, ${bank.errors.length} алдаа` : "")
+        );
+      for (const failure of bank.errors)
+        console.error("[bank] байгууллага", failure.organizationId, failure.error);
+    }
     if (hourInUlaanbaatar() >= DAILY_JOB_HOUR_UB) {
       const result = await runDailyNotifications();
       if (result.claimed > 0 || result.errors.length > 0)

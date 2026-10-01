@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { runRecurringInvoices } from "@/lib/arap/recurring-run";
 import { runInvoiceReminders } from "@/lib/arap/reminders-run";
+import { runGolomtAutoPull } from "@/lib/bank/golomt/auto-pull";
 import { deliverPendingChannels } from "@/lib/notifications/channel-delivery";
 import { deliverPendingEmails } from "@/lib/notifications/email-delivery";
 import { runDailyNotifications } from "@/lib/notifications/scheduler";
@@ -18,9 +19,10 @@ export const maxDuration = 120;
 // CRON_SECRET тохируулаагүй deployment-д зам хаалттай (503) — in-process
 // ticker (lib/notifications/ticker.ts) тэнд default-оор ажиллана.
 //
-// ?job=daily|email|channels|recurring|reminders|all (default all) — өдрийн дүрмүүд /
+// ?job=daily|email|channels|recurring|reminders|bank|all (default all) — өдрийн дүрмүүд /
 // и-мэйл / нэмэлт сувгууд (Telegram, custom/) / давтамжтай нэхэмжлэх (§5h) /
-// харилцагчид төлбөрийн сануулга (docs/dev/arap.md §5g).
+// харилцагчид төлбөрийн сануулга (docs/dev/arap.md §5g) / банкны хуулгын
+// автомат татлага (docs/dev/bank-api.md §7).
 // ?date=YYYY-MM-DD — тухайн өдрийг (backfill/тест) дахин ажиллуулна;
 // байгууллага × өдөр нэг л удаа тул давхар дуудахад аюулгүй.
 
@@ -44,9 +46,9 @@ async function handle(request: Request) {
   const params = new URL(request.url).searchParams;
   const date = params.get("date") ?? todayInUlaanbaatar();
   const job = params.get("job") ?? "all";
-  if (!["daily", "email", "channels", "recurring", "reminders", "all"].includes(job))
+  if (!["daily", "email", "channels", "recurring", "reminders", "bank", "all"].includes(job))
     return NextResponse.json(
-      { ok: false, error: "job нь daily | email | channels | recurring | reminders | all" },
+      { ok: false, error: "job нь daily | email | channels | recurring | reminders | bank | all" },
       { status: 400 }
     );
   try {
@@ -58,7 +60,8 @@ async function handle(request: Request) {
       job === "recurring" || job === "all" ? await runRecurringInvoices(date) : undefined;
     const reminders =
       job === "reminders" || job === "all" ? await runInvoiceReminders(date) : undefined;
-    return NextResponse.json({ ok: true, daily, email, channels, recurring, reminders });
+    const bank = job === "bank" || job === "all" ? await runGolomtAutoPull(date) : undefined;
+    return NextResponse.json({ ok: true, daily, email, channels, recurring, reminders, bank });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : String(error) },

@@ -53,6 +53,20 @@ export function isGolomtCashAccount(account: {
   return /голомт|golomt/i.test(account.bankName ?? "");
 }
 
+/** Банкны нэр/код Голомтынх эсэх (харилцагч, ажилтны дансанд код байхгүй тул нэрээр). */
+export function isGolomtBank(bankName: string | null | undefined, bankCode?: string | null): boolean {
+  if ((bankCode ?? "").trim() === GOLOMT_BANK_CODE) return true;
+  return /голомт|golomt/i.test(bankName ?? "");
+}
+
+/** ACCCHK-ийн үр дүн — client-д (эзэмшигчийн нэр банкнаас ДАЛДЛАГДСАН ирнэ). */
+export type GolomtAccountHolderView = {
+  accountId: string;
+  maskedName: string;
+  currency: string;
+  status: string;
+};
+
 /** Дансны дугаарыг API-ийн accountId болгоно (зай, зураас хасна); буруу бол null. */
 export function golomtAccountId(accountNumber: string | null | undefined): string | null {
   const digits = (accountNumber ?? "").replace(/[\s-]/g, "");
@@ -70,7 +84,24 @@ export type GolomtConnectionView = {
   hasSecrets: boolean;
   lastCheckedAt: string | null;
   lastCheckError: string | null;
+  /** Өдөр бүр хуулга автоматаар татах (хянагдаагүй хуулга болж хүлээгдэнэ). */
+  autoFetch: boolean;
+  lastAutoFetchAt: string | null;
+  lastAutoFetchError: string | null;
 };
+
+/** Автомат татлагын хүлээгдэж буй (хянагдаагүй) хуулга — client-д харагдах хэлбэр. */
+export type GolomtPendingPull = {
+  id: string;
+  cashAccountId: string;
+  cashAccountName: string;
+  startDate: string;
+  endDate: string;
+  /** Одоо ч импортлогдоогүй мөрийн тоо (externalRef-ээр динамик). */
+  newRows: number;
+  createdAt: string;
+};
+
 
 /**
  * Холболт шалгалтын нэг кассын дансны үр дүн — OPERACCTDET (данс эзэмшигч,

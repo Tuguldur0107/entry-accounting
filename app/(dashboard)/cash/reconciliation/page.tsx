@@ -2,9 +2,11 @@ import { and, desc, eq, gt, inArray, lte } from "drizzle-orm";
 
 import {
   CashReconciliationWorkspace,
+  type BankApiBalanceRow,
   type CashFxHistoryRow,
   type CashReconciliationRow,
 } from "@/components/cash/cash-reconciliation-workspace";
+import { isGolomtCashAccount } from "@/lib/bank/golomt/constants";
 import { getActiveOrg } from "@/lib/auth";
 import { periodCodeOf, periodRange } from "@/lib/periods/period";
 import { getPeriodSelection } from "@/lib/periods/selection";
@@ -18,6 +20,7 @@ import { fmtPeriodCode } from "@/lib/periods/period";
 import { db } from "@/lib/db";
 import {
   accountingPeriods,
+  bankBalanceSnapshots,
   bankStatements,
   cashAccounts,
   cashDocuments,
@@ -340,6 +343,56 @@ export default async function CashReconciliationPage({
     status: item.status,
   }));
 
+  // Банкны API-ийн өдрийн хаалтын үлдэгдэл (docs/dev/bank-api.md §7): тулгалтын
+  // огноо буюу түүнээс өмнөх СҮҮЛИЙН банкны үлдэгдлийг Entry-ийн тэр өдрийн
+  // үлдэгдэлтэй харьцуулна (огноо зөрүүлж харьцуулахгүй).
+  const apiAccounts = accounts.filter(
+    (account) => account.isActive && isGolomtCashAccount(account)
+  );
+  const bankApiBalances: BankApiBalanceRow[] = [];
+  if (apiAccounts.length > 0) {
+    const snapshots = await db
+      .selectDistinctOn([bankBalanceSnapshots.cashAccountId])
+      .from(bankBalanceSnapshots)
+      .where(
+        and(
+          eq(bankBalanceSnapshots.organizationId, orgId),
+          inArray(
+            bankBalanceSnapshots.cashAccountId,
+            apiAccounts.map((account) => account.id)
+          ),
+          lte(bankBalanceSnapshots.asOfDate, asOf)
+        )
+      )
+      .orderBy(bankBalanceSnapshots.cashAccountId, desc(bankBalanceSnapshots.asOfDate));
+    const byDate = new Map<string, typeof apiAccounts>();
+    for (const snapshot of snapshots) {
+      const account = apiAccounts.find((item) => item.id === snapshot.cashAccountId);
+      if (!account) continue;
+      byDate.set(snapshot.asOfDate, [...(byDate.get(snapshot.asOfDate) ?? []), account]);
+    }
+    const entryByAccount = new Map<string, number>();
+    for (const [date, group] of byDate) {
+      const balances = await loadCashBalancesFast(orgId, group, date);
+      for (const [id, balance] of balances) entryByAccount.set(id, balance);
+    }
+    for (const snapshot of snapshots) {
+      const account = apiAccounts.find((item) => item.id === snapshot.cashAccountId);
+      if (!account) continue;
+      const bankBalance = Number(snapshot.balance);
+      const entryBalance = entryByAccount.get(account.id) ?? 0;
+      bankApiBalances.push({
+        id: account.id,
+        accountName: account.name,
+        currency: snapshot.currency,
+        asOfDate: snapshot.asOfDate,
+        bankBalance,
+        entryBalance,
+        difference: Math.round((bankBalance - entryBalance) * 100) / 100,
+      });
+    }
+  }
+
   // Тухайн огноо аль тайлант үед хамаарах, тэр үе НЭЭЛТТЭЙ эсэх — тэгшитгэл
   // хаагдсан үед бичигдэхгүй тул хэрэглэгчид УРЬДЧИЛЖ хэлнэ (бүртгэлгүй сар
   // = нээлттэй, lib/periods/period.ts isPeriodWritable-тай ижил дүрэм).
@@ -373,6 +426,7 @@ export default async function CashReconciliationPage({
         number: account.number,
         name: account.name,
       }))}
+      bankApiBalances={bankApiBalances}
     />
   );
 }

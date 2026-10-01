@@ -43,7 +43,9 @@ import {
 import {
   isGolomtCashAccount,
   type GolomtConnectionView,
+  type GolomtPendingPull,
 } from "@/lib/bank/golomt/constants";
+import { dismissGolomtPull, openGolomtPull } from "@/lib/actions/bank-api";
 import type {
   ParsedBankStatement,
   ParsedBankStatementRow,
@@ -101,6 +103,8 @@ interface Props {
     defaultRegisterNo: string;
     /** admin+ — холболтын тохиргоог засна. */
     canManage: boolean;
+    /** Өдрийн автомат татлагаар ирсэн, хянагдаагүй хуулга (docs/dev/bank-api.md §7). */
+    pendingPulls: GolomtPendingPull[];
   } | null;
 }
 
@@ -882,6 +886,40 @@ export function BankStatementImport({
       .catch(() => {});
   }
 
+  /** Автомат татлагыг хянах хүснэгтэд ачаална — тухайн дансыг сонгоно. */
+  function reviewGolomtPull(pull: GolomtPendingPull) {
+    setError("");
+    startTransition(async () => {
+      const opened = await openGolomtPull(pull.id);
+      const account = accounts.find((item) => item.id === opened.cashAccountId);
+      if (opened.error || !opened.statement || !account) {
+        setError(opened.error ?? "Татлагын банкны данс идэвхгүй эсвэл олдсонгүй");
+        feedback.error();
+        return;
+      }
+      setCashAccountId(account.id);
+      setTriageFilter("all");
+      setMatchContext(null);
+      applyParsedStatement(opened.statement, account);
+      feedback.saved(
+        `Голомтоос ${opened.statement.rows.length} гүйлгээ ачааллаа${opened.skipped ? ` (${opened.skipped} өмнө импортлогдсон тул алгасав)` : ""} — данс оноогоод хадгална уу`
+      );
+    });
+  }
+
+  function dismissPull(pull: GolomtPendingPull) {
+    setError("");
+    startTransition(async () => {
+      const result = await dismissGolomtPull(pull.id);
+      if (result.error) {
+        setError(result.error);
+        feedback.error();
+        return;
+      }
+      router.refresh();
+    });
+  }
+
   function loadGolomtStatement(result: ParsedBankStatement, skipped: number) {
     if (!cashAccount) return;
     setError("");
@@ -1239,6 +1277,44 @@ export function BankStatementImport({
           <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
             {error}
           </p>
+        )}
+
+        {(golomt?.pendingPulls.length ?? 0) > 0 && (
+          <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface-raised)] px-3 py-2 text-xs text-[var(--ea-text-2)]">
+            <p className="mb-1 font-medium text-[var(--ea-text-1)]">
+              Голомтоос автоматаар татсан, хянагдаагүй хуулга — GL-д бичигдээгүй
+            </p>
+            <div className="space-y-1">
+              {golomt?.pendingPulls.map((pull) => (
+                <div key={pull.id} className="flex flex-wrap items-center gap-2">
+                  <span>
+                    {pull.cashAccountName} ·{" "}
+                    {pull.startDate === pull.endDate
+                      ? pull.startDate
+                      : `${pull.startDate} – ${pull.endDate}`}{" "}
+                    · {pull.newRows} шинэ гүйлгээ
+                  </span>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() => reviewGolomtPull(pull)}
+                    disabled={isPending}
+                  >
+                    <Icon name="search" size="sm" />
+                    Хянах
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => dismissPull(pull)}
+                    disabled={isPending}
+                  >
+                    Хэрэгсэхгүй
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </section>
 
