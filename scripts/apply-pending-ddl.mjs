@@ -828,6 +828,12 @@ async function main() {
     ["counterparties", "tin", "text"],
     // Нүүрний анхны туршилтын картыг хаасан мөч (lib/onboarding/first-run.ts)
     ["users", "welcome_dismissed_at", "timestamp"],
+    // Доорх eBarimt нөхөлтүүдийн УНШДАГ багана — хувилбар алгассан fork (v1.6 → v1.7,
+    // SmartGPS 2026-10-02) дээр push-ээс ӨМНӨ байхгүй тул нөхөлт «column does not exist»
+    // гэж унаж байв. Төрөл/default schema.ts-тэй ижил (push-д diff үлдэхгүй); хүснэгт
+    // байхгүй бол run() алгасна (42P01) — push бүтнээр нь үүсгэнэ.
+    ["pos_sales", "city_tax_amount", "numeric(18, 2) not null default 0"],
+    ["pos_ebarimt_submissions", "arap_document_id", "uuid"],
     // eBarimt: ТЕГ-д БҮРТГЭЛТЭЙ дүн + буцаалтын засварын төлөв (lib/ebarimt/queue.ts markSent)
     ["pos_sales", "ebarimt_total", "numeric(18, 2)"],
     ["pos_sales", "ebarimt_vat", "numeric(18, 2)"],
