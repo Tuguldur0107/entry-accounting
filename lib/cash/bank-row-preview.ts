@@ -6,6 +6,7 @@
 
 import type { ParsedBankStatementRow } from "./bank-statement-types";
 import { bankRowActionInvoiceType, isBankRowAction } from "@/lib/arap/advance-math";
+import { matchCounterpartyByName } from "./list-columns";
 
 /** Бүтэн 10 сегмент код эсвэл үндсэн данснаас үндсэн (S3) дугаар. */
 export function mainAccountOfCode(code: string | null | undefined): string {
@@ -93,6 +94,62 @@ export function fillInvoiceCounterAccounts(
     if (!main) return row;
     changed = true;
     return { ...row, [counterField]: codeOf(main) };
+  });
+  return changed ? next : rows;
+}
+
+// ── Харилцагчийн автомат холбоос ─────────────────────────────────────────
+
+export type CounterpartyLinkCandidate = {
+  id: string;
+  name: string;
+  bankAccountNo?: string | null;
+};
+
+/** Дансны дугаарын цифрүүд (зай, зураас, IBAN-ий «MN» хасна). */
+function accountDigits(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+/**
+ * Хуулгын «харьцсан данс» ↔ харилцагчийн бүртгэлтэй данс. IBAN-ий төгсгөл нь
+ * дансны дугаар тул нэг нь нөгөөгөөр төгсвөл таарна (≥ 8 оронтой). ГАНЦ
+ * харилцагч таарвал л — олон бол таамаглахгүй.
+ */
+export function matchCounterpartyByAccount<T extends CounterpartyLinkCandidate>(
+  counterAccount: string | null | undefined,
+  candidates: readonly T[]
+): T | null {
+  const digits = accountDigits(counterAccount);
+  if (digits.length < 8) return null;
+  const hits = candidates.filter((item) => {
+    const own = accountDigits(item.bankAccountNo);
+    if (own.length < 8) return false;
+    return own === digits || own.endsWith(digits) || digits.endsWith(own);
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * Харилцагч сонгоогүй мөрийг бүртгэлтэй харилцагчтай холбоно: эхлээд
+ * харьцсан дансаар, дараа нь нэрээр ЯГ (том/жижиг үсэг, зай ялгахгүй —
+ * `matchCounterpartyByName`, хадгалах сервертэй ИЖИЛ дүрэм). Таараагүй бол
+ * хуулгын нэр текстээрээ үлдэнэ (ХОЛБООС ЗОХИОХГҮЙ). Өөрчлөлтгүй бол ИЖИЛ массив.
+ */
+export function linkStatementCounterparties<T extends CounterpartyLinkCandidate>(
+  rows: ParsedBankStatementRow[],
+  candidates: readonly T[] | null | undefined
+): ParsedBankStatementRow[] {
+  if (!candidates?.length) return rows;
+  let changed = false;
+  const next = rows.map((row) => {
+    if (row.counterpartyId || row.settleInvoiceId) return row;
+    const master =
+      matchCounterpartyByAccount(row.counterAccount, candidates) ??
+      matchCounterpartyByName(row.counterparty, candidates);
+    if (!master) return row;
+    changed = true;
+    return { ...row, counterpartyId: master.id, counterparty: master.name };
   });
   return changed ? next : rows;
 }

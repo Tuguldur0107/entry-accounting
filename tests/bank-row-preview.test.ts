@@ -7,7 +7,9 @@ import test from "node:test";
 import {
   buildInvoiceAccountHints,
   fillInvoiceCounterAccounts,
+  linkStatementCounterparties,
   mainAccountOfCode,
+  matchCounterpartyByAccount,
   suggestInvoiceCounterAccount,
 } from "../lib/cash/bank-row-preview";
 import type { ParsedBankStatementRow } from "../lib/cash/bank-statement-types";
@@ -72,4 +74,59 @@ test("fillInvoiceCounterAccounts: зөвхөн хоосон харьцах та�
   assert.equal(filled[2], rows[2]);
   const untouched = [rows[1], rows[2]];
   assert.equal(fillInvoiceCounterAccounts(untouched, hints, code), untouched);
+});
+
+const MASTERS = [
+  { id: "s1", name: "Бат-Эрдэнэ ХХК", bankAccountNo: "5012 3456 78" },
+  { id: "s2", name: "Наранлайф стайл", bankAccountNo: null },
+  { id: "s3", name: "Давхар нэр", bankAccountNo: null },
+  { id: "s4", name: "давхар  НЭР", bankAccountNo: null },
+];
+
+test("matchCounterpartyByAccount: данс эсвэл IBAN-ий төгсгөлөөр ГАНЦ таарвал", () => {
+  assert.equal(matchCounterpartyByAccount("5012345678", MASTERS)?.id, "s1");
+  assert.equal(matchCounterpartyByAccount("MN12 0005 0050 1234 5678", MASTERS)?.id, "s1");
+  assert.equal(matchCounterpartyByAccount("1234", MASTERS), null); // хэт богино
+  assert.equal(matchCounterpartyByAccount("", MASTERS), null);
+  const twice = [...MASTERS, { id: "s5", name: "Өөр", bankAccountNo: "5012345678" }];
+  assert.equal(matchCounterpartyByAccount("5012345678", twice), null); // олон — таамаглахгүй
+});
+
+test("linkStatementCounterparties: данс → ЯГ нэр, сонгосон / таараагүйг хөндөхгүй", () => {
+  const rows = [
+    row({ id: "a", counterparty: "БАТ-ЭРДЭНЭ", counterAccount: "5012345678" }), // дансаар
+    row({ id: "b", counterparty: "НАРАНЛАЙФ  СТАЙЛ", counterAccount: "" }), // нэрээр (том үсэг)
+    row({ id: "c", counterparty: "Давхар нэр" }), // олон таарсан
+    row({ id: "d", counterparty: "Наранлайф", counterpartyId: null }), // ЯГ биш
+    row({ id: "e", counterparty: "Наранлайф стайл", counterpartyId: "s1" }), // аль хэдийн сонгосон
+  ];
+  const linked = linkStatementCounterparties(rows, MASTERS);
+  assert.equal(linked[0].counterpartyId, "s1");
+  assert.equal(linked[0].counterparty, "Бат-Эрдэнэ ХХК");
+  assert.equal(linked[1].counterpartyId, "s2");
+  assert.equal(linked[2], rows[2]);
+  assert.equal(linked[3], rows[3]);
+  assert.equal(linked[4], rows[4]);
+  const none = [rows[2], rows[3]];
+  assert.equal(linkStatementCounterparties(none, MASTERS), none);
+  assert.equal(linkStatementCounterparties(rows, undefined), rows);
+});
+
+test("холбосон харилцагчийн өмнөх нэхэмжлэхээс зардлын данс бөглөгдөнө", () => {
+  const hints = { ar: {}, ap: { s1: "73100001" }, arDefault: null };
+  const blank = "000.000000..00.0000.0.0.CA.0.0";
+  const rows = [
+    row({
+      id: "a",
+      income: 0,
+      expense: 50_000,
+      counterparty: "БАТ-ЭРДЭНЭ",
+      counterAccount: "5012345678",
+      rowAction: "create_ap_bill",
+      debitAccountNumber: blank,
+    }),
+  ];
+  const filled = fillInvoiceCounterAccounts(linkStatementCounterparties(rows, MASTERS), hints, code);
+  assert.equal(filled[0].counterpartyId, "s1");
+  assert.equal(filled[0].debitAccountNumber, code("73100001"));
 });

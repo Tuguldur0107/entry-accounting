@@ -98,7 +98,8 @@ export async function GET() {
       loadEwalletSettlementContext(orgId),
       db.query.counterparties.findMany({
         where: and(eq(counterparties.organizationId, orgId), eq(counterparties.isActive, true)),
-        columns: { id: true, name: true, counterpartyType: true },
+        // bankAccountNo — хуулгын харьцсан дансаар автоматаар холбоход.
+        columns: { id: true, name: true, counterpartyType: true, bankAccountNo: true },
         orderBy: [asc(counterparties.name)],
       }),
       loadAdvanceSettings(orgId),
@@ -143,7 +144,7 @@ export async function GET() {
     const context: MatchContext & {
       rules: BankRule[];
       ewalletMethods: EwalletSettlementMethod[];
-      counterparties: { id: string; name: string; counterpartyType: string }[];
+      counterparties: { id: string; name: string; counterpartyType: string; bankAccountNo: string | null }[];
       advanceSettings: AdvanceSettings;
       invoiceAccountHints: InvoiceAccountHints;
     } = {
