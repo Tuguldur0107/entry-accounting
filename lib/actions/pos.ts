@@ -12,6 +12,7 @@
 // Эрх: `pos` түлхүүр — write = борлуулалт/буцаалт/ээлж; post = тохиргоо,
 // дүрэм, зөвшөөрөл шаардах хөнгөлөлт, үнэ засах.
 
+import { STATE_CHANGED_CODE, stateChangedError } from "@/lib/state-guard";
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 
@@ -142,6 +143,16 @@ import { isLargeShiftVariance, shiftVarianceThreshold } from "@/lib/pos/shift-va
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const POS_LOCK_KEY = 7;
+
+/** POS түгжээний ДАРАА ээлж нээлттэй хэвээр эсэх (H8 — ээлж хаалттай уралдана). */
+async function assertShiftOpenInTx(tx: DbTx, orgId: string, shiftId: string) {
+  const [row] = await tx
+    .select({ status: posShifts.status })
+    .from(posShifts)
+    .where(and(eq(posShifts.id, shiftId), eq(posShifts.organizationId, orgId)));
+  if (row?.status !== "open")
+    throw new Error("[SHIFT_CLOSED] Ээлж хаагдсан — шинэ ээлж нээгээд дахин оролдоно уу");
+}
 
 function revalidatePos() {
   for (const path of [
@@ -1381,6 +1392,9 @@ async function createPosSaleCore(
     await assertPeriodOpenInTx(tx, orgId, date);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), ${POS_LOCK_KEY})`);
+    // Ээлж хаалт ИЖИЛ POS түгжээгээр явдаг (H8) — түгжээний дараа ээлж
+    // нээлттэй хэвээр эсэхийг дахин шалгана: хаагдсан ээлжид борлуулалт бичихгүй.
+    await assertShiftOpenInTx(tx, orgId, shift.id);
 
     // Үлдэгдэл: зөвшөөрөгдөөгүй бол confirm-тэй ИЖИЛ replay; зөвшөөрсөн бол
     // хасах болсон барааг мэдэгдэлд цуглуулна (D9).
@@ -2253,6 +2267,31 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
     await assertPeriodOpenInTx(tx, orgId, date);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), ${POS_LOCK_KEY})`);
+    // H8: буцаалт бүр ИЖИЛ POS түгжээгээр дараалдаг — түгжээний дараа эх
+    // борлуулалтын төлөв, өмнөх буцаалтууд, ээлжийг ДАХИН уншиж уншсантай
+    // тулгана. Эс бөгөөс кассчин ба AI зэрэг буцаавал хоёулаа «үлдсэн»
+    // тоогоор давж бараа/мөнгө хэтэрч буцаагдана.
+    await assertShiftOpenInTx(tx, orgId, shift.id);
+    const [current] = await tx
+      .select({ status: posSales.status })
+      .from(posSales)
+      .where(and(eq(posSales.id, original.id), eq(posSales.organizationId, orgId)));
+    if (!current || current.status !== original.status) throw stateChangedError("Борлуулалт");
+    const returnedNow = await tx
+      .select({ originalLineId: posSaleLines.originalLineId, quantity: posSaleLines.quantity })
+      .from(posSaleLines)
+      .innerJoin(posSales, eq(posSales.id, posSaleLines.saleId))
+      .where(and(eq(posSales.organizationId, orgId), eq(posSales.originalSaleId, original.id)));
+    const returnedNowByLine = new Map<string, number>();
+    for (const line of returnedNow)
+      if (line.originalLineId)
+        returnedNowByLine.set(
+          line.originalLineId,
+          (returnedNowByLine.get(line.originalLineId) ?? 0) + Number(line.quantity)
+        );
+    for (const lineId of new Set([...returnedByLine.keys(), ...returnedNowByLine.keys()]))
+      if (Math.abs((returnedNowByLine.get(lineId) ?? 0) - (returnedByLine.get(lineId) ?? 0)) > 1e-9)
+        throw stateChangedError("Борлуулалт (зэрэгцээ буцаалт орсон)");
     documentNo = await nextSequentialNo(tx, posSales, orgId, POS_RETURN_NO_PREFIX, date, 4);
     const [ret] = await tx
       .insert(posSales)
@@ -2827,6 +2866,18 @@ export async function closeShift(
     let varianceDocId: string | null = null;
     await db.transaction(async (tx) => {
       await assertPeriodOpenInTx(tx, orgId, date);
+      // H8: борлуулалт/буцаалттай ИЖИЛ POS түгжээ — түгжээний дараа өмнөх бүх
+      // борлуулалт commit болсон, шинэ нь энэ хаалтыг хүлээнэ. Системийн мөнгийг
+      // дахин бодож уншсантай тулгана: хооронд нь борлуулалт орсон бол зөрүү
+      // буруу бодогдох тул кассчин дахин тоолно.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), ${POS_LOCK_KEY})`);
+      const [fresh] = (await loadShiftViews(orgId, { openOnly: true })).filter((row) => row.id === id);
+      if (!fresh) throw stateChangedError("Ээлж");
+      const freshSystemCash = round2(fresh.openingFloat + fresh.cashReceipts - fresh.cashRefunds);
+      if (Math.abs(freshSystemCash - systemCash) >= 0.005)
+        throw new Error(
+          `[${STATE_CHANGED_CODE}] Ээлж хаах явцад борлуулалт/буцаалт орж системийн мөнгө ${fmt(freshSystemCash)}₮ болсон — дахин тоолж хаана уу`
+        );
       if (Math.abs(variance) >= 0.01) {
         const isOver = variance > 0;
         const counterAccount = isOver ? settings.cashOverAccountNumber : settings.cashShortAccountNumber;
