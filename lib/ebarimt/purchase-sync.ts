@@ -29,8 +29,9 @@ import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { loadVatSettings } from "@/lib/vat/settings";
 
 import {
-  defaultPurchasesSyncFrom,
   purchaseSyncRanges,
+  purchasesBackfillNeeded,
+  purchasesSyncStart,
   reconcilePurchases,
   summarizePurchaseChecks,
   type ApInvoiceInput,
@@ -113,9 +114,20 @@ export async function syncEbarimtTaxPurchases(orgId: string, options: { maxChunk
     if (!pin)
       throw new ItcError(ITC_ERRORS.config, "Байгууллагын регистрийн дугаар (Тохиргоо → Компанийн мэдээлэл) хоосон — худалдан авалтыг регистрээр татна");
     const session = sessionOf(row);
-    const syncFrom = row.purchasesSyncFrom ?? defaultPurchasesSyncFrom(todayUb);
+    // БҮХ худалдан авалт (2026-10-02): эхлэл = хамгийн эртний өглөг (≤ 400 хоног) эсвэл 2 сар;
+    // хуучин холболтын эхлэл хойно байвал ухрааж явцыг тэглэнэ (ДДТД-ээр upsert — давхардахгүй).
+    const desiredFrom = purchasesSyncStart({ todayUb, earliestApBill: await earliestApBillDate(orgId) });
+    let syncFrom = row.purchasesSyncFrom ?? desiredFrom;
     if (!row.purchasesSyncFrom)
       await db.update(ebarimtTpiConnections).set({ purchasesSyncFrom: syncFrom }).where(eq(ebarimtTpiConnections.id, row.id));
+    else if (purchasesBackfillNeeded(row.purchasesSyncFrom, desiredFrom)) {
+      syncFrom = desiredFrom;
+      syncedThrough = null;
+      await db
+        .update(ebarimtTpiConnections)
+        .set({ purchasesSyncFrom: desiredFrom, purchasesSyncedThrough: null })
+        .where(eq(ebarimtTpiConnections.id, row.id));
+    }
     const ranges = purchaseSyncRanges({ syncFrom, syncedThrough, todayUb, maxChunks: options.maxChunks });
     for (const range of ranges) {
       const result = await tpiSaleListErp(
@@ -149,6 +161,21 @@ export async function syncEbarimtTaxPurchases(orgId: string, options: { maxChunk
       .where(eq(ebarimtTpiConnections.id, row.id));
     throw error;
   }
+}
+
+/** Хамгийн эртний батлагдсан өглөгийн нэхэмжлэхийн огноо (татах эхлэлд). */
+async function earliestApBillDate(orgId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ earliest: sql<string | null>`min(${arApDocuments.date})` })
+    .from(arApDocuments)
+    .where(
+      and(
+        eq(arApDocuments.organizationId, orgId),
+        eq(arApDocuments.documentType, "ap_bill"),
+        notInArray(arApDocuments.status, ["draft", "reversed"])
+      )
+    );
+  return row?.earliest ?? null;
 }
 
 /**
@@ -205,7 +232,10 @@ async function loadApInvoices(orgId: string, from: string, to: string, documentI
  * Тулгалт (амьд). Хамрах хүрээ: худалдан авалт татсан `purchasesSyncFrom` … өнөөдөр.
  * Холболтгүй / хэзээ ч татаагүй бол мөргүй.
  */
-export async function loadEbarimtPurchaseChecks(orgId: string): Promise<{
+export async function loadEbarimtPurchaseChecks(
+  orgId: string,
+  range?: { from: string; to: string }
+): Promise<{
   rows: EbarimtPurchaseCheckRow[];
   summary: { checked: number; problems: number; danger: number };
   syncFrom: string | null;
@@ -215,7 +245,9 @@ export async function loadEbarimtPurchaseChecks(orgId: string): Promise<{
   const empty = { rows: [], summary: summarizePurchaseChecks([]), syncFrom: null, syncedThrough: null };
   if (!connection?.purchasesSyncFrom) return empty;
   const todayUb = ulaanbaatarToday();
-  const from = connection.purchasesSyncFrom;
+  // Муж өгвөл (Өглөг → eBarimt — топбарын период) тэр хугацаанд, үгүй бол бүх татсан хугацаа.
+  const from = range && range.from > connection.purchasesSyncFrom ? range.from : connection.purchasesSyncFrom;
+  const to = range && range.to < todayUb ? range.to : todayUb;
   const purchases = await db
     .select({
       ddtd: ebarimtTaxPurchases.ddtd,
@@ -225,12 +257,21 @@ export async function loadEbarimtPurchaseChecks(orgId: string): Promise<{
       sellerName: ebarimtTaxPurchases.sellerName,
       sellerRegNo: ebarimtTaxPurchases.sellerRegNo,
       receiptType: ebarimtTaxPurchases.receiptType,
+      taxDate: ebarimtTaxPurchases.taxDate,
+      cityTax: ebarimtTaxPurchases.cityTax,
+      fromType: ebarimtTaxPurchases.fromType,
     })
     .from(ebarimtTaxPurchases)
-    .where(and(eq(ebarimtTaxPurchases.organizationId, orgId), gte(ebarimtTaxPurchases.receiptDate, from)));
-  const invoices = await loadApInvoices(orgId, from, todayUb);
+    .where(
+      and(
+        eq(ebarimtTaxPurchases.organizationId, orgId),
+        gte(ebarimtTaxPurchases.receiptDate, from),
+        lte(ebarimtTaxPurchases.receiptDate, to)
+      )
+    );
+  const invoices = await loadApInvoices(orgId, from, to);
   const rows = reconcilePurchases(
-    purchases.map((row) => ({ ...row, total: Number(row.total), vat: Number(row.vat) })),
+    purchases.map((row) => ({ ...row, total: Number(row.total), vat: Number(row.vat), cityTax: Number(row.cityTax) })),
     invoices,
     { syncFrom: from, syncedThrough: connection.purchasesSyncedThrough, todayUb }
   );

@@ -5,6 +5,8 @@ import {
   defaultPurchasesSyncFrom,
   normalizePurchaseDdtd,
   purchaseSyncRanges,
+  purchasesBackfillNeeded,
+  purchasesSyncStart,
   reconcilePurchases,
   summarizePurchaseChecks,
   type ApInvoiceInput,
@@ -88,18 +90,29 @@ test("summarizePurchaseChecks: pending/not_synced/ok асуудал биш; dang
   });
 });
 
-test("татах муж: 2 сарын өмнөх сарын 1-ээс, 31 хоногоор, сүүлийн 3 өдрийг давтана, нэг удаад ≤ 4", () => {
+test("татах муж: 2 сарын өмнөх сарын 1-ээс, 7 хоногоор, сүүлийн 3 өдрийг давтана, нэг удаад ≤ 16", () => {
   assert.equal(defaultPurchasesSyncFrom("2026-10-02"), "2026-08-01");
   assert.equal(defaultPurchasesSyncFrom("2026-01-15"), "2025-11-01");
-  assert.deepEqual(purchaseSyncRanges({ syncFrom: "2026-08-01", syncedThrough: null, todayUb: "2026-10-02" }), [
-    { startDate: "2026-08-01", endDate: "2026-08-31" },
-    { startDate: "2026-09-01", endDate: "2026-10-01" },
-    { startDate: "2026-10-02", endDate: "2026-10-02" },
-  ]);
+  const full = purchaseSyncRanges({ syncFrom: "2026-09-01", syncedThrough: null, todayUb: "2026-10-02" });
+  assert.deepEqual(full[0], { startDate: "2026-09-01", endDate: "2026-09-07" });
+  assert.deepEqual(full.at(-1), { startDate: "2026-09-29", endDate: "2026-10-02" });
+  assert.equal(full.length, 5);
+  // Мужууд цоорхойгүй, давхцалгүй дараалал.
+  for (let index = 1; index < full.length; index += 1) assert.ok(full[index].startDate > full[index - 1].endDate);
   assert.deepEqual(purchaseSyncRanges({ syncFrom: "2026-08-01", syncedThrough: "2026-10-01", todayUb: "2026-10-02" }), [
     { startDate: "2026-09-28", endDate: "2026-10-02" },
   ]);
-  assert.equal(purchaseSyncRanges({ syncFrom: "2025-01-01", syncedThrough: null, todayUb: "2026-10-02" }).length, 4);
+  assert.equal(purchaseSyncRanges({ syncFrom: "2025-01-01", syncedThrough: null, todayUb: "2026-10-02" }).length, 16);
+});
+
+test("БҮХ худалдан авалт: эхлэл = хамгийн эртний өглөг (≤ 400 хоног), хуучин холболтыг ухрааж нөхнө", () => {
+  assert.equal(purchasesSyncStart({ todayUb: "2026-10-02", earliestApBill: null }), "2026-08-01");
+  assert.equal(purchasesSyncStart({ todayUb: "2026-10-02", earliestApBill: "2026-09-15" }), "2026-08-01", "анхдагчаас хойш");
+  assert.equal(purchasesSyncStart({ todayUb: "2026-10-02", earliestApBill: "2026-03-10" }), "2026-03-10");
+  assert.equal(purchasesSyncStart({ todayUb: "2026-10-02", earliestApBill: "2020-01-01" }), "2025-08-28", "400 хоногийн хязгаар");
+  assert.equal(purchasesBackfillNeeded("2026-08-01", "2026-03-10"), true);
+  assert.equal(purchasesBackfillNeeded("2026-03-10", "2026-03-10"), false);
+  assert.equal(purchasesBackfillNeeded(null, "2026-03-10"), false, "шинэ холболт — ердийн эхлэл");
 });
 
 test("ДДТД-ийн хэлбэр: 33 оронтой тоо, зай хасна", () => {
