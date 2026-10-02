@@ -10,6 +10,8 @@ import { gatewayHeaders } from "@/lib/ebarimt/gateway-auth";
 import {
   EBARIMT_TPI_BASE,
   ITC_CLIENT_IDS,
+  ITC_CUSTOMS_BASE,
+  ITC_CUSTOMS_PATHS,
   ITC_ERRORS,
   ITC_TOKEN_TIMEOUT_MS,
   ITC_TPI_TIMEOUT_MS,
@@ -26,10 +28,14 @@ import {
   type ItcToken,
 } from "./auth";
 import {
+  customsDeclarationBody,
+  parseCustomsDeclarations,
   parseSaleListErp,
   parseSalesTotalData,
   saleListErpBody,
   salesTotalDataBody,
+  type CustomsDeclarationRequest,
+  type CustomsParseResult,
   type SaleListErpRequest,
   type SalesTotalDataRequest,
   type TpiParseResult,
@@ -164,4 +170,41 @@ export async function tpiSalesTotalData(env: ItcEnvironment, auth: TpiAuth, inpu
 /** Охин компанийн худалдан авалт (оролтын НӨАТ-ын eBarimt тулгалт). */
 export async function tpiSaleListErp(env: ItcEnvironment, auth: TpiAuth, input: SaleListErpRequest): Promise<TpiParseResult<TpiPurchaseRow>> {
   return parseSaleListErp(await tpiPost(env, TPI_PATHS.saleListErp, auth, saleListErpBody(input)));
+}
+
+/** Гаалийн мэдүүлгийн хост — env `ITC_CUSTOMS_BASE` (Монголд байрлах прокси) байвал түрүүлнэ. */
+export function itcCustomsBase(env: ItcEnvironment, override = process.env.ITC_CUSTOMS_BASE): string {
+  const value = (override ?? "").trim();
+  if (value) {
+    if (!/^https?:\/\//i.test(value)) throw new ItcError(ITC_ERRORS.config, "ITC_CUSTOMS_BASE http(s) URL байна");
+    return trimBase(value);
+  }
+  return ITC_CUSTOMS_BASE[env];
+}
+
+/**
+ * Хуулийн этгээдийн гаалийн мэдүүлэг (developer портал 10.4) — ижил Keycloak token,
+ * харин X-API-KEY нь Гаалийн ерөнхий газрынх (`auth.apiKey`-д дуудагч өгнө).
+ */
+export async function tpiCustomsDeclarations(
+  env: ItcEnvironment,
+  auth: TpiAuth,
+  input: CustomsDeclarationRequest
+): Promise<CustomsParseResult> {
+  const url = `${itcCustomsBase(env)}${ITC_CUSTOMS_PATHS.declarations}`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...bearerHeader(auth.token),
+  };
+  if (auth.apiKey?.trim()) headers["X-API-KEY"] = auth.apiKey.trim();
+  const { status, body: json } = await request<{ message?: string }>(
+    url,
+    { method: "POST", headers, body: JSON.stringify(customsDeclarationBody(input)) },
+    ITC_TPI_TIMEOUT_MS
+  );
+  if (status === 401 || status === 403)
+    throw new ItcError(ITC_ERRORS.auth, `Гаалийн мэдүүлгийн сервис ${status} — token хүчингүй эсвэл гаалийн X-API-KEY эрхгүй`);
+  if (status >= 400)
+    throw new ItcError(ITC_ERRORS.tpi, `Гаалийн мэдүүлгийн сервис ${status}: ${json?.message ?? "хариу алдаатай"}`);
+  return parseCustomsDeclarations(json);
 }

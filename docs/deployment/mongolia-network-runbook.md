@@ -105,6 +105,7 @@ Railway `entry-accounting`-д:
 | `EBARIMT_PUBLIC_API_BASE` | `https://ebarimt.chipmo.mn/teg` | Касс/тохиргоонд ААН-ийн 7 оронтой регистр → ТТД + нэр (`lib/ebarimt/lookup.ts`) |
 | `ITC_TPI_BASE` | `https://ebarimt.chipmo.mn/tpi` | TPI (`lib/itc/client.ts`) — X-API-KEY ирсний дараа |
 | `ITC_AUTH_BASE` | `https://ebarimt.chipmo.mn/itc-auth` | ITC Keycloak token (`itcTokenUrl`) |
+| `ITC_CUSTOMS_BASE` | (шаардлагатай бол) прокси → `https://data.ebarimt.mn` | Гаалийн мэдүүлэг (`tpiCustomsDeclarations`) — `ITC_CUSTOMS_API_KEY` ирсний дараа |
 
 `EBARIMT_GATEWAY_HOSTS=ebarimt.chipmo.mn` аль хэдийн тохируулагдсан тул нууц
 header эдгээр хүсэлтэд автоматаар нэмэгдэнэ (албан ITC хост руу ХЭЗЭЭ Ч).

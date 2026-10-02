@@ -273,6 +273,12 @@ export interface EbarimtTpiConnectionView {
   lastPurchaseSyncOkAt: string | null;
   lastPurchaseSyncError: string | null;
   purchaseSummary: TaxCheckSummary | null;
+  /** Гаалийн мэдүүлэг (§10) — явц, сүүлийн амжилт/алдаа, операторын түлхүүр тохируулсан эсэх. */
+  customsSyncFrom: string | null;
+  customsSyncedThrough: string | null;
+  lastCustomsSyncOkAt: string | null;
+  lastCustomsSyncError: string | null;
+  customsApiKey: boolean;
 }
 
 /** Тулгалтын жагсаалт / панель / AI tool-ийн мөр. */

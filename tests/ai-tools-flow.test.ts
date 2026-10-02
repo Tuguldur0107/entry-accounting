@@ -45,6 +45,8 @@ import { db } from "../lib/db";
 import {
   apiTokens,
   arApDocuments,
+  ebarimtCustomsDeclarations,
+  ebarimtTpiConnections,
   memberships,
   oauthClients,
   organizations,
@@ -192,6 +194,44 @@ test("AI tools давхарга — draft-first, idempotency, лимит", { ski
     /НИЙТ.*Дт ([\d,.]+) Кт ([\d,.]+)/
   );
   if (totals) assert.equal(totals[1], totals[2]);
+});
+
+test("get_ebarimt_customs_declarations — холболтгүй, огнооны муж, дугаараар (цонхгүй)", { skip: !DB_READY }, async () => {
+  const none = await tool("get_ebarimt_customs_declarations", {});
+  assert.match(none.resultText, /TPI холболт тохируулаагүй/);
+
+  await db.insert(ebarimtTpiConnections).values({
+    organizationId: orgId,
+    userId,
+    environment: "staging",
+    username: "ai-flow",
+    passwordEnc: "test-not-decrypted",
+    customsSyncFrom: "2025-01-01",
+    customsSyncedThrough: "2026-09-30",
+  });
+  const item = { name: "Тоног төхөөрөмж", unitPrice: 10, duty: 5000, excise: 0, fee: 3000, vatBase: 1_058_000, vat: 105_800 };
+  await db.insert(ebarimtCustomsDeclarations).values([
+    { organizationId: orgId, declarationNo: `D-${STAMP}-1`, declarationDate: "2026-09-24", items: [item], dutyAmount: "5000", feeAmount: "3000", vatBaseAmount: "1058000", vatAmount: "105800" },
+    // Хуучин мэдүүлэг — огнооны муж дотор БИШ, дугаараар олдох ёстой.
+    { organizationId: orgId, declarationNo: `D-${STAMP}-0`, declarationDate: "2025-02-03", items: [], dutyAmount: "100" },
+  ]);
+
+  const month = await tool("get_ebarimt_customs_declarations", { from: "2026-09-01", to: "2026-09-30" });
+  assert.match(month.resultText, /2026-09-01 … 2026-09-30: Мэдүүлэг 1 · барааны мөр 1 .* импортын НӨАТ 105,800/);
+  assert.match(month.resultText, new RegExp(`- D-${STAMP}-1 \\(2026-09-24\\): Тоног төхөөрөмж`));
+  assert.doesNotMatch(month.resultText, new RegExp(`D-${STAMP}-0`));
+  assert.doesNotMatch(month.resultText, /нэгжийн үнэ/);
+
+  const old = await tool("get_ebarimt_customs_declarations", { declarationNo: `D-${STAMP}-0` });
+  assert.match(old.resultText, new RegExp(`Мэдүүлэг «D-${STAMP}-0»: Мэдүүлэг 1 .* гаалийн татвар 100`));
+
+  const items = await tool("get_ebarimt_customs_declarations", { declarationNo: `D-${STAMP}-1` });
+  assert.match(items.resultText, /нэгжийн үнэ \(эх\) 10/);
+
+  const missing = await tool("get_ebarimt_customs_declarations", { declarationNo: "NOPE" });
+  assert.match(missing.resultText, /«NOPE» дугаартай гаалийн мэдүүлэг Entry-д татагдаагүй/);
+  const bad = await tool("get_ebarimt_customs_declarations", { from: "2026-02-30", to: "2026-03-01" });
+  assert.match(bad.resultText, /YYYY-MM-DD/);
 });
 
 test("MCP PAT token — зөв нь танигдаж, буруу/хугацаа дууссан нь татгалзана", { skip: !DB_READY }, async () => {

@@ -9,6 +9,7 @@
 // анхны нөхөлт үргэлжилж байвал 10 мин тутам — tax-reconcile.ts isTaxSyncDue).
 // Унтраах: EBARIMT_WORKER=off.
 
+import { runDueEbarimtCustomsSyncs } from "./customs-sync";
 import { runDueEbarimtPurchaseSyncs } from "./purchase-sync";
 import { runDueEbarimtTaxSyncs } from "./tax-sync";
 import { processPendingEbarimt, releaseStaleClaims, runEbarimtSendData } from "./worker";
@@ -30,7 +31,7 @@ function maybeRunTaxSync(): void {
   if (taxSyncRunning || now - taxSyncCheckedAt < TAX_SYNC_CHECK_MS) return;
   taxSyncCheckedAt = now;
   taxSyncRunning = true;
-  // Борлуулалт → худалдан авалт ДАРААЛАН (ТЕГ-ийг зэрэг ачаалахгүй); нэгний алдаа нөгөөд нөлөөлөхгүй.
+  // Борлуулалт → худалдан авалт → гаалийн мэдүүлэг ДАРААЛАН (ТЕГ-ийг зэрэг ачаалахгүй); нэгний алдаа нөгөөд нөлөөлөхгүй.
   void runDueEbarimtTaxSyncs()
     .then(async (result) => {
       if (result.synced > 0) console.log(`[ebarimt] ТЕГ-ийн TPI татлага: ${result.synced} байгууллага`);
@@ -38,6 +39,9 @@ function maybeRunTaxSync(): void {
       const purchases = await runDueEbarimtPurchaseSyncs();
       if (purchases.synced > 0) console.log(`[ebarimt] ТЕГ-ийн худалдан авалт: ${purchases.synced} байгууллага`);
       for (const error of purchases.errors) console.error("[ebarimt] TPI худалдан авалт", error);
+      const customs = await runDueEbarimtCustomsSyncs();
+      if (customs.synced > 0) console.log(`[ebarimt] Гаалийн мэдүүлэг: ${customs.synced} байгууллага`);
+      for (const error of customs.errors) console.error("[ebarimt] Гаалийн мэдүүлэг", error);
     })
     .finally(() => {
       taxSyncRunning = false;

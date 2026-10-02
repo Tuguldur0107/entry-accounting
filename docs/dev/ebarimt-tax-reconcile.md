@@ -224,3 +224,34 @@ loadEbarimtPurchaseChecks: ТЕГ-ийн баримт × өглөг (ap_bill, б
   эх (INVOICE / POS API); Excel. «Анхаарах»-ын хураангуй (`lastPurchaseSummary`) бүх хугацаагаар
 - Бодит орчинд ажиглах: нэг 7 хоногийн хариуны мөрийн тоо тогтмол дээд утгад (жишээ 1000)
   хүрч байвал сервис таслаж байна гэсэн үг — мужийг дахин богиносгоно
+
+## 10. Хуулийн этгээдийн гаалийн мэдүүлэг (2026-10-02)
+
+Шийдвэр (product owner): гаалийн мэдүүлгийг ч татна. ITC баримт бичиг 10.4
+«Хуулийн этгээдийн гаалийн мэдүүлгийн мэдээлэл»:
+
+- `POST https://data.ebarimt.mn/rest/e-inventory-service/api/v1/tpiDeclaration` —
+  Bearer (ижил Keycloak token) + **гаалийн тусдаа X-API-KEY** (Гаалийн ерөнхий газрын МТ
+  газраас албан бичгээр). Түлхүүр = операторын серверийн env `ITC_CUSTOMS_API_KEY`
+  (харилцагчийн UI-д БАЙХГҮЙ); байхгүй бол хуваарьт татлага бүхэлдээ алгасна, гар
+  татлага «Entry багт хандана уу» гэсэн ил алдаа. Хост env `ITC_CUSTOMS_BASE`-аар (Монголд
+  байрлах прокси) солигдоно; staging хост тодорхойгүй тул хоёр орчинд ижил.
+- Хүсэлт `{startDate, endDate (YYYY-MM-DD), pageNumber (1-ээс), pageSize 100}` —
+  хуудаслалттай (`customsHasMorePages`, ≤ 200 хуудас/муж, хэтэрвэл шидэж явц ахихгүй).
+  Хариу `content[] {dclrNo, dclrDate, items[] {goodsnm, itemuprc, dutyamt, exciseamt,
+  formamt, vatBaseAmt, vatamt}}` — `parseCustomsDeclarations` (ЦЭВЭР, `lib/itc/tpi.ts`).
+- Муж ба эхлэл худалдан авалттай ИЖИЛ (`purchasesSyncStart`, 7 хоног, ≤ 16 муж/тик,
+  `customsSyncedThrough` муж бүрийн дараа ахина); хуваарь 01:00–07:00 УБ (борлуулалт →
+  худалдан авалт → гааль дараалан, `ticker.ts`).
+- Хадгалалт `ebarimt_customs_declarations` ((org, declarationNo) unique, upsert;
+  барааны мөр jsonb). **ЗӨВХӨН унших — GL-д бичихгүй**, импортын НӨАТ-ыг авсан НӨАТ-д
+  автоматаар оруулахгүй; `itemuprc`-ийн валют/нэгж тодорхойгүй тул нягтлан бодох
+  тооцоонд ХЭРЭГЛЭХГҮЙ (зөвхөн харуулна).
+- UI: Өглөг → eBarimt → «Гаалийн мэдүүлэг» таб (`?view=customs`, топбарын период),
+  Excel нь барааны мөр бүрээр, «Одоо татах» (`ap:write`, аудит).
+- MCP: `get_ebarimt_customs_declarations` (унших, `getEbarimtCustomsDeclarations` action — `ap:read`):
+  огнооны муж (анхдагч энэ сарын 1 → өнөөдөр) эсвэл `declarationNo` — дугаараар хайлт DB-д
+  шууд, огнооны цонхгүй; `includeItems` барааны мөр; нэгжийн үнийг «эх» гэж тэмдэглэнэ.
+  Түлхүүргүй / татагдаагүй / алдаатай төлөвийг ил хэлнэ.
+- Код: `lib/ebarimt/customs-sync.ts` (DB), `lib/ebarimt/customs.ts` (ЦЭВЭР),
+  `components/ebarimt/ebarimt-customs-view.tsx`; тест `tests/ebarimt-customs.test.ts`.

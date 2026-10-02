@@ -164,7 +164,7 @@ export async function syncEbarimtTaxPurchases(orgId: string, options: { maxChunk
 }
 
 /** Хамгийн эртний батлагдсан өглөгийн нэхэмжлэхийн огноо (татах эхлэлд). */
-async function earliestApBillDate(orgId: string): Promise<string | null> {
+export async function earliestApBillDate(orgId: string): Promise<string | null> {
   const [row] = await db
     .select({ earliest: sql<string | null>`min(${arApDocuments.date})` })
     .from(arApDocuments)

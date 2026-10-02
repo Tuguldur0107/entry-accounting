@@ -76,6 +76,11 @@ export function toTpiConnectionView(row: ConnectionRow): EbarimtTpiConnectionVie
     lastPurchaseSyncOkAt: row.lastPurchaseSyncOkAt?.toISOString() ?? null,
     lastPurchaseSyncError: row.lastPurchaseSyncError,
     purchaseSummary: row.lastPurchaseSummary ?? null,
+    customsSyncFrom: row.customsSyncFrom,
+    customsSyncedThrough: row.customsSyncedThrough,
+    lastCustomsSyncOkAt: row.lastCustomsSyncOkAt?.toISOString() ?? null,
+    lastCustomsSyncError: row.lastCustomsSyncError,
+    customsApiKey: !!process.env.ITC_CUSTOMS_API_KEY?.trim(),
   };
 }
 

@@ -218,7 +218,13 @@ import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliatio
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
 import { unwrapAction } from "@/lib/action-result";
-import { getEbarimtPurchaseChecks, getEbarimtTaxChecks, linkApEbarimtReceipt } from "@/lib/actions/ebarimt-tpi";
+import {
+  getEbarimtCustomsDeclarations,
+  getEbarimtPurchaseChecks,
+  getEbarimtTaxChecks,
+  linkApEbarimtReceipt,
+} from "@/lib/actions/ebarimt-tpi";
+import { customsDeclarationLines, customsSummaryText } from "@/lib/ebarimt/customs";
 import {
   EBARIMT_PURCHASE_CHECK_HINTS,
   EBARIMT_PURCHASE_CHECK_LABELS,
@@ -3691,6 +3697,21 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         onlyProblems: { type: "boolean", description: "true (default) = зөрүүтэйг л" },
         limit: { type: "number", description: "Хамгийн ихдээ буцаах мөр (default 50, ≤ 200)" },
+      },
+    },
+  },
+  {
+    name: "get_ebarimt_customs_declarations",
+    description:
+      "ХУУЛИЙН ЭТГЭЭДИЙН ГААЛИЙН МЭДҮҮЛЭГ (ТЕГ/ITC TPI tpiDeclaration-ээс өдөр бүр татсан): мэдүүлгийн дугаар, огноо, бараа, гаалийн татвар, ОАТ, хураамж, НӨАТ-ын суурь, импортын НӨАТ — хураангуйтай. Импортын НӨАТ-ыг НӨАТ-ын тайлангийн авсан НӨАТ / өглөгтэй тулгах, импортын өртөг (гаалийн татвар, хураамж) бүртгэгдсэн эсэхийг шалгахад. ЗӨВХӨН унших — GL-д бичигдээгүй; журнал/өглөг үүсгэх бол хэрэглэгчтэй тохирч тусдаа tool-оор (ноорог). Нэгжийн үнэ нь гаалийн эх утга (валют тодорхойгүй) — тооцоонд хэрэглэхгүй. declarationNo өгвөл огноогүйгээр тэр мэдүүлгийг барааны мөртэй нь буцаана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD (default энэ сарын 1)" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD (default өнөөдөр)" },
+        declarationNo: { type: "string", description: "Мэдүүлгийн дугаар — яг таарахыг хайна (огнооны муж үл хамаарна)" },
+        includeItems: { type: "boolean", description: "Барааны мөр бүрийг харуулах (default false; declarationNo-той бол true)" },
+        limit: { type: "number", description: "Хамгийн ихдээ буцаах мэдүүлэг (default 50, ≤ 200)" },
       },
     },
   },
@@ -12939,6 +12960,48 @@ async function runGetEbarimtPurchaseReconciliation(args: { onlyProblems?: boolea
   return { resultText: lines.join("\n") };
 }
 
+/** Гаалийн мэдүүлэг — getEbarimtCustomsDeclarations action-оор (ap:read). */
+async function runGetEbarimtCustomsDeclarations(args: {
+  from?: string;
+  to?: string;
+  declarationNo?: string;
+  includeItems?: boolean;
+  limit?: number;
+}): Promise<AiToolResult> {
+  const declarationNo = String(args.declarationNo ?? "").trim();
+  const data = unwrapAction(await getEbarimtCustomsDeclarations({ from: args.from, to: args.to, declarationNo }));
+  if (!data.connection)
+    return {
+      resultText:
+        "ТЕГ-ийн TPI холболт тохируулаагүй — админ вэбээс POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт»-д байгууллагын ITC нэвтрэлтээ холбоно. Гаалийн мэдүүлэг мөн тэр нэвтрэлтээр татагдана.",
+    };
+  const status: string[] = [];
+  if (!data.connection.customsApiKey)
+    status.push("Гаалийн мэдүүлгийн түлхүүр (Гаалийн ерөнхий газрын X-API-KEY) Entry-д хараахан тохируулагдаагүй — татлага явахгүй; Entry багт хандана уу");
+  else if (!data.connection.customsSyncFrom) status.push("Гаалийн мэдүүлэг хараахан татагдаагүй (өдөр бүр 01:00–07:00-д автоматаар)");
+  else
+    status.push(
+      `Гаалиас татсан: ${data.connection.customsSyncFrom} → ${data.connection.customsSyncedThrough ?? "—"}${data.connection.lastCustomsSyncError ? ` · сүүлийн татлага АЛДААТАЙ: ${data.connection.lastCustomsSyncError}` : ""}`
+    );
+  const limit = Math.min(Math.max(Math.trunc(Number(args.limit) || 50), 1), 200);
+  const includeItems = args.includeItems ?? !!declarationNo;
+  if (data.rows.length === 0)
+    return {
+      resultText: [
+        ...status,
+        declarationNo ? `«${declarationNo}» дугаартай гаалийн мэдүүлэг Entry-д татагдаагүй байна` : `${data.from} … ${data.to}: гаалийн мэдүүлэг алга`,
+      ].join("\n"),
+    };
+  return {
+    resultText: [
+      ...status,
+      `${declarationNo ? `Мэдүүлэг «${declarationNo}»` : `${data.from} … ${data.to}`}: ${customsSummaryText(data.summary)}`,
+      ...customsDeclarationLines(data.rows, { limit, includeItems }),
+      "Тэмдэглэл: ЗӨВХӨН мэдээлэл — GL-д бичигдээгүй, авсан НӨАТ-д автоматаар ороогүй.",
+    ].join("\n"),
+  };
+}
+
 /** Өглөгт нийлүүлэгчийн ДДТД холбох — linkApEbarimtReceipt action-оор (ap:write, аудит). */
 async function runLinkApEbarimtReceipt(orgId: string, args: { document: string; ddtd?: string | null }): Promise<AiToolResult> {
   const doc = await findArapDocument(orgId, String(args.document ?? ""));
@@ -13500,6 +13563,8 @@ async function dispatchAiTool(
         return await runGetEbarimtTaxReconciliation(args);
       case "get_ebarimt_purchase_reconciliation":
         return await runGetEbarimtPurchaseReconciliation(args);
+      case "get_ebarimt_customs_declarations":
+        return await runGetEbarimtCustomsDeclarations(args);
       case "link_ap_ebarimt_receipt":
         return await runLinkApEbarimtReceipt(orgId, args);
       case "lookup_tin":

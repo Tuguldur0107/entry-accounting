@@ -19,6 +19,12 @@ import {
   syncEbarimtTaxPurchases,
   type PurchaseSyncResult,
 } from "@/lib/ebarimt/purchase-sync";
+import type { EbarimtCustomsRow, EbarimtCustomsSummary } from "@/lib/ebarimt/customs";
+import {
+  loadEbarimtCustomsDeclarations,
+  syncEbarimtCustomsDeclarations,
+  type CustomsSyncResult,
+} from "@/lib/ebarimt/customs-sync";
 import { normalizePurchaseDdtd, type EbarimtPurchaseCheckRow } from "@/lib/ebarimt/purchase-reconcile";
 import {
   loadEbarimtTaxChecks,
@@ -30,6 +36,7 @@ import {
 } from "@/lib/ebarimt/tax-sync";
 import type { EbarimtTaxCheckRow, EbarimtTpiConnectionView, TaxCheckSummary } from "@/lib/ebarimt/tax-reconcile";
 import { isItcEnvironment } from "@/lib/itc/auth";
+import { isCalendarDate, ulaanbaatarToday } from "@/lib/periods/document-date";
 
 const cleanText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
@@ -181,6 +188,29 @@ export async function getEbarimtTaxChecks(): Promise<
   }
 }
 
+// ── Гаалийн мэдүүлэг (tpiDeclaration) — docs/dev/ebarimt-tax-reconcile.md §10 ──────
+
+/** Гаалийн мэдүүлгийг одоо татах (≤ 16 × 7 хоног, үлдсэнийг хуваарьт татлага). */
+export async function syncEbarimtCustomsNow(): Promise<ActionResult<CustomsSyncResult>> {
+  try {
+    const { orgId, userId } = await requireModuleAction("ap", "write");
+    const result = await syncEbarimtCustomsDeclarations(orgId);
+    const row = await loadTpiConnectionRow(orgId);
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "sync",
+      entityType: "ebarimt_tpi_connection",
+      entityId: row?.id ?? orgId,
+      summary: `Гаалийн мэдүүлэг татав — ${result.ranges[0]?.startDate ?? "—"} … ${result.ranges.at(-1)?.endDate ?? "—"}, мэдүүлэг ${result.declarations}`,
+    });
+    revalidatePath("/payables/ebarimt");
+    return result;
+  } catch (caught) {
+    return actionError("syncEbarimtCustomsNow", caught, "Гаалийн мэдүүлэг татаж чадсангүй");
+  }
+}
+
 // ── Худалдан авалт (getSaleListERP) — docs/dev/ebarimt-tax-reconcile.md §7 ──────
 
 /** Худалдан авалтыг одоо татах (≤ 4 × 31 хоног, үлдсэнийг хуваарьт татлага). */
@@ -221,6 +251,36 @@ export async function getEbarimtPurchaseChecks(): Promise<
     return { connection: row ? toTpiConnectionView(row) : null, ...checks };
   } catch (caught) {
     return actionError("getEbarimtPurchaseChecks", caught, "Худалдан авалтын тулгалтыг уншиж чадсангүй");
+  }
+}
+
+/**
+ * Гаалийн мэдүүлэг (§10) — огнооны мужаар (анхдагч: энэ сарын 1 → өнөөдөр, УБ) эсвэл
+ * дугаараар (огнооны цонхгүй). Өглөгийн унших эрх. ЗӨВХӨН унших.
+ */
+export async function getEbarimtCustomsDeclarations(input: { from?: string; to?: string; declarationNo?: string } = {}): Promise<
+  ActionResult<{
+    connection: EbarimtTpiConnectionView | null;
+    rows: EbarimtCustomsRow[];
+    summary: EbarimtCustomsSummary;
+    from: string | null;
+    to: string | null;
+  }>
+> {
+  try {
+    const { orgId } = await requireModuleAction("ap", "read");
+    const row = await loadTpiConnectionRow(orgId);
+    const connection = row ? toTpiConnectionView(row) : null;
+    const declarationNo = cleanText(input.declarationNo);
+    if (declarationNo) return { connection, ...(await loadEbarimtCustomsDeclarations(orgId, { declarationNo })), from: null, to: null };
+    const today = ulaanbaatarToday();
+    const from = cleanText(input.from) || `${today.slice(0, 8)}01`;
+    const to = cleanText(input.to) || today;
+    if (!isCalendarDate(from) || !isCalendarDate(to)) throw new Error("Огноо YYYY-MM-DD хэлбэртэй, хуанлид байх ёстой");
+    if (from > to) throw new Error("Эхлэх огноо дуусах огнооноос хойш байна");
+    return { connection, ...(await loadEbarimtCustomsDeclarations(orgId, { from, to })), from, to };
+  } catch (caught) {
+    return actionError("getEbarimtCustomsDeclarations", caught, "Гаалийн мэдүүлгийг уншиж чадсангүй");
   }
 }
 

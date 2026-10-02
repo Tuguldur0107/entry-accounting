@@ -391,6 +391,8 @@ POS `docs/pos/00-proposal.md` → `01-implementation-contract.md` (функци�
   `getSalesTotalData` бодит орчинд ЗӨВХӨН 01:00–07:00 УБ; худалдан авалт (`getSaleListERP`, БҮХ баримт,
   хамгийн эртний өглөг хүртэл ≤ 400 хоног, борлуулагч далдлагдсан) ↔ өглөг ЗӨВХӨН ДДТД-ээр (`supplierEbarimtId`), холбох нь хэрэглэгчийн
   үйлдэл — санал л, автоматаар холбохгүй;
+  гаалийн мэдүүлэг (`tpiDeclaration`, §10) ЗӨВХӨН унших, GL/авсан НӨАТ-д автоматаар орохгүй,
+  гаалийн X-API-KEY = операторын env `ITC_CUSTOMS_API_KEY`;
   ТЕГ/ITC-д хүрэх ажлууд `docs/deployment/mongolia-network-runbook.md`
 
 **QPay Quick QR**
