@@ -1729,6 +1729,7 @@ async function postDepreciationMonthCore(month: string) {
         userId,
         organizationId: orgId,
         date: postingDate,
+        documentNo: await nextVoucherNo(tx, orgId, "fa", postingDate),
         description,
         status: "posted",
       })

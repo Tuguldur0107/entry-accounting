@@ -32,6 +32,7 @@ export const JOURNAL_MODULE_CODES = {
   proc: "PROC", // Хангамж (PO хаалт, хүлээн авалт)
   payroll: "PAY", // Цалин
   vat: "VAT", // НӨАТ
+  pos: "POS", // Борлуулалтын цэг — POS-оос үүссэн БҮХ журнал ([POS_SOURCED])
 } as const;
 
 export type JournalModule = keyof typeof JOURNAL_MODULE_CODES;

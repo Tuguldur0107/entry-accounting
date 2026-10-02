@@ -17,6 +17,7 @@ export const MODULE_CODES = {
   proc: "PROC",
   payroll: "PAY",
   vat: "VAT",
+  pos: "POS",
 };
 
 const SEQ_DIGITS = 6;
@@ -42,6 +43,9 @@ export function moduleFromExternalRef(ref) {
   if (ref.startsWith("payroll:")) return "payroll";
   if (ref.startsWith("po-close:") || ref.startsWith("gr-capitalize:"))
     return "proc";
+  // POS-оос үүссэн журнал (lib/actions/pos.ts — pos-sale/pos-cogs/pos-pay/
+  // pos-return/pos-refund/pos-shift-variance/pos-gift).
+  if (ref.startsWith("pos-")) return "pos";
   return null;
 }
 
@@ -91,9 +95,11 @@ export function planVoucherNumbers({
 }) {
   const withRef = new Map(moduleById);
   for (const voucher of vouchers) {
-    if (withRef.has(voucher.id)) continue;
     const fromRef = moduleFromExternalRef(voucher.externalRef);
-    if (fromRef) withRef.set(voucher.id, fromRef);
+    // POS-ийн журнал касс/АР-ын баримттай холбоотой ч POS-д дугаарлагдана —
+    // шинэ бичилттэй ижил (lib/actions/pos.ts).
+    if (fromRef === "pos") withRef.set(voucher.id, fromRef);
+    else if (fromRef && !withRef.has(voucher.id)) withRef.set(voucher.id, fromRef);
   }
   const resolved = inheritReversalModules(vouchers, withRef);
 
