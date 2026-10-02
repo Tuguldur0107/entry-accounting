@@ -13,14 +13,19 @@ import { ulaanbaatarToday } from "@/lib/periods/document-date";
 
 import {
   buildReportDataDetail,
+  buildSheetDataDetail,
+  deleteAllSheetDataBody,
   etaxPeriodOf,
   findHistoryRow,
   findVatReportRow,
   mappingProblems,
   normalizeCellMapping,
   pickEtaxOrg,
+  normalizeSheetMapping,
   reportHeadOf,
   saveFormDataBody,
+  saveSheetDataBody,
+  sheetMappingProblems,
   submitBody,
   taxStatusToEntry,
   type EtaxCellMapping,
@@ -28,8 +33,20 @@ import {
   type EtaxReportHead,
   type EtaxReportListRow,
 } from "./api";
-import { fetchEtaxFormDetail, fetchEtaxHistory, fetchEtaxReportList, fetchEtaxUserOrgs, saveEtaxFormData, submitEtaxReport } from "./client";
+import {
+  deleteEtaxSheetData,
+  fetchEtaxFormDetail,
+  fetchEtaxHistory,
+  fetchEtaxReportList,
+  fetchEtaxSheetDetail,
+  fetchEtaxSheetList,
+  fetchEtaxUserOrgs,
+  saveEtaxFormData,
+  saveEtaxSheetData,
+  submitEtaxReport,
+} from "./client";
 import { ETAX_ERRORS, ETAX_TAX_STATUS_LABELS, ETAX_VAT_FIELDS, type EtaxSubmissionStatus } from "./constants";
+import { loadVatSheetRows } from "./sheet-source";
 import {
   loadEtaxConnectionRow,
   loadEtaxMappingRow,
@@ -37,6 +54,7 @@ import {
   loadEtaxTaxpayer,
   requireEtaxSession,
   etaxSessionOf,
+  sheetMappingsOf,
   toEtaxConnectionView,
   toEtaxMappingView,
   toEtaxSubmissionView,
@@ -295,4 +313,93 @@ export async function refreshTaxStatus(orgId: string, submissionId: string): Pro
     .returning();
   if (!updated) throw stateChangedError("eTax илгээлт");
   return { submission: toEtaxSubmissionView(updated), found: true };
+}
+
+// ── §3.11–§3.15 Хавсралт мэдээ ──────────────────────────────────────────────
+
+/**
+ * ТЕГ-д хадгалсан (reportNo-той) тайлангийн мэдээний жагсаалт + загвар бүрийг татаж холболтод
+ * хадгална. Мэдээний жагсаалт reportNo шаарддаг тул «ТЕГ-д хадгалах»-ын ДАРАА л.
+ */
+export async function fetchEtaxSheetTemplates(orgId: string, userId: string, submissionId: string): Promise<EtaxMappingView> {
+  const row = await loadEtaxSubmission(orgId, submissionId);
+  if (!row) throw new EtaxError(ETAX_ERRORS.state, "eTax илгээлт олдсонгүй");
+  const head = row.taxHead as unknown as EtaxReportHead | null;
+  if (!head || !row.reportNo) throw new EtaxError(ETAX_ERRORS.state, "Мэдээний жагсаалт reportNo шаарддаг — эхлээд «ТЕГ-д хадгалах»");
+  const mappingRow = await loadEtaxMappingRow(orgId);
+  if (!mappingRow) throw new EtaxError(ETAX_ERRORS.config, "Маягтын холболт тохируулаагүй");
+  const session = await requireEtaxSession(orgId);
+  const auth = await session.auth();
+  const sheets = await fetchEtaxSheetList(session.env, auth, { entId: session.entId, formNo: head.formNo, reportNo: row.reportNo });
+  const templates = [];
+  for (const sheet of sheets) templates.push(await fetchEtaxSheetDetail(session.env, auth, { entId: session.entId, sheetFormNo: sheet.sheetFormNo }));
+  const now = new Date();
+  await db
+    .update(etaxFormMappings)
+    .set({ sheetTemplates: templates as unknown as Record<string, unknown>[], sheetTemplatesFetchedAt: now, userId, updatedAt: now })
+    .where(eq(etaxFormMappings.id, mappingRow.id));
+  const saved = await loadEtaxMappingRow(orgId);
+  return toEtaxMappingView(saved!);
+}
+
+/** Мэдээний холболт хадгалах — загварт байгаа мэдээ, багана л. */
+export async function saveEtaxSheetMappings(orgId: string, userId: string, input: unknown[]): Promise<EtaxMappingView> {
+  const mappingRow = await loadEtaxMappingRow(orgId);
+  if (!mappingRow) throw new EtaxError(ETAX_ERRORS.config, "Эхлээд маягтын загварыг ТЕГ-ээс татна уу");
+  const { templates } = sheetMappingsOf(mappingRow);
+  if (!templates.length) throw new EtaxError(ETAX_ERRORS.config, "Эхлээд мэдээний загварыг ТЕГ-ээс татна уу");
+  const sheets: Record<string, Record<string, unknown>> = {};
+  for (const raw of input) {
+    const code = typeof raw === "object" && raw && "sheetCode" in raw ? String((raw as { sheetCode: unknown }).sheetCode) : "";
+    const template = templates.find((t) => t.sheetCode === code);
+    if (!template) throw new EtaxError(ETAX_ERRORS.validation, `Мэдээ ${code || "?"} загварт алга`);
+    const mapping = normalizeSheetMapping(raw, { sheetFormNo: template.sheetFormNo, sheetCode: template.sheetCode });
+    const unknown = Object.values(mapping.columns).filter((k): k is string => !!k && !template.columns.some((c) => c.columnKey === k));
+    if (unknown.length) throw new EtaxError(ETAX_ERRORS.validation, `${code}: загварт байхгүй багана ${unknown.join(", ")}`);
+    sheets[template.sheetCode] = mapping as unknown as Record<string, unknown>;
+  }
+  await db.update(etaxFormMappings).set({ sheets, userId, updatedAt: new Date() }).where(eq(etaxFormMappings.id, mappingRow.id));
+  const saved = await loadEtaxMappingRow(orgId);
+  return toEtaxMappingView(saved!);
+}
+
+/**
+ * Эхтэй мэдээ бүрийг Entry-ийн задаргаагаар ТЕГ-д бичнэ: өмнөх мөрийг бүгдийг устгаад
+ * (`deleteAllSheetData`) шинээр хадгална (`saveSheetData`). Мөр 0 бол устгаад л. Илгээхгүй.
+ */
+export async function saveSheetsToTax(orgId: string, userId: string, submissionId: string): Promise<{ submission: EtaxSubmissionView; summary: Record<string, number> }> {
+  const row = await loadEtaxSubmission(orgId, submissionId);
+  if (!row) throw new EtaxError(ETAX_ERRORS.state, "eTax илгээлт олдсонгүй");
+  const from = statusOf(row.status);
+  if (from !== "saved") throw new EtaxError(ETAX_ERRORS.state, "Мэдээг «ТЕГ-д хадгалсан» (илгээгээгүй) тайланд л бичнэ");
+  const head = row.taxHead as unknown as EtaxReportHead | null;
+  if (!head || !row.reportNo) throw new EtaxError(ETAX_ERRORS.state, "reportNo алга — дахин хадгална уу");
+  const mappingRow = await loadEtaxMappingRow(orgId);
+  if (!mappingRow) throw new EtaxError(ETAX_ERRORS.config, "Маягтын холболт тохируулаагүй");
+  const { templates, mappings } = sheetMappingsOf(mappingRow);
+  const active = mappings.filter((m) => m.source);
+  if (!active.length) throw new EtaxError(ETAX_ERRORS.config, "Эхтэй (борлуулалт / худалдан авалт) мэдээ холбогдоогүй — тохиргоонд мэдээний холболт хийнэ үү");
+  const problems = active.flatMap((m) => sheetMappingProblems(m, templates.find((t) => t.sheetCode === m.sheetCode)?.columns ?? null));
+  if (problems.length) throw new EtaxError(ETAX_ERRORS.validation, `Мэдээний холболт дутуу: ${problems.join("; ")}`);
+
+  const session = await requireEtaxSession(orgId);
+  const auth = await session.auth();
+  const reportHead = { ...head, reportNo: row.reportNo };
+  const summary: Record<string, number> = {};
+  for (const mapping of active) {
+    const template = templates.find((t) => t.sheetCode === mapping.sheetCode)!;
+    const rows = await loadVatSheetRows(orgId, row.periodCode, mapping.source!, mapping.granularity);
+    const detail = buildSheetDataDetail(rows, mapping, template.columns);
+    await deleteEtaxSheetData(session.env, auth, session.entId, deleteAllSheetDataBody(reportHead, mapping.sheetFormNo));
+    if (detail.length) await saveEtaxSheetData(session.env, auth, session.entId, saveSheetDataBody(reportHead, mapping, detail), row.reportNo);
+    summary[mapping.sheetCode] = detail.length;
+  }
+  const now = new Date();
+  const [updated] = await db
+    .update(etaxSubmissions)
+    .set({ sheetsSavedAt: now, sheetsSummary: summary, submittedByUserId: userId, updatedAt: now })
+    .where(and(eq(etaxSubmissions.id, row.id), eq(etaxSubmissions.organizationId, orgId), eq(etaxSubmissions.status, from)))
+    .returning();
+  if (!updated) throw stateChangedError("eTax илгээлт");
+  return { submission: toEtaxSubmissionView(updated), summary };
 }

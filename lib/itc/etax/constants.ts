@@ -45,6 +45,12 @@ export const ETAX_PATHS = {
   formData: "/api/beta/return/getFormData",
   saveFormData: "/api/beta/return/saveFormData",
   submit: "/api/beta/return/submit",
+  /** Хавсралт мэдээ (sheet) — спек §3.11–§3.15. */
+  sheetList: "/api/beta/return/getSheetList",
+  sheetDetail: "/api/beta/return/getSheetDetail",
+  sheetData: "/api/beta/return/getSheetData",
+  saveSheetData: "/api/beta/return/saveSheetData",
+  deleteAllSheetData: "/api/beta/return/deleteAllSheetData",
 } as const;
 
 /** ТЕГ-ийн тайлангийн төлвийн код (спек §3.6–§3.10). */
@@ -136,4 +142,49 @@ export const ETAX_VAT_FIELD_LABELS: Readonly<Record<EtaxVatField, string>> = {
   carriedInVat: "Өмнөх үеэс шилжсэн кредит",
   payableVat: "Төлөх НӨАТ",
   refundableVat: "Дараа үед шилжүүлэх НӨАТ",
+};
+
+/** Хавсралт мэдээний ЭХ — Entry-ийн аль задаргаа мэдээг бөглөх вэ (docs/dev/etax.md §7). */
+export const ETAX_SHEET_SOURCES = ["sales", "purchases"] as const;
+export type EtaxSheetSource = (typeof ETAX_SHEET_SOURCES)[number];
+export const ETAX_SHEET_SOURCE_LABELS: Readonly<Record<EtaxSheetSource, string>> = {
+  sales: "Борлуулалтын задаргаа (авлагын нэхэмжлэх, POS)",
+  purchases: "Худалдан авалтын задаргаа (өглөгийн нэхэмжлэх)",
+};
+
+/** Мэдээний мөрийн нэгтгэл: харилцагчаар нийлбэр эсвэл баримт бүрээр. */
+export const ETAX_SHEET_GRANULARITIES = ["counterparty", "document"] as const;
+export type EtaxSheetGranularity = (typeof ETAX_SHEET_GRANULARITIES)[number];
+export const ETAX_SHEET_GRANULARITY_LABELS: Readonly<Record<EtaxSheetGranularity, string>> = {
+  counterparty: "Харилцагчаар нэгтгэх",
+  document: "Баримт бүрээр",
+};
+
+/** Мэдээний мөрийн Entry талбарууд — ТЕГ-ийн мэдээний баганад холбогдоно. */
+export const ETAX_SHEET_FIELDS = [
+  "rowNo",
+  "registerNo",
+  "tin",
+  "name",
+  "documentNo",
+  "date",
+  "ddtd",
+  "netAmount",
+  "vatAmount",
+  "totalAmount",
+  "documentCount",
+] as const;
+export type EtaxSheetField = (typeof ETAX_SHEET_FIELDS)[number];
+export const ETAX_SHEET_FIELD_LABELS: Readonly<Record<EtaxSheetField, string>> = {
+  rowNo: "Дугаар (д/д)",
+  registerNo: "Харилцагчийн регистр",
+  tin: "Харилцагчийн ТТД",
+  name: "Харилцагчийн нэр",
+  documentNo: "Баримтын дугаар",
+  date: "Огноо",
+  ddtd: "eBarimt ДДТД",
+  netAmount: "Дүн (НӨАТ-гүй)",
+  vatAmount: "НӨАТ",
+  totalAmount: "Нийт дүн",
+  documentCount: "Баримтын тоо",
 };

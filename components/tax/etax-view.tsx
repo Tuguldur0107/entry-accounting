@@ -12,6 +12,7 @@ import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { EtaxConnectionSettings } from "@/components/tax/etax-connection-settings";
 import { EtaxMappingEditor } from "@/components/tax/etax-mapping-editor";
+import { EtaxSheetEditor } from "@/components/tax/etax-sheet-editor";
 import { TaxPageHeader, TaxStatCard } from "@/components/tax/tax-info";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
@@ -21,6 +22,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import {
   prepareEtaxVatReturn,
   refreshEtaxSubmissionStatus,
+  saveEtaxSheetsToTax,
   saveEtaxSubmissionToTax,
   setEtaxSubmissionStatus,
   submitEtaxSubmissionToTax,
@@ -147,6 +149,23 @@ export function EtaxView({
     });
   }
 
+  const sheetsReady = !!data.mapping && data.mapping.sheets.some((sh) => sh.source) && data.mapping.sheetProblems.length === 0;
+
+  function saveSheets() {
+    if (!current) return;
+    startTransition(async () => {
+      const { error, summary } = await saveEtaxSheetsToTax({ id: current.id });
+      if (error || !summary) feedback.error(error ?? "Мэдээг ТЕГ-д бичиж чадсангүй");
+      else
+        feedback.saved(
+          `Хавсралт мэдээ ТЕГ-д бичигдлээ — ${Object.entries(summary)
+            .map(([code, n]) => `${code}: ${n} мөр`)
+            .join(", ")}`
+        );
+      router.refresh();
+    });
+  }
+
   function refreshStatus() {
     if (!current) return;
     startTransition(async () => {
@@ -247,7 +266,16 @@ export function EtaxView({
             ) : null}
             {current.status === "saved" ? (
               <p className="text-xs text-[var(--ea-text-2)]">
-                ТЕГ-д хадгалагдсан (илгээгээгүй). «ТЕГ-д илгээх» дарахад ТЕГ маягтын шалгуураа тулгаж хүлээн авна; алдаа гарвал мессеж ил.
+                ТЕГ-д хадгалагдсан (илгээгээгүй).{" "}
+                {sheetsReady
+                  ? "«Мэдээ ТЕГ-д бичих»-ээр хавсралт мэдээг (задаргаа) бичээд «ТЕГ-д илгээх»."
+                  : "Хавсралт мэдээ шаардвал тохиргоонд мэдээний холболт хийж «Мэдээ ТЕГ-д бичих»."}{" "}
+                Илгээхэд ТЕГ маягтын шалгуураа тулгана; алдаа гарвал мессеж ил.
+                {current.sheetsSavedAt
+                  ? ` Мэдээ бичигдсэн: ${fmtDateTimeUb(current.sheetsSavedAt) ?? ""} (${Object.entries(current.sheetsSummary ?? {})
+                      .map(([code, n]) => `${code}: ${n}`)
+                      .join(", ")})`
+                  : ""}
               </p>
             ) : null}
 
@@ -280,6 +308,11 @@ export function EtaxView({
               {canWrite && canTransition(current.status, "saved") ? (
                 <Button size="sm" onClick={saveToTax} disabled={isPending || !apiReady || data.stale} title={apiHint ?? undefined}>
                   {current.status === "saved" ? "ТЕГ-д дахин хадгалах" : "ТЕГ-д хадгалах"}
+                </Button>
+              ) : null}
+              {canWrite && current.status === "saved" && sheetsReady ? (
+                <Button size="sm" variant="outline" onClick={saveSheets} disabled={isPending || !apiReady || data.stale}>
+                  {current.sheetsSavedAt ? "Мэдээ ТЕГ-д дахин бичих" : "Мэдээ ТЕГ-д бичих"}
                 </Button>
               ) : null}
               {canPost && current.status === "saved" ? (
@@ -351,6 +384,11 @@ export function EtaxView({
             mapping={data.mapping}
             periodCode={periodCode}
             enabled={!!data.connection?.apiReady && data.connection.entId != null}
+          />
+          <EtaxSheetEditor
+            key={`${data.mapping?.sheetTemplatesFetchedAt ?? "none"}:${JSON.stringify(data.mapping?.sheets ?? [])}`}
+            mapping={data.mapping}
+            savedSubmissionId={current && (current.status === "saved" || current.status === "submitted") && current.reportNo != null ? current.id : null}
           />
         </>
       ) : null}

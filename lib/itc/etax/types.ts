@@ -1,7 +1,7 @@
 // eTax-ийн view төрлүүд — client-safe (DB импортгүй). Нууцын УТГА энд ХЭЗЭЭ Ч орохгүй.
 
 import type { ItcEnvironment } from "../constants";
-import type { EtaxFormCell } from "./api";
+import type { EtaxFormCell, EtaxSheetMapping, EtaxSheetTemplate } from "./api";
 import type { EtaxFormKey, EtaxSubmissionStatus, EtaxVatField } from "./constants";
 import type { EtaxValidation, EtaxVatSnapshot } from "./submission";
 
@@ -39,6 +39,12 @@ export interface EtaxMappingView {
   templateFetchedAt: string | null;
   /** Холболтын дутуу/зөрүү — хоосон бол ТЕГ-д хадгалахад бэлэн. */
   problems: string[];
+  /** Хавсралт мэдээ: ТЕГ-ээс татсан загварууд (reportNo-той тайлангаар) ба холболт. */
+  sheetTemplates: EtaxSheetTemplate[];
+  sheets: EtaxSheetMapping[];
+  sheetTemplatesFetchedAt: string | null;
+  /** Эхтэй мэдээний холболтын дутуу — хоосон бол мэдээ хадгалахад бэлэн. */
+  sheetProblems: string[];
 }
 
 /** ТЕГ-ийн тушаах жагсаалтын товч мөр (татварын төрөл сонгоход). */
@@ -67,6 +73,9 @@ export interface EtaxSubmissionView {
   taxStatusId: number | null;
   taxStatusName: string | null;
   taxSyncedAt: string | null;
+  /** Хавсралт мэдээ ТЕГ-д хадгалсан мөч, мэдээ бүрийн мөрийн тоо. */
+  sheetsSavedAt: string | null;
+  sheetsSummary: Record<string, number> | null;
   submittedAt: string | null;
   resultNote: string | null;
   createdAt: string;

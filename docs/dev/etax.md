@@ -21,8 +21,8 @@ Entry-ийн НӨАТ-ын бодолт → snapshot (ноорог) → хүн �
 sections/rows/cells (`tagId`, `key`, `isDisable` = «утга авна», `expression`, `validations`),
 `saveFormData` body `{reportData{…reportStatusId 2}, reportDataDetail[{tagId,type,tagKey,value}]}`
 → `reportNo`; `submit` → ТЕГ validations-оо шалгана; төлвийн код 2 хадгалсан · 3 илгээсэн ·
-6 хуваарилсан · 11 хүлээн авсан · 8 буцаасан. Хавсралт МЭДЭЭ (§3.11–§3.16: борлуулалт/худалдан
-авалтын задаргаа г.м. `sheet`) ХАРААХАН ХЭРЭГЖЭЭГҮЙ — §6.
+6 хуваарилсан · 11 хүлээн авсан · 8 буцаасан. Хавсралт МЭДЭЭ (§3.11–§3.15 `sheet`: борлуулалт /
+худалдан авалтын задаргаа) ✅ — §7.
 
 ### 1.1 eTax вэбээс ажиглагдсан зүйл (2026-10-02, бодит bundle — АЛБАН БИШ)
 
@@ -61,6 +61,7 @@ ready ──«ТЕГ-д хадгалах» tax:write──▶ saved   (saveFormD
    │                                            дахин хадгалах saved → saved ижил reportNo)
    │  ──«Гараар тушаасан гэж бүртгэх» tax:post (ТЕГ-ийн дугаар ЗААВАЛ)──▶ submitted
    ▼
+saved ──«Мэдээ ТЕГ-д бичих» tax:write──▶ saved  (хавсралт мэдээ: deleteAllSheetData → saveSheetData, §7)
 saved ──«ТЕГ-д илгээх» tax:post──▶ submitted   (submit — ТЕГ validations, алдаа мессеж ил)
    │
 submitted ──«ТЕГ-ийн төлөв шинэчлэх» tax:write (getHistory)──▶ accepted (11) | rejected (8)
@@ -121,7 +122,9 @@ lib/itc/etax/types.ts       view төрлүүд (Connection/Mapping/Submission/P
 lib/itc/etax/store.ts       DB: холболт, etaxSessionOf/requireEtaxSession, checkEtaxConnection, mapping row/view,
                             loadEtaxPageData, prepareVatSubmission, transitionEtaxSubmission
 lib/itc/etax/tax-flow.ts    DB + API: syncEtaxOrg, loadEtaxReportChoices, fetchEtaxTemplate, saveEtaxMapping,
-                            saveSubmissionToTax, submitSubmissionToTax, refreshTaxStatus
+                            saveSubmissionToTax, submitSubmissionToTax, refreshTaxStatus,
+                            fetchEtaxSheetTemplates, saveEtaxSheetMappings, saveSheetsToTax (§7)
+lib/itc/etax/sheet-source.ts  DB: loadVatSheetRows — АР/АП баримтаас задаргаа (харилцагчаар / баримтаар)
 lib/actions/etax.ts         Server Actions (ActionResult): холболт (admin), syncEtaxOrganization,
                             getEtaxReportChoices, fetchEtaxFormTemplate, saveEtaxFormMapping (admin),
                             prepareEtaxVatReturn, saveEtaxSubmissionToTax, refreshEtaxSubmissionStatus
@@ -130,6 +133,7 @@ app/(dashboard)/tax/etax/page.tsx       хуудас (tax layout-ийн ModuleGu
 components/tax/etax-view.tsx            карт, илгээлт, API/гар товчнууд, түүх (DataGridDynamic)
 components/tax/etax-connection-settings.tsx  тохиргоо + «Байгууллага татах» (админ)
 components/tax/etax-mapping-editor.tsx       маягтын нүдний холболт (админ)
+components/tax/etax-sheet-editor.tsx         хавсралт мэдээний холболт (админ, §7)
 lib/db/schema.ts            etax_connections (+entId…), etax_form_mappings, etax_submissions (+reportNo, taxStatus*)
 lib/status.ts               ETAX_STATUS_TONES
 ```
@@ -142,13 +146,32 @@ lib/status.ts               ETAX_STATUS_TONES
 4. `getList`-д `activitiType` байхгүй — `reportHeadOf` 1 гэж явуулна (спекийн жишээ); ТЕГ татгалзвал
    `getFormData`/жагсаалтаас авах
 5. Шинэ тайланд `reportNo = 0`-оор `saveFormData` хүлээн авах эсэх; `isDisable` = «утга авна» утга
-6. НӨАТ-ын маягтын хавсралт МЭДЭЭ (`getSheetList` → `saveSheetData`: борлуулалт/худалдан авалтын
-   задаргаа) шаардлагатай эсэх — шаардвал TPI-ийн `ebarimt_tax_receipts` / `_purchases`-аас бөглөх (§6)
+6. Хавсралт мэдээ: `getSheetDetail` хариуны хэлбэр (хавтгай массив уу — parser хоёуланг уншина),
+   `type`/`isTotal` утга, ТЕГ нийт мөр (`isTotal 1`) шаардах эсэх, мөрийн дээд хэмжээ (хуудаслалт)
 
 ## 6. Дараагийн алхам
 
-1. Хавсралт мэдээ (`sheet`): `ETAX_PATHS.sheetList/sheetDetail/saveSheetData` + мөрийн mapper (ЦЭВЭР, тесттэй)
-2. ХАОАТ (`payroll_runs`), ААНОАТ маягтууд — ижил snapshot/holbolt загвараар (`form` түлхүүр нэмнэ)
-3. `attention.ts`: хуулийн хугацаа ойртсон тушаагаагүй тайлан (`getLateList`) → «Анхаарах»
-4. MCP tool: `get_etax_submissions` (унших), `prepare_etax_vat_return` (ноорог); илгээх tool НЭМЭХГҮЙ
+1. ХАОАТ (`payroll_runs`), ААНОАТ маягтууд — ижил snapshot/holbolt загвараар (`form` түлхүүр нэмнэ)
+2. `attention.ts`: хуулийн хугацаа ойртсон тушаагаагүй тайлан (`getLateList`) → «Анхаарах»
+3. MCP tool: `get_etax_submissions` (унших), `prepare_etax_vat_return` (ноорог); илгээх tool НЭМЭХГҮЙ
    (`[HUMAN_REQUIRED]` — татварын тайлан = хүний баталгаажуулалт)
+
+## 7. Хавсралт мэдээ (sheet, спек §3.11–§3.15)
+
+Маягтын хавсралт мэдээ (борлуулалт / худалдан авалтын задаргаа) ч динамик: `getSheetList`
+(reportNo-той тайланд) → мэдээ бүрийн `getSheetDetail` → баганууд (`columnKey`). Тиймээс:
+
+- **Холболт** (`etax_form_mappings.sheets`, админ, нэг удаа): мэдээ бүрд ЭХ — `sales`
+  (ar_invoice + ar_credit_note), `purchases` (ap_bill + ap_debit_note), эсвэл `null` (илгээхгүй);
+  нэгтгэл — `counterparty` (регистр → ТТД → нэрээр нийлбэр) | `document` (баримт бүрээр);
+  багана — Entry талбар (`ETAX_SHEET_FIELDS`: регистр, ТТД, нэр, баримтын №, огноо, ДДТД,
+  цэвэр, НӨАТ, нийт, баримтын тоо, д/д) → `columnKey`. Харилцагчийн таних + дүнгийн багана ЗААВАЛ
+- **Эх өгөгдөл** (`sheet-source.ts`): батлагдсан (posted/partially_paid/paid) баримт, огноо тайлант
+  үед; НӨАТ = мөрүүдийн `vat_settings`-ийн НӨАТ дансны дүн, нийт = `baseTotalAmount`, цэвэр = нийт −
+  НӨАТ; буцаалт СӨРӨГ (`ledgerSign`); reversed орохгүй; POS-ийн АР нэхэмжлэх ч орно
+- **Бичилт** (`saveSheetsToTax`, tax:write, ЗӨВХӨН `saved` төлөвт): эхтэй мэдээ бүрд
+  `deleteAllSheetData` → `saveSheetData` (мөр 0 бол зөвхөн устгана); `sheetsSavedAt`/`sheetsSummary`;
+  дахин бичих боломжтой; «ТЕГ-д илгээх»-ийн өмнө. Нийт мөр (`isTotal`) Entry бичихгүй — ТЕГ бодно
+  гэж таамаглав (staging §5.6)
+- Мэдээний загвар татах нь reportNo шаарддаг тул UI-д «Мэдээний загвар татах» зөвхөн ТЕГ-д
+  хадгалсан илгээлттэй үед идэвхтэй
