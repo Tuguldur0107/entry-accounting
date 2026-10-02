@@ -113,7 +113,13 @@ tests/gl-fx-reverse-copy.test.ts  Валютын журналын буцаалт
 - **Хяналтын дансанд гар журнал** (АР/АП/касс/бараа/ҮХ — `lib/gl/control-accounts.ts`)
   нь дэд дэвтэрээс зөрүү үүсгэдэг: `company_settings.control_account_guard`
   `warn` (default — `warning` буцааж toast) | `block`. AI/MCP сулруулж
-  ЧАДАХГҮЙ (`[HUMAN_REQUIRED]`); `reconcile_modules` ийм журналуудыг жагсаана
+  ЧАДАХГҮЙ (`[HUMAN_REQUIRED]`); `reconcile_modules` ийм журналуудыг жагсаана.
+  Гар журналаас ГАДНАХ хоёр зам ч ЯГ ТЭР шалгалтаар (`lib/gl/control-account-guard.ts`
+  `checkControlAccountGuard`, ontology-audit M6): нэхэмжлэхгүй (`arApDocumentId` null)
+  кассын баримтын харилцах данс = хяналтын данс (батлах үед — `postCashDocumentCore`;
+  урьдчилгаа нь урьдчилгааны дансаар) ба ҮХ-ийн карт `capitalizeFrom` = хяналтын данс.
+  Шинэ бичилтийн зам хяналтын дансыг дэд дэвтэргүйгээр хөдөлгөвөл ЭНЭ функцийг дуудна
+  (`tests/control-account-paths.test.ts`)
 - **Нээлтийн журнал** (`isOpeningBalanceVoucher`: externalRef `opening-*` /
   `[ОНБ`) кассын толин баримт, барааны «(бараагүй) × 0» ноорог ҮҮСГЭХГҮЙ —
   нээлт дэд дэвтэрт тусдаа бүртгэгддэг (SIM2-011/009)

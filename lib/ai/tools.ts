@@ -4658,7 +4658,7 @@ async function runCreateCash(
     if (existingPart1) return dedupResult(existingPart1);
     const linked = allocations[0]?.document;
     const { postNow, note } = decidePost(totalAmount);
-    const { id } = unwrapAction(await createCashDocument({
+    const { id, warning } = unwrapAction(await createCashDocument({
       ...commonFields(totalAmount),
       counterAccountNumber:
         counterAccountNumber ?? (linked ? controlMainOf(linked) : undefined),
@@ -4672,7 +4672,7 @@ async function runCreateCash(
         ? await negativeCashBalanceNote(orgId, primary.id)
         : "";
     return {
-      resultText: `Мөнгөн хөрөнгийн баримт үүслээ. ${typeLabel}, ${primary.name}, ${fmt(totalAmount)}₮${linked ? `, нэхэмжлэх: ${linked.documentNo}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${balanceNote}`,
+      resultText: `Мөнгөн хөрөнгийн баримт үүслээ. ${typeLabel}, ${primary.name}, ${fmt(totalAmount)}₮${linked ? `, нэхэмжлэх: ${linked.documentNo}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${balanceNote}${warning ? ` · ⚠ ${warning}` : ""}`,
       action: {
         kind: "cash",
         id,
@@ -4992,6 +4992,7 @@ async function runCreateFixedAsset(
   // Зэрэгцээ дуудлага — нөгөө нь түрүүлж бичсэн.
   if (createdAsset.dedup) return (await existingAsset()) ?? dedupResult(`Үндсэн хөрөнгө ${createdAsset.code}`);
   const { id, code, voucherNo } = createdAsset;
+  const controlText = createdAsset.warning ? ` · ⚠ ${createdAsset.warning}` : "";
 
   const opening = Number(input.openingAccumulatedDepreciation ?? 0);
   // SIM2-037: GL-тэй холбоо ИЛ — журнал үүссэн эсэх, үгүй бол яагаад.
@@ -5005,7 +5006,7 @@ async function runCreateFixedAsset(
       ? `, нээлтийн хуримт. элэгдэл ${fmt(opening)}₮ (${input.openingAsOf}) — үлдэгдэл өртөг ${fmt(Number(input.cost) - opening)}₮`
       : "";
   return {
-    resultText: `Үндсэн хөрөнгийн карт үүслээ. Код: ${code}, ${input.name}, өртөг ${fmt(Number(input.cost))}₮${openingText}, данс ${assetAccount}/${accumAccount}, төлөв: ${asDraft ? "ноорог" : "идэвхтэй"}${glText}`,
+    resultText: `Үндсэн хөрөнгийн карт үүслээ. Код: ${code}, ${input.name}, өртөг ${fmt(Number(input.cost))}₮${openingText}, данс ${assetAccount}/${accumAccount}, төлөв: ${asDraft ? "ноорог" : "идэвхтэй"}${glText}${controlText}`,
     action: {
       kind: "fa",
       id,
@@ -5192,9 +5193,9 @@ async function runPostCash(
     throw new Error(`Баримт ноорог биш байна (төлөв: ${document.status})`);
   assertPostLimit(Number(document.baseAmount ?? document.amount));
 
-  unwrapAction(await postCashDocument(document.id));
+  const { warning } = unwrapAction(await postCashDocument(document.id));
   return {
-    resultText: `Мөнгөн хөрөнгийн баримт батлагдаж GL-д бичигдлээ. ${document.date} · ${document.description}`,
+    resultText: `Мөнгөн хөрөнгийн баримт батлагдаж GL-д бичигдлээ. ${document.date} · ${document.description}${warning ? ` · ⚠ ${warning}` : ""}`,
     action: {
       kind: "cash",
       id: document.id,

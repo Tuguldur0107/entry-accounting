@@ -41,6 +41,7 @@ import {
 } from "@/lib/cash/load-options";
 import { matchCounterpartyByName } from "@/lib/cash/list-columns";
 import { getOfficialRateForDate } from "@/lib/cash/official-rate";
+import { checkControlAccountGuard } from "@/lib/gl/control-account-guard";
 import { syncQpayBankAccountsForOrg } from "@/lib/qpay/partner";
 import { qpayBankName } from "@/lib/qpay/reference";
 import {
@@ -1011,14 +1012,15 @@ async function createCashDocumentCore(data: {
   }
 
   if (data.postNow) {
-    await postCashDocumentCore(document.id);
+    const { warning } = await postCashDocumentCore(document.id);
+    if (warning) return { id: document.id, warning };
   } else revalidateCash();
   return { id: document.id };
 }
 
 export async function createCashDocument(
   data: Parameters<typeof createCashDocumentCore>[0]
-): Promise<ActionResult<{ id: string; dedup?: true }>> {
+): Promise<ActionResult<{ id: string; dedup?: true; warning?: string }>> {
   try {
     return await createCashDocumentCore(data);
   } catch (caught) {
@@ -1153,7 +1155,8 @@ async function postCashDocumentCore(
       summary: `Кассын баримт батлагдав — ${document.documentNo}, ${document.date}, дүн ${Number(document.baseAmount).toLocaleString("en-US")}₮`,
     });
     revalidateCash();
-    return;
+    // GL-ээс үүссэн баримт — хамгаалалтыг эх журнал аль хэдийн давсан.
+    return { warning: null };
   }
 
   const amount = Number(document.amount);
@@ -1186,6 +1189,14 @@ async function postCashDocumentCore(
     },
     document.currency
   );
+  // M6: нэхэмжлэхгүй баримт хяналтын дансыг харилцах данс болговол дэд
+  // дэвтэр ↔ GL зөрнө — гар журналтай ИЖИЛ хамгаалалт (warn | block).
+  // Урьдчилгаа нь урьдчилгааны дансаар (arap_advance_settings), нэхэмжлэлтэй
+  // төлбөр нь arApDocumentId-тай.
+  const controlWarning =
+    !arApSettlement && document.counterAccountNumber
+      ? await checkControlAccountGuard(orgId, [document.counterAccountNumber], document.externalRef)
+      : null;
   const settlementExchangeEffect = arApSettlement
     ? calculateSettlementExchangeEffect({
         documentType: arApSettlement.document.documentType as ArApDocumentType,
@@ -1392,15 +1403,16 @@ async function postCashDocumentCore(
   }
 
   revalidateCash();
+  return { warning: controlWarning };
 }
 
 export async function postCashDocument(
   id: string,
   options?: { exchangeRate?: number }
-): Promise<ActionResult> {
+): Promise<ActionResult<{ warning?: string }>> {
   try {
-    await postCashDocumentCore(id, options);
-    return {};
+    const { warning } = await postCashDocumentCore(id, options);
+    return warning ? { warning } : {};
   } catch (caught) {
     return actionError("postCashDocument", caught, "Баримт батлагдсангүй");
   }

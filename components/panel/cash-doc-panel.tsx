@@ -169,6 +169,7 @@ export function CashDocPanel({
             return;
           }
           feedback.posted("Баримт батлагдаж GL-д бичигдлээ");
+          if (result.warning) toast.warning(result.warning, { duration: 10_000 });
           refreshOpenPanels();
           router.refresh();
         } catch {
