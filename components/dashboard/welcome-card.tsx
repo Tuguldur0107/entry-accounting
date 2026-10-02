@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 export type WelcomeCardData = {
   steps: FirstRunStep[];
   mcpUrl: string;
-  /** OAuth зөвшөөрөл идэвхтэй байгууллагад уягддаг — аль компанид холбогдохыг ил хэлнэ. */
+  /** OAuth token НЭГ компанид уягдана — consent хуудсын анхдагч сонголтыг ил хэлнэ. */
   orgName: string;
   /** Багцаар шүүсэн бэлэн асуултууд — алхам бүр өөрийнхөө id-гаар сонгоно. */
   prompts: StarterPrompt[];
@@ -121,7 +121,7 @@ export function WelcomeCard({ data }: { data: WelcomeCardData }) {
               <CopyValue value={data.mcpUrl} />
               <ConnectGuide mcpUrl={data.mcpUrl} />
               <p className="text-[11px] text-[var(--ea-text-3)]">
-                Зөвшөөрөх үед идэвхтэй компани — «{data.orgName}» — руу холбогдоно.
+                Зөвшөөрөх хуудсанд аль компанид холбохоо сонгоно (анхдагч нь «{data.orgName}»).
               </p>
             </>
           )}
