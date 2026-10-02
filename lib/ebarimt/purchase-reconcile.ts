@@ -10,7 +10,7 @@
 import { shiftDays } from "@/lib/periods/period";
 
 import { EBARIMT_DRIFT_TOLERANCE } from "./list-types";
-import { EBARIMT_TAX_RESYNC_DAYS } from "./tax-reconcile";
+import { EBARIMT_TAX_MAX_LOOKBACK_DAYS, EBARIMT_TAX_RESYNC_DAYS } from "./tax-reconcile";
 
 /** Нийлүүлэгч баримтаа PosAPI-аар 72 цаг хүртэл хоцорч ТЕГ рүү түлхдэг. */
 export const EBARIMT_PURCHASE_LAG_DAYS = 3;
@@ -68,6 +68,10 @@ export interface TaxPurchaseInput {
   sellerName: string;
   sellerRegNo: string;
   receiptType: string | null;
+  /** ТЕГ-ийн эх огноо («YYYY-MM-DD HH:mm:ss»), НХАТ, эх («INVOICE» / «POS API») — жагсаалт/Excel-д. */
+  taxDate?: string | null;
+  cityTax?: number | null;
+  fromType?: string | null;
 }
 
 export interface ApInvoiceInput {
@@ -102,6 +106,10 @@ export interface EbarimtPurchaseCheckRow {
   taxVat: number | null;
   sellerName: string | null;
   receiptType: string | null;
+  /** ТЕГ-ийн эх огноо, НХАТ, эх (INVOICE / POS API) — `receipt` мөрд л. */
+  taxDate: string | null;
+  taxCityTax: number | null;
+  fromType: string | null;
   documentId: string | null;
   documentNo: string | null;
   counterpartyName: string | null;
@@ -158,6 +166,9 @@ export function reconcilePurchases(
       taxVat: round2(purchase.vat),
       sellerName: purchase.sellerName || null,
       receiptType: purchase.receiptType,
+      taxDate: purchase.taxDate || null,
+      taxCityTax: purchase.cityTax == null ? null : round2(purchase.cityTax),
+      fromType: purchase.fromType || null,
     };
     if (invoice) {
       const mismatch = Math.abs(invoice.total - purchase.total) > tol || Math.abs(invoice.vat - purchase.vat) > tol;
@@ -220,6 +231,9 @@ export function reconcilePurchases(
       taxVat: null,
       sellerName: null,
       receiptType: null,
+      taxDate: null,
+      taxCityTax: null,
+      fromType: null,
       documentId: invoice.documentId,
       documentNo: invoice.documentNo,
       counterpartyName: invoice.counterpartyName,
@@ -251,15 +265,41 @@ export function normalizePurchaseDdtd(value: string): string | null {
   return DDTD_RE.test(compact) ? compact : null;
 }
 
-/** Нэг хүсэлтийн муж (хоног) ба нэг татлагад хамгийн ихдээ хэдэн муж. */
-export const EBARIMT_PURCHASE_CHUNK_DAYS = 31;
-export const EBARIMT_PURCHASE_MAX_CHUNKS = 4;
+/**
+ * Нэг хүсэлтийн муж (хоног) ба нэг татлагад хамгийн ихдээ хэдэн муж. `getSaleListERP`
+ * хуудаслалтгүй (нэг хариунд бүх мөр) тул сервер дээд хэмжээгээр таслах эрсдэлийг
+ * багасгахаар 7 хоногоор асууна (2026-10-02 — өмнө нь 31); нэг татлагад ~112 хоног.
+ */
+export const EBARIMT_PURCHASE_CHUNK_DAYS = 7;
+export const EBARIMT_PURCHASE_MAX_CHUNKS = 16;
 
 /** Анхдагч эхлэл — 2 сарын өмнөх сарын 1 (НӨАТ-ын тайлант үе + өмнөх сар). */
 export function defaultPurchasesSyncFrom(todayUb: string): string {
   const [year, month] = todayUb.split("-").map(Number);
   const start = new Date(Date.UTC(year, month - 1 - 2, 1));
   return start.toISOString().slice(0, 10);
+}
+
+/**
+ * БҮХ худалдан авалт татах эхлэл (2026-10-02, product owner): анхдагч (2 сарын өмнөх
+ * сарын 1) эсвэл Entry-ийн хамгийн ЭРТНИЙ өглөгийн нэхэмжлэх — аль эрт нь, гэхдээ
+ * ≤ 400 хоног (`EBARIMT_TAX_MAX_LOOKBACK_DAYS`, борлуулалтынхтай ижил). ЦЭВЭР.
+ */
+export function purchasesSyncStart(input: { todayUb: string; earliestApBill: string | null }): string {
+  const base = defaultPurchasesSyncFrom(input.todayUb);
+  const floor = shiftDays(input.todayUb, -EBARIMT_TAX_MAX_LOOKBACK_DAYS);
+  const earliest = input.earliestApBill && /^\d{4}-\d{2}-\d{2}$/.test(input.earliestApBill) ? input.earliestApBill : null;
+  if (!earliest || earliest >= base) return base;
+  return earliest < floor ? floor : earliest;
+}
+
+/**
+ * Хуучин холболт (зөвхөн 2 сар татсан) эсвэл өмнөх огноотой өглөг нэмэгдсэн —
+ * эхлэл ухрах ёстой бол true: `purchasesSyncFrom`-ыг шинэ эхлэл болгож явцыг
+ * тэглэнэ (ДДТД-ээр upsert тул давхардахгүй).
+ */
+export function purchasesBackfillNeeded(current: string | null, desired: string): boolean {
+  return !!current && desired < current;
 }
 
 /** Татах мужууд: өмнөх явцын сүүлийн 3 өдрөөс (эсвэл эхлэлээс) өнөөдөр хүртэл, 31 хоногоор. */

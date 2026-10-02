@@ -25,6 +25,7 @@ import {
   type EbarimtPurchaseCheckRow,
 } from "@/lib/ebarimt/purchase-reconcile";
 import type { EbarimtTpiConnectionView, TaxCheckSummary } from "@/lib/ebarimt/tax-reconcile";
+import { downloadWorkbook } from "@/lib/excel/core";
 import { col } from "@/lib/grid/columnTypes";
 import { fmtMnt } from "@/lib/reports/balances";
 import { EBARIMT_PURCHASE_CHECK_TONES } from "@/lib/status";
@@ -43,6 +44,8 @@ export function EbarimtPurchaseCheckView({
   syncFrom,
   syncedThrough,
   canWrite,
+  from,
+  to,
 }: {
   connection: EbarimtTpiConnectionView | null;
   rows: EbarimtPurchaseCheckRow[];
@@ -50,6 +53,9 @@ export function EbarimtPurchaseCheckView({
   syncFrom: string | null;
   syncedThrough: string | null;
   canWrite: boolean;
+  /** Харуулж буй муж (топбарын период / URL). */
+  from: string;
+  to: string;
 }) {
   const router = useRouter();
   const gridRef = useRef<DataGridHandle>(null);
@@ -103,6 +109,49 @@ export function EbarimtPurchaseCheckView({
     });
   }
 
+  async function exportExcel() {
+    try {
+      await downloadWorkbook({
+        slug: `entry-teg-hudaldan-avalt-${from}-${to}`,
+        sheetName: "ТЕГ худалдан авалт",
+        columns: [
+          { header: "Огноо", width: 12 },
+          { header: "ТЕГ-ийн огноо", width: 20 },
+          { header: "ДДТД", width: 36 },
+          { header: "Борлуулагч (ТЕГ)", width: 22 },
+          { header: "Төрөл", width: 16 },
+          { header: "Эх", width: 12 },
+          { header: "ТЕГ дүн", width: 16, kind: "number" },
+          { header: "ТЕГ НӨАТ", width: 14, kind: "number" },
+          { header: "ТЕГ НХАТ", width: 12, kind: "number" },
+          { header: "Тулгалт", width: 22 },
+          { header: "Өглөг", width: 16 },
+          { header: "Нийлүүлэгч", width: 26 },
+          { header: "Өглөгийн дүн", width: 16, kind: "number" },
+          { header: "Өглөгийн НӨАТ", width: 14, kind: "number" },
+        ],
+        rows: visible.map((row) => [
+          row.date,
+          row.taxDate ?? "",
+          row.ddtd ?? "",
+          row.sellerName ?? "",
+          row.receiptType ?? "",
+          row.fromType ?? "",
+          row.taxTotal,
+          row.taxVat,
+          row.taxCityTax,
+          EBARIMT_PURCHASE_CHECK_LABELS[row.check],
+          row.documentNo ?? "",
+          row.counterpartyName ?? "",
+          row.entryTotal,
+          row.entryVat,
+        ]),
+      });
+    } catch (caught) {
+      feedback.error(caught instanceof Error ? caught.message : "Excel татаж чадсангүй");
+    }
+  }
+
   const columns = useMemo<ColDef<EbarimtPurchaseCheckRow>[]>(
     () => [
       { headerName: "Огноо", field: "date", width: 110, cellClass: "font-mono text-xs" },
@@ -124,8 +173,10 @@ export function EbarimtPurchaseCheckView({
       { headerName: "ДДТД", field: "ddtd", width: 160, cellClass: "font-mono text-xs" },
       { headerName: "Борлуулагч (ТЕГ)", field: "sellerName", width: 150, cellClass: "text-xs" },
       { headerName: "Төрөл", field: "receiptType", width: 130, cellClass: "text-xs" },
+      { headerName: "Эх", field: "fromType", width: 100, cellClass: "text-xs" },
       col<EbarimtPurchaseCheckRow>({ eaType: "readonly-money", headerName: "ТЕГ дүн", field: "taxTotal", width: 120 }),
       col<EbarimtPurchaseCheckRow>({ eaType: "readonly-money", headerName: "ТЕГ НӨАТ", field: "taxVat", width: 110 }),
+      col<EbarimtPurchaseCheckRow>({ eaType: "readonly-money", headerName: "ТЕГ НХАТ", field: "taxCityTax", width: 105 }),
       { headerName: "Өглөг", field: "documentNo", width: 140, cellClass: "font-mono text-xs" },
       { headerName: "Нийлүүлэгч", field: "counterpartyName", minWidth: 150, flex: 1 },
       col<EbarimtPurchaseCheckRow>({ eaType: "readonly-money", headerName: "Өглөгийн дүн", field: "entryTotal", width: 125 }),
@@ -202,6 +253,12 @@ export function EbarimtPurchaseCheckView({
       <div className="flex flex-wrap items-center gap-3">
         <FilterChips options={chips} value={filter} onChange={setFilter} />
         <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-[var(--ea-text-3)]">
+            {from} — {to}
+          </span>
+          <Button variant="outline" size="sm" disabled={visible.length === 0} onClick={exportExcel}>
+            Excel
+          </Button>
           {canWrite && (
             <Button variant="outline" size="sm" onClick={sync} disabled={isPending || !connection.isEnabled}>
               {isPending ? "Түр хүлээнэ үү…" : "ТЕГ-ээс одоо татах"}
