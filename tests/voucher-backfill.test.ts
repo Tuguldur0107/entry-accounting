@@ -43,6 +43,8 @@ test("externalRef угтвараар модуль танина", () => {
   assert.equal(moduleFromExternalRef("payroll:2026-08"), "payroll");
   assert.equal(moduleFromExternalRef("po-close:abc"), "proc");
   assert.equal(moduleFromExternalRef("gr-capitalize:abc"), "proc");
+  assert.equal(moduleFromExternalRef("pos-sale:abc"), "pos");
+  assert.equal(moduleFromExternalRef("pos-shift-variance:abc"), "pos");
   assert.equal(moduleFromExternalRef("opening-balance:2026-01-01"), null);
   assert.equal(moduleFromExternalRef(null), null);
 });
@@ -81,6 +83,23 @@ test("модуль бүр ӨӨРИЙН дараалалтай", () => {
   ]);
   assert.equal(byModule.get("cash"), 2);
   assert.equal(byModule.get("gl"), 1);
+});
+
+test("POS-ийн журнал касс/АР-ын холбоостой ч POS-д дугаарлагдана", () => {
+  const { updates } = planVoucherNumbers({
+    vouchers: [
+      voucher("a", "2026-09-15", { externalRef: "pos-pay:x" }),
+      voucher("b", "2026-09-15", { externalRef: "payroll:2026-09" }),
+    ],
+    moduleById: new Map([
+      ["a", "cash"],
+      ["b", "gl"],
+    ]),
+  });
+  assert.deepEqual(updates, [
+    { id: "a", documentNo: "POS-26-000001" },
+    { id: "b", documentNo: "GL-26-000001" },
+  ]);
 });
 
 test("жил солигдоход 1-ээс эхэлнэ", () => {

@@ -71,7 +71,9 @@ pos_sales → АР нэхэмжлэх (posted, sourceType "pos": Dr Авлага
   `assertPeriodOpenInTx`; advisory lock 1 (бараа) + 7 (дугаарлалт); эрх `pos`
   (`read`/`write`/`post`) — кассчин `pos:write` л байж болно
 - Дараалсан дугаар `POS-YYMM-NNNN`, `RET-…`, `SH-YYMM-NNN`; АР нэхэмжлэх
-  `AR-<POS-№>`, кассын баримт `<POS-№>-P<n>` / `-R<n>` / `<SH-№>-V`
+  `AR-<POS-№>`, кассын баримт `<POS-№>-P<n>` / `-R<n>` / `<SH-№>-V`; GL журнал бүр
+  (борлуулалт, COGS, төлбөр, буцаалт, буцаан олголт, ээлжийн зөрүү, бэлгийн карт)
+  `POS-YY-NNNNNN` (`nextVoucherNo(tx, orgId, "pos", date)`, docs/dev/gl.md)
 
 Гол файлууд:
 

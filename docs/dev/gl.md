@@ -15,7 +15,10 @@
   дугааргүй мөр хэдэн ч байж болно)
 - **Модулийн кодууд** (`JOURNAL_MODULE_CODES`, ӨӨРЧЛӨХИЙГ ХОРИГЛОНО — бичигдсэн
   дугаар нь баримтын мөнхийн танигдахуун): GL · CM · FX · AR · AP · INV ·
-  COST · FA · PROC · PAY · VAT
+  COST · FA · PROC · PAY · VAT · POS (POS-оос үүссэн БҮХ журнал — төлбөр, буцаалт,
+  ээлжийн зөрүү ч касс/АР-ын баримттай боловч POS-)
+- **Журналын insert бүр `documentNo`-той** — `tests/voucher-numbers-coverage.test.ts`
+  `lib/`, `app/`, `custom/`-ийн `insert(journalVouchers)` бүрийг статикаар шалгана
 - **БУЦААЛТ эх журналынхаа модулийг ӨВЛӨНӨ** (`moduleOfVoucherNo`) — кассын
   баримтын буцаалт "CM-", элэгдлийн буцаалт "FA-" болж хос нь нэг модульд үлдэнэ
 - **Тоолуур АТОМИК**: `document_counters` мөрийг

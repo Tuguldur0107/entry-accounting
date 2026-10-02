@@ -55,6 +55,7 @@ import { actionError, type ActionResult } from "@/lib/action-result";
 import { logAuditEvent } from "@/lib/audit";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { stornoFromMirror } from "@/lib/gl/storno";
+import { nextVoucherNo } from "@/lib/gl/voucher-no";
 import { periodCodeOf } from "@/lib/periods/period";
 import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
@@ -1491,6 +1492,7 @@ async function createPosSaleCore(
         userId,
         organizationId: orgId,
         date,
+        documentNo: await nextVoucherNo(tx, orgId, "pos", date),
         description: `${tag} POS борлуулалт — ${customer.name}`,
         status: "posted",
         externalRef: `pos-sale:${saleId}`,
@@ -1715,6 +1717,7 @@ async function createPosSaleCore(
                 userId,
                 organizationId: orgId,
                 date,
+                documentNo: await nextVoucherNo(tx, orgId, "pos", date),
                 description: `${tag} Урьдчилсан COGS (явцын дундаж) — сар хаалтад залруулагдана`,
                 status: "posted",
                 externalRef: `pos-cogs:${saleId}`,
@@ -1834,6 +1837,7 @@ async function createPosSaleCore(
             userId,
             organizationId: orgId,
             date,
+            documentNo: await nextVoucherNo(tx, orgId, "pos", date),
             description: `${tag} Төлбөр — ${payment.method.name}`,
             status: "posted",
             externalRef: `pos-pay:${row.id}`,
@@ -1914,6 +1918,7 @@ async function createPosSaleCore(
           userId,
           organizationId: orgId,
           date,
+          documentNo: await nextVoucherNo(tx, orgId, "pos", date),
           description: `${tag} Төлбөр — ${payment.method.name}`,
           status: "posted",
           externalRef: `pos-pay:${row.id}`,
@@ -2335,6 +2340,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
         userId,
         organizationId: orgId,
         date,
+        documentNo: await nextVoucherNo(tx, orgId, "pos", date),
         description: `${tag} POS буцаалт ← ${original.documentNo} — ${reason}`,
         status: "posted",
         externalRef: `pos-return:${returnId}`,
@@ -2483,6 +2489,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
                 userId,
                 organizationId: orgId,
                 date,
+                documentNo: await nextVoucherNo(tx, orgId, "pos", date),
                 description: `${tag} Буцаалтын урьдчилсан COGS урвуу — сар хаалтад залруулагдана`,
                 status: "posted",
                 externalRef: `pos-cogs:${returnId}`,
@@ -2558,6 +2565,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
           userId,
           organizationId: orgId,
           date,
+          documentNo: await nextVoucherNo(tx, orgId, "pos", date),
           description: `${tag} Дэлгүүрийн кредит олгов`,
           status: "posted",
           externalRef: `pos-refund:${returnId}`,
@@ -2646,6 +2654,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
             userId,
             organizationId: orgId,
             date,
+            documentNo: await nextVoucherNo(tx, orgId, "pos", date),
             description: `${tag} Буцаан олголт — ${payment.method.name}`,
             status: "posted",
             externalRef: `pos-refund:${returnId}:${index}`,
@@ -2889,6 +2898,7 @@ export async function closeShift(
             userId,
             organizationId: orgId,
             date,
+            documentNo: await nextVoucherNo(tx, orgId, "pos", date),
             description: `[${view.documentNo}] Ээлжийн кассын ${isOver ? "илүүдэл" : "дутагдал"}`,
             status: "posted",
             externalRef: `pos-shift-variance:${id}`,
@@ -3021,6 +3031,7 @@ export async function issueGiftCard(data: {
           userId,
           organizationId: orgId,
           date,
+          documentNo: await nextVoucherNo(tx, orgId, "pos", date),
           description: `[GC ${code}] Бэлгийн карт зарав — ${method.name}`,
           status: "posted",
           externalRef: `pos-gift:${id}`,
