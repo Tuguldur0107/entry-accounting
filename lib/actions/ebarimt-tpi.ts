@@ -139,7 +139,7 @@ export async function syncEbarimtTaxNow(): Promise<ActionResult<TaxSyncResult>> 
       action: "sync",
       entityType: "ebarimt_tpi_connection",
       entityId: row?.id ?? orgId,
-      summary: `ТЕГ-ээс eBarimt нэхэмжлэх татав — ${result.days.length} өдөр (${result.days[0] ?? "—"} … ${result.days.at(-1) ?? "—"}), нэхэмжлэх ${result.invoices}, төлбөрийн баримт ${result.payments}; зөрүүтэй ${result.summary.problems}`,
+      summary: `ТЕГ-ээс борлуулалтын eBarimt татав — ${result.days.length} өдөр (${result.days[0] ?? "—"} … ${result.days.at(-1) ?? "—"}), бүх баримт ${result.receipts}, нэхэмжлэх ${result.invoices}, төлбөрийн баримт ${result.payments}; зөрүүтэй ${result.summary.problems}`,
     });
     revalidate();
     return result;

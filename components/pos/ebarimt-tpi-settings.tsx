@@ -97,12 +97,12 @@ export function EbarimtTpiSettings() {
 
   function sync() {
     startTransition(async () => {
-      const { error, days, invoices, payments, summary, caughtUp } = await syncEbarimtTaxNow();
+      const { error, days, receipts, invoices, payments, summary, caughtUp } = await syncEbarimtTaxNow();
       if (error || !days || !summary) {
         feedback.error(error ?? "ТЕГ-ээс татаж чадсангүй");
       } else {
         feedback.saved(
-          `${days.length} өдөр татав: нэхэмжлэх ${invoices}, төлбөрийн баримт ${payments}; зөрүүтэй ${summary.problems}${caughtUp ? "" : " — үлдсэнийг хуваарьт татлага үргэлжлүүлнэ"}`
+          `${days.length} өдөр татав: бүх баримт ${receipts}, нэхэмжлэх ${invoices}, төлбөрийн баримт ${payments}; зөрүүтэй ${summary.problems}${caughtUp ? "" : " — үлдсэнийг хуваарьт татлага үргэлжлүүлнэ"}`
         );
       }
       const refreshed = await getEbarimtTpiConnection();
@@ -133,7 +133,7 @@ export function EbarimtTpiSettings() {
       <div>
         <div className="text-sm font-semibold text-[var(--ea-text-1)]">ТЕГ-ийн тулгалт — нэхэмжлэхийн үлдэгдэл (TPI)</div>
         <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-          ТЕГ-ээс нэхэмжлэх ба түүний төлбөрийн баримтыг өдөр бүр шөнө (01:00–07:00 — ТЕГ-ийн сервисийн цаг) автоматаар татаж, ТЕГ-ийн порталын
+          ТЕГ-ээс танай ТТД дээрх БҮХ борлуулалтын баримтыг (нэхэмжлэх, төлөлт, ААН, иргэн — Авлага → eBarimt → «ТЕГ-ийн бүх баримт») өдөр бүр шөнө (01:00–07:00 — ТЕГ-ийн сервисийн цаг) автоматаар татаж, нэхэмжлэхийн хувьд ТЕГ-ийн порталын
           «Үлдэгдэл»-ийг Entry-ийн авлагын үлдэгдэлтэй тулгана. Зөрүүг (порталд гараар нэмсэн төлөлт, ТЕГ-д хүрээгүй
           баримт) «Анхаарах» ба Авлага → eBarimt-д шалтгаантай нь харуулна. Нийлүүлэгчдээс танай регистр дээр
           олгогдсон худалдан авалтын баримтыг мөн татаж өглөгийн нэхэмжлэх, авсан НӨАТ-тай тулгана (Өглөг → eBarimt).

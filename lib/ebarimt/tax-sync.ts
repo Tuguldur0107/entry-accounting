@@ -25,6 +25,7 @@ import { ITC_ERRORS, TPI_SALES_STATUS, type ItcEnvironment, type TpiSalesStatus 
 import { TPI_MAX_PAGES, tpiHasMorePages, tpiPageWindow, type TpiSaleRow } from "@/lib/itc/tpi";
 import { shiftDays } from "@/lib/periods/period";
 import { ulaanbaatarToday } from "@/lib/periods/document-date";
+import { summarizeTaxSales, taxReceiptKindOf, taxSaleMatchOf, taxSalesBackfillNeeded, type EbarimtTaxSaleRow, type EbarimtTaxSalesSummary } from "./tax-sales";
 
 import {
   EBARIMT_TAX_MAX_LOOKBACK_DAYS,
@@ -151,6 +152,8 @@ async function upsertTaxRows(orgId: string, day: string, rows: TpiSaleRow[], isI
           cityTax: String(row.cityTax),
           buyerRegNo: row.buyerRegNo,
           buyerName: row.buyerName,
+          posNo: row.posNo ?? "",
+          districtCode: row.districtCode ?? "",
         }))
       )
       .onConflictDoUpdate({
@@ -165,6 +168,8 @@ async function upsertTaxRows(orgId: string, day: string, rows: TpiSaleRow[], isI
           isInvoice: sql`${ebarimtTaxReceipts.isInvoice} or excluded.is_invoice`,
           buyerRegNo: sql`excluded.buyer_reg_no`,
           buyerName: sql`excluded.buyer_name`,
+          posNo: sql`excluded.pos_no`,
+          districtCode: sql`excluded.district_code`,
           syncedAt: sql`now()`,
         },
       });
@@ -172,20 +177,34 @@ async function upsertTaxRows(orgId: string, day: string, rows: TpiSaleRow[], isI
 }
 
 /**
- * Анхны татлагын эхлэл — Entry-ийн ТЕГ-д илгээсэн хамгийн эртний нэхэмжлэх
- * (≤ 400 хоног); байхгүй бол сүүлийн 3 өдөр.
+ * Анхны татлагын эхлэл — Entry-ийн ТЕГ-д илгээсэн хамгийн эртний баримт (нэхэмжлэх
+ * эсвэл POS борлуулалт, ≤ 400 хоног); байхгүй бол энэ сарын 1 (БҮХ баримт татах тул
+ * сарын борлуулалт бүтэн харагдана).
  */
 async function defaultSyncFrom(orgId: string, todayUb: string): Promise<string> {
   const floor = shiftDays(todayUb, -EBARIMT_TAX_MAX_LOOKBACK_DAYS);
   const invoices = await loadEntryInvoices(orgId, { since: floor });
-  const earliest = invoices.reduce<string | null>((min, row) => (!min || row.invoiceDate < min ? row.invoiceDate : min), null);
-  return earliest ?? shiftDays(todayUb, -3);
+  const earliestInvoice = invoices.reduce<string | null>((min, row) => (!min || row.invoiceDate < min ? row.invoiceDate : min), null);
+  const [pos] = await db
+    .select({ earliest: sql<string | null>`min(${posSales.date})` })
+    .from(posSales)
+    .where(
+      and(
+        eq(posSales.organizationId, orgId),
+        inArray(posSales.ebarimtStatus, ["sent", "manual"]),
+        gte(posSales.date, floor)
+      )
+    );
+  const candidates = [earliestInvoice, pos?.earliest ?? null].filter((value): value is string => !!value);
+  return candidates.length > 0 ? candidates.sort()[0] : `${todayUb.slice(0, 8)}01`;
 }
 
 export interface TaxSyncResult {
   days: string[];
   invoices: number;
   payments: number;
+  /** Татсан БҮХ борлуулалтын баримт (status 0 — нэхэмжлэх, төлөлт, ААН, иргэн). */
+  receipts: number;
   skipped: number;
   /** Өнөөдөр хүртэл бүрэн татагдсан уу (үгүй бол дараагийн тикэд үргэлжилнэ). */
   caughtUp: boolean;
@@ -203,12 +222,21 @@ export async function syncEbarimtTaxReceipts(orgId: string, options: { maxDays?:
   if (!row.isEnabled) throw new ItcError(ITC_ERRORS.config, "ТЕГ-ийн TPI холболт идэвхгүй");
   const todayUb = ulaanbaatarToday();
   let syncedThrough = row.syncedThrough;
-  let totals = { invoices: 0, payments: 0, skipped: 0 };
+  let totals = { invoices: 0, payments: 0, receipts: 0, skipped: 0 };
   try {
     const session = sessionOf(row);
     const syncFrom = row.syncFrom ?? (await defaultSyncFrom(orgId, todayUb));
     if (!row.syncFrom)
       await db.update(ebarimtTpiConnections).set({ syncFrom, updatedAt: new Date() }).where(eq(ebarimtTpiConnections.id, row.id));
+    // 2026-10-02-оос өмнөх холболт зөвхөн нэхэмжлэх/төлөлт хадгалсан — БҮХ баримтыг
+    // эхнээс нь дахин татна (явц syncFrom-оос, ердийн хуваариар).
+    if (taxSalesBackfillNeeded(row)) {
+      syncedThrough = null;
+      await db
+        .update(ebarimtTpiConnections)
+        .set({ allReceiptsFrom: syncFrom, syncedThrough: null, updatedAt: new Date() })
+        .where(eq(ebarimtTpiConnections.id, row.id));
+    }
     const days = taxSyncDays({ syncFrom, syncedThrough, todayUb, maxDays: options.maxDays });
     if (!isTpiSalesWindowOpen(session.env, ulaanbaatarHour()))
       throw new ItcError(
@@ -221,12 +249,13 @@ export async function syncEbarimtTaxReceipts(orgId: string, options: { maxDays?:
       if (!isTpiSalesWindowOpen(session.env, ulaanbaatarHour())) break;
       const invoices = await fetchDayRows(session, day, TPI_SALES_STATUS.invoice);
       const all = await fetchDayRows(session, day, TPI_SALES_STATUS.all);
-      const payments = all.rows.filter((entry) => !!entry.parentDdtd);
+      // БҮХ баримт хадгалагдана (2026-10-02) — нэхэмжлэх ТҮРҮҮЛЖ (isInvoice хадгалагдана).
       await upsertTaxRows(orgId, day, invoices.rows, true);
-      await upsertTaxRows(orgId, day, payments, false);
+      await upsertTaxRows(orgId, day, all.rows, false);
       totals = {
         invoices: totals.invoices + invoices.rows.length,
-        payments: totals.payments + payments.length,
+        payments: totals.payments + all.rows.filter((entry) => !!entry.parentDdtd).length,
+        receipts: totals.receipts + all.rows.length,
         skipped: totals.skipped + invoices.skipped + all.skipped,
       };
       if (!syncedThrough || day > syncedThrough) {
@@ -539,4 +568,88 @@ export async function runDueEbarimtTaxSyncs(now = new Date()): Promise<{ synced:
     errors.push(error instanceof Error ? error.message : String(error));
   }
   return { synced, errors };
+}
+
+/** «ТЕГ-ийн бүх баримт» жагсаалтын дээд мөр — нэг хуудсанд (огнооны мужаар нарийсгана). */
+export const EBARIMT_TAX_SALES_MAX_ROWS = 20_000;
+
+/**
+ * ТЕГ-ийн БҮХ борлуулалтын баримт (огнооны мужид) + Entry-тэй ДДТД-аар тулгалт.
+ * Тулгалтын эх: `sent` submission-ий хариуны ДДТД (толгой `id` ба дэд `receipts[].id` —
+ * хэсэгчилсэн буцаалтын өмнөх ДДТД ч орно) ба гараар ДДТД бичсэн POS борлуулалт.
+ * Raw sql-д Date биш ТЕКСТ огноо (CLAUDE.md §5c). Шидэхгүй биш — дуудагч барина.
+ */
+export async function loadEbarimtTaxSales(
+  orgId: string,
+  range: { from: string; to: string }
+): Promise<{ rows: EbarimtTaxSaleRow[]; summary: EbarimtTaxSalesSummary; truncated: boolean }> {
+  const result = (await db.execute(sql`
+    with sent as (
+      select s.response->>'id' as ddtd, s.kind, s.sale_id, s.arap_document_id
+        from pos_ebarimt_submissions s
+       where s.organization_id = ${orgId} and s.status = 'sent' and coalesce(s.response->>'id', '') <> ''
+      union all
+      select r.value->>'id', s.kind, s.sale_id, s.arap_document_id
+        from pos_ebarimt_submissions s
+        cross join lateral jsonb_array_elements(
+          case when jsonb_typeof(s.response->'receipts') = 'array' then s.response->'receipts' else '[]'::jsonb end
+        ) r
+       where s.organization_id = ${orgId} and s.status = 'sent' and coalesce(r.value->>'id', '') <> ''
+    ),
+    matched as (
+      select distinct on (ddtd) ddtd, kind, sale_id, arap_document_id from sent order by ddtd, kind
+    )
+    select t.ddtd, t.tax_date, t.receipt_date, t.is_invoice, t.parent_ddtd, t.buyer_reg_no, t.buyer_name,
+           t.pos_no, t.total, t.vat, t.city_tax,
+           m.kind as submission_kind, m.sale_id as submission_sale_id, m.arap_document_id as submission_arap_id,
+           manual.id as manual_sale_id,
+           coalesce(ps.document_no, manual.document_no, ad.document_no) as entry_document_no
+      from ebarimt_tax_receipts t
+      left join matched m on m.ddtd = t.ddtd
+      left join pos_sales ps on ps.id = m.sale_id
+      left join ar_ap_documents ad on ad.id = m.arap_document_id
+      left join lateral (
+        select p.id, p.document_no from pos_sales p
+         where m.ddtd is null and p.organization_id = t.organization_id and p.ebarimt_id = t.ddtd
+         limit 1
+      ) manual on true
+     where t.organization_id = ${orgId} and t.receipt_date >= ${range.from} and t.receipt_date <= ${range.to}
+     order by t.receipt_date desc, t.tax_date desc, t.ddtd
+     limit ${EBARIMT_TAX_SALES_MAX_ROWS + 1}
+  `)) as unknown as Record<string, unknown>[];
+
+  const text = (value: unknown) => (value == null ? "" : String(value));
+  const nullable = (value: unknown) => (value == null || value === "" ? null : String(value));
+  const rows: EbarimtTaxSaleRow[] = result.slice(0, EBARIMT_TAX_SALES_MAX_ROWS).map((raw) => {
+    const parentDdtd = nullable(raw.parent_ddtd);
+    const buyerRegNo = text(raw.buyer_reg_no);
+    const isInvoice = raw.is_invoice === true || raw.is_invoice === "t";
+    const submissionSaleId = nullable(raw.submission_sale_id);
+    const submissionArapId = nullable(raw.submission_arap_id);
+    const manualSaleId = nullable(raw.manual_sale_id);
+    const match = taxSaleMatchOf({
+      submissionKind: nullable(raw.submission_kind),
+      submissionSaleId,
+      submissionArapId,
+      manualSaleId,
+    });
+    return {
+      ddtd: text(raw.ddtd),
+      taxDate: text(raw.tax_date) || text(raw.receipt_date),
+      receiptDate: text(raw.receipt_date),
+      kind: taxReceiptKindOf({ isInvoice, parentDdtd, buyerRegNo }),
+      parentDdtd,
+      buyerRegNo,
+      buyerName: text(raw.buyer_name),
+      posNo: text(raw.pos_no),
+      total: Number(raw.total ?? 0),
+      vat: Number(raw.vat ?? 0),
+      cityTax: Number(raw.city_tax ?? 0),
+      match,
+      entryDocumentNo: nullable(raw.entry_document_no),
+      saleId: submissionSaleId ?? manualSaleId,
+      arapDocumentId: submissionArapId,
+    };
+  });
+  return { rows, summary: summarizeTaxSales(rows), truncated: result.length > EBARIMT_TAX_SALES_MAX_ROWS };
 }

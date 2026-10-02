@@ -4817,6 +4817,12 @@ export const ebarimtTpiConnections = pgTable(
     syncFrom: text("sync_from"),
     /** Энэ өдөр хүртэл (YYYY-MM-DD, УБ) бүрэн татагдсан; null = хэзээ ч. */
     syncedThrough: text("synced_through"),
+    /**
+     * БҮХ борлуулалтын баримт (status 0) хадгалж эхэлсэн өдөр. null = 2026-10-02-оос
+     * өмнөх холболт (зөвхөн нэхэмжлэх + төлөлт хадгалсан) — дараагийн татлага
+     * `syncedThrough`-ыг тэглэж `syncFrom`-оос ДАХИН татна (`taxSalesBackfillNeeded`).
+     */
+    allReceiptsFrom: text("all_receipts_from"),
     lastSyncAt: timestamp("last_sync_at"),
     /** Сүүлийн амжилттай татлага — «Анхаарах»-ын хоцролтын эх. */
     lastSyncOkAt: timestamp("last_sync_ok_at"),
@@ -4847,10 +4853,11 @@ export const ebarimtTpiConnections = pgTable(
 );
 
 /**
- * TPI-ээс татсан ТЕГ-ийн баримт — зөвхөн НЭХЭМЖЛЭХ (`isInvoice`, status 3) ба
- * нэхэмжлэхийн ТӨЛБӨРИЙН баримт (`parentDdtd` = prParentRno). Бусад баримт
- * хадгалагдахгүй. ДДТД-ээр upsert (дахин татахад давхардахгүй). Сугалаа/QR TPI-д
- * байхгүй. Нэхэмжлэхийн ТЕГ-ийн үлдэгдэл = нэхэмжлэх − Σ хүүхэд баримт.
+ * TPI-ээс татсан ТЕГ-ийн БҮХ борлуулалтын баримт (status 0 — 2026-10-02-оос; өмнө нь
+ * зөвхөн нэхэмжлэх + төлөлт): нэхэмжлэх (`isInvoice`, status 3), нэхэмжлэхийн ТӨЛБӨРИЙН
+ * баримт (`parentDdtd` = prParentRno), ААН (худалдан авагчийн регистртэй) ба иргэний
+ * баримт. ДДТД-ээр upsert (дахин татахад давхардахгүй). Сугалаа/QR TPI-д байхгүй.
+ * Нэхэмжлэхийн ТЕГ-ийн үлдэгдэл = нэхэмжлэх − Σ хүүхэд баримт. Төрөл: `taxReceiptKindOf`.
  */
 export const ebarimtTaxReceipts = pgTable(
   "ebarimt_tax_receipts",
@@ -4871,10 +4878,14 @@ export const ebarimtTaxReceipts = pgTable(
     cityTax: numeric("city_tax", { precision: 18, scale: 2 }).notNull().default("0"),
     buyerRegNo: text("buyer_reg_no").notNull().default(""),
     buyerName: text("buyer_name").notNull().default(""),
+    /** ТЕГ-ийн кассын дугаар (posNo) ба дүүргийн код — Entry-ээс гадуурх кассыг танихад. */
+    posNo: text("pos_no").notNull().default(""),
+    districtCode: text("district_code").notNull().default(""),
     syncedAt: timestamp("synced_at").defaultNow().notNull(),
   },
   (table) => [
     uniqueIndex("ebarimt_tax_receipts_org_ddtd_ux").on(table.organizationId, table.ddtd),
+    index("ebarimt_tax_receipts_org_date_ix").on(table.organizationId, table.receiptDate),
     index("ebarimt_tax_receipts_parent_ix")
       .on(table.organizationId, table.parentDdtd)
       .where(sql`${table.parentDdtd} is not null`),
