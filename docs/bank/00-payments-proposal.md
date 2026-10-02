@@ -170,16 +170,26 @@ REST-д ч гаргахгүй. AI шинэ хүлээн авагчийн дан�
 
 1. ~~**Хавсралт 3**~~ — **ХАРИУЛТ (2026-10-02, SPEC Хавсралт 3):** стандарт RFC 6238 TOTP — X-Golomt-Key = 16 тэмдэгт BASE32 нууц, HMAC-SHA1, 30 сек, 6 орон (`TimeBasedOneTimePasswordUtil`). Google Authenticator-т шууд нэмэгдэнэ → **D1-A хэрэгжих боломжтой**.
 2. Нэг код хэд хэдэн гүйлгээнд хүчинтэй юу, эсвэл гүйлгээ бүрд шинэ код уу?
+   **SPEC A (2026-10-02):** багц гүйлгээ `CGWBLKTXN` (8.8, `/v1/transaction/cgw/bulk`,
+   НЭГ X-Golomt-Code, `transactions[]` — тус бүр 8.3-ын бүтэцтэй) + төлөв
+   `CGWBLKINQ` (8.9, мөр бүрийн `tranStatus`, `coreReason`); файлаар `CGWTTUM`
+   (8.12). → цалинг НЭГ батлалтаар хийх зам бий; эдгээр сервис манай гэрээнд
+   НЭЭЛТТЭЙ эсэхийг банкнаас асууна (одоо зөвхөн CGWTXNADD).
 3. `refCode` давтагдвал банк татгалзах уу (idempotency)?
-4. Гүйлгээний төлөв шалгах сервис бий юу (CGWTXNADD-ийн хариу ирээгүй үед)?
+4. ~~Гүйлгээний төлөв шалгах~~ — **SPEC 8.7 `TXNCHK`** (`/v1/transaction/ref/check`):
+   `registerNo`, `tranCode` = бидний `refCode`, `tranDate`, `bankCode` `15` →
+   `tranId`, `tranStatus`. D6-ийн «хариу тодорхойгүй» төлөвийг ЭНЭГЭЭР шийднэ
+   (дахин илгээхгүй). Манай гэрээнд нээлттэй эсэхийг асууна. Мөн 8.6 `TXNREV` —
+   ТУХАЙН ӨДӨР Голомт доторх гүйлгээг буцаах.
 5. ~~`type`~~ — SPEC 8.3: TSF шилжүүлэг, PMT төлбөр, PRC худалдаа; банкны код
    Лавлах BANK (Голомт `15`, жишээ `05`). Нээлттэй: банк хоорондын шилжүүлэг
    UAT-д ажиллах эсэх, TSF / PMT-ийн нягтлан бодох ялгаа (шимтгэл?).
 6. Хуулгад (OPERACCTSTA) `refCode` / `remarks` харагдах уу (тулгалт, D6)?
 7. Банкны талд нэг гүйлгээний / өдрийн хязгаар тогтоох боломж; CGWTXNADD-ийг
    заавал биш ч гэсэн IP allowlist-ээр нэмэлт хязгаарлаж болох уу?
-8. ACCCHK банк хоорондын шалгалт: хүсэлтийн `bankCode` хэлбэр (`04` /
-   `040000` / BIC), `accountId`-д IBAN уу, данс уу (UAT-д `vrfctn:false`).
+8. ACCCHK банк хоорондын шалгалт: SPEC 5.12 — `accountId` (данс) + `bankCode`
+   2 оронтой (`05`, Лавлах BANK); хариу `vrfctn`, `maskedAccountName`, `bankId`
+   (BIC), `errDesc`. UAT-д `vrfctn:false` хэвээр — бодит орчинд шалгана.
 9. **UAT 406 (2026-10-02):** CGWTXNADD — `Access code not matched. Please, check
    request Golomt Service Id and Golomt Code` (debug: `X-Golomt-Code and request
    path are not matched`). Хүсэлт Spring-ийн талбарын шалгалтыг давсан (400 биш),
