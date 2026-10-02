@@ -607,7 +607,10 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 
 - Харилцагч = GitHub fork; core `custom/`-д ХЭЗЭЭ Ч бичихгүй, core custom багцын
   нэр/зам hardcode хийхгүй
-- Hook байгаа хоригийг сулруулж ЧАДАХГҮЙ; fork `package.json`-д гар хүрэхгүй
+- Hook байгаа хоригийг сулруулж ЧАДАХГҮЙ; журналын hook (`beforeJournalPost` /
+  `afterJournalPost`) БҮХ модульд `db.transaction` wrapper + DB trigger-ээр НЭГ цэгээс
+  (`lib/custom/journal-hooks.ts`) — модулийн код hook гараар дуудахгүй, буцаалтыг
+  хориглохгүй (M4); fork `package.json`-д гар хүрэхгүй
   (`custom/predeploy.mjs`); template repo ХОРИОТОЙ
 - REST API v1 нь tool давхаргаар л — тусдаа логик ХОРИОТОЙ
 

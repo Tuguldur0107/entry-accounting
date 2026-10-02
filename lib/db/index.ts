@@ -14,4 +14,25 @@ const client = postgres(process.env.DATABASE_URL!, {
   idle_timeout: IDLE_TIMEOUT_SEC,
 });
 
-export const db = drizzle(client, { schema });
+const base = drizzle(client, { schema });
+
+// Fork-ийн журналын hook (ontology-audit M4): транзакц бүрийн callback-ийн
+// ДАРАА, commit-ийн ӨМНӨ батлагдсан журналуудад `beforeJournalPost`, commit-ийн
+// ДАРАА `afterJournalPost` — БҮХ модуль нэг цэгээр (lib/custom/journal-hooks.ts).
+// Hook бүртгээгүй бол шууд дамжуулна. Модулийг динамикаар ачаална — custom/
+// багц нь `@/lib/db`-г импортлодог тул статик импорт цикл үүсгэнэ.
+const rawTransaction = base.transaction.bind(base);
+base.transaction = (async (callback, config) => {
+  const hooks = await import("../custom/journal-hooks");
+  if (!hooks.hasJournalHooks()) return rawTransaction(callback, config);
+  let contexts: Awaited<ReturnType<typeof hooks.runJournalPostHooksInTx>> = [];
+  const result = await rawTransaction(async (tx) => {
+    const value = await callback(tx);
+    contexts = await hooks.runJournalPostHooksInTx(tx);
+    return value;
+  }, config);
+  await hooks.runAfterJournalPostHooks(contexts);
+  return result;
+}) as typeof base.transaction;
+
+export const db = base;

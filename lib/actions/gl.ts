@@ -60,11 +60,6 @@ import {
   convertLinesToBase,
   normalizeCurrency,
 } from "@/lib/gl/currency";
-import type { JournalHookContext } from "@/lib/custom/types";
-import {
-  runAfterJournalPost,
-  runBeforeJournalPost,
-} from "@/lib/custom/loader";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { carryCashAccountTags } from "@/lib/cash/gl-sync";
 import { checkControlAccountGuard } from "@/lib/gl/control-account-guard";
@@ -763,25 +758,8 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
         sortOrder: i,
       }))
     );
-    if (status === "posted") {
-      // custom/ hook — guardrail-ууд (баланс, период, эрх) ДАРАА; {ok:false}
-      // бол шидэж транзакцыг буцаана.
-      await runBeforeJournalPost({
-        orgId,
-        userId,
-        voucherId: voucher.id,
-        date: data.date,
-        description: data.description,
-        lines: validLines.map((l) => ({
-          account: l.account,
-          debit: Number(l.debit),
-          credit: Number(l.credit),
-          description: l.description ?? "",
-        })),
-        totalDebit: validLines.reduce((s, l) => s + Number(l.debit), 0),
-        source: "create_posted",
-      });
-    }
+    // custom/ beforeJournalPost — бүх модульд НЭГ цэгээс, commit-ийн өмнө
+    // (lib/db/index.ts → lib/custom/journal-hooks.ts, ontology-audit M4).
     if (status === "posted")
       await logAuditEvent(
         {
@@ -812,21 +790,6 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
         caught
       );
     }
-    await runAfterJournalPost({
-      orgId,
-      userId,
-      voucherId,
-      date: data.date,
-      description: data.description,
-      lines: validLines.map((l) => ({
-        account: l.account,
-        debit: Number(l.debit),
-        credit: Number(l.credit),
-        description: l.description ?? "",
-      })),
-      totalDebit: validLines.reduce((s, l) => s + Number(l.debit), 0),
-      source: "create_posted",
-    });
   }
 
   revalidatePath("/gl/journal");
@@ -869,7 +832,6 @@ async function postVoucherCore(id: string) {
       : null;
   assertNotFuturePeriod(voucher.date);
 
-  let hookContext: JournalHookContext | null = null;
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
     await assertPeriodOpenInTx(tx, orgId, voucher.date);
@@ -928,23 +890,7 @@ async function postVoucherCore(id: string) {
     assertBalanced(
       lines.map((l) => ({ debit: Number(l.debit), credit: Number(l.credit) }))
     );
-    // custom/ hook — бүх guardrail-ийн ДАРАА, транзакц дотор.
-    hookContext = {
-      orgId,
-      userId,
-      voucherId: id,
-      date: claimed.date,
-      description: voucher.description,
-      lines: lines.map((l) => ({
-        account: l.accountNumber,
-        debit: Number(l.debit),
-        credit: Number(l.credit),
-        description: l.description ?? "",
-      })),
-      totalDebit: lines.reduce((s, l) => s + Number(l.debit), 0),
-      source: "post",
-    };
-    await runBeforeJournalPost(hookContext);
+    // custom/ beforeJournalPost — commit-ийн өмнө НЭГ цэгээс (lib/custom/journal-hooks.ts).
     await logAuditEvent(
       {
         userId,
@@ -971,7 +917,6 @@ async function postVoucherCore(id: string) {
       caught
     );
   }
-  if (hookContext) await runAfterJournalPost(hookContext);
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");

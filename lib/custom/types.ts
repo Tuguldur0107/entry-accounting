@@ -46,6 +46,17 @@ export interface JournalHookContext {
   totalDebit: number;
   /** post — ноорог батлагдаж байна; create_posted — шууд бичигдэж байна. */
   source: "post" | "create_posted";
+  /**
+   * Журналын дугаар — модуль нь угтвараас: GL-, CM-, AR-, AP-, POS-, FA-, COST-,
+   * PROC-, PAY-, VAT-, FX-, INV- (lib/gl/voucher-no.ts). Hook БҮХ модульд дуудагдана.
+   */
+  documentNo?: string | null;
+  externalRef?: string | null;
+  /**
+   * Буцаалтын журнал (улаан сторно). `beforeJournalPost` буцаалтад ДУУДАГДАХГҮЙ
+   * (засварын замыг хаахгүй); `afterJournalPost`-д true-тэй ирнэ.
+   */
+  reversal?: boolean;
 }
 
 export interface PeriodHookContext {

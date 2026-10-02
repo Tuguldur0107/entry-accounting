@@ -29,7 +29,15 @@ export const LEDGER_TRIGGER_NAMES = [
   "ea_journal_lines_balanced",
   "ea_journal_vouchers_balanced",
   "ea_journal_lines_protect",
+  "ea_journal_vouchers_posted_note",
 ];
+
+/**
+ * Транзакц дотор батлагдсан журналын ID-г тэмдэглэх GUC (transaction-local).
+ * `lib/custom/journal-hooks.ts` commit-ийн өмнө уншиж fork-ийн
+ * `beforeJournalPost` / `afterJournalPost`-ийг БҮХ модульд дуудна (ontology-audit M4).
+ */
+export const POSTED_VOUCHERS_GUC = "ea.posted_vouchers";
 export const LEDGER_CONSTRAINT_NAME = "journal_lines_dr_xor_cr";
 
 /**
@@ -94,6 +102,25 @@ BEGIN
 END $$ LANGUAGE plpgsql`;
 
 /**
+ * 4. Батлагдсан журналыг (шууд батлагдсан insert эсвэл ноорог → posted) транзакцын
+ * GUC-д тэмдэглэнэ: `<id>:c` (create_posted) | `<id>:p` (post). Savepoint буцвал
+ * тэмдэглэл ч буцна. Хүснэгт уншихгүй — зардал нь нэг set_config.
+ */
+const POSTED_NOTE_FUNCTION_SQL = `CREATE OR REPLACE FUNCTION ea_note_posted_voucher() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.status = 'posted' THEN
+    RETURN NULL;
+  END IF;
+  PERFORM set_config(
+    '${POSTED_VOUCHERS_GUC}',
+    COALESCE(current_setting('${POSTED_VOUCHERS_GUC}', true), '') || NEW.id::text ||
+      CASE WHEN TG_OP = 'INSERT' THEN ':c,' ELSE ':p,' END,
+    true
+  );
+  RETURN NULL;
+END $$ LANGUAGE plpgsql`;
+
+/**
  * Trigger бүрийн тодорхойлолт. Байхгүй үед л үүсгэнэ — deploy бүрд DROP +
  * CREATE хийвэл journal_lines-ийг (апп ажиллаж байх зуур) дахин дахин түгжинэ.
  * Функцийн биеийг CREATE OR REPLACE шинэчилдэг (хүснэгт түгжихгүй). Trigger-ийн
@@ -114,6 +141,11 @@ const TRIGGERS = {
   ea_journal_lines_protect: `CREATE TRIGGER ea_journal_lines_protect
      BEFORE UPDATE OR DELETE ON journal_lines
      FOR EACH ROW EXECUTE FUNCTION ea_protect_posted_lines()`,
+  ea_journal_vouchers_posted_note: `CREATE TRIGGER ea_journal_vouchers_posted_note
+     AFTER INSERT OR UPDATE OF status ON journal_vouchers
+     FOR EACH ROW
+     WHEN (NEW.status = 'posted')
+     EXECUTE FUNCTION ea_note_posted_voucher()`,
 };
 
 /** Тавихаас ӨМНӨ одоо байгаа зөрчлийг тоолох асуулга (docs/ontology-audit.md §7.2 V01, V02). */
@@ -151,6 +183,7 @@ export function planLedgerInvariants({ imbalancedVouchers, dualSidedLines }) {
     constraint: dualSidedLines === 0,
     balanceTriggers: imbalancedVouchers === 0,
     protectTrigger: true,
+    postedNoteTrigger: true,
     warnings,
   };
 }
@@ -169,6 +202,12 @@ export const LEDGER_INVARIANT_GROUPS = [
     label: "батлагдсан мөрийн хамгаалалт",
     functionSql: PROTECT_FUNCTION_SQL,
     triggers: ["ea_journal_lines_protect"],
+  },
+  {
+    key: "postedNoteTrigger",
+    label: "батлагдсан журналын тэмдэглэл (fork-ийн hook — бүх модуль)",
+    functionSql: POSTED_NOTE_FUNCTION_SQL,
+    triggers: ["ea_journal_vouchers_posted_note"],
   },
 ];
 

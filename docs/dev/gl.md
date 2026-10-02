@@ -125,7 +125,9 @@ tests/gl-fx-reverse-copy.test.ts  Валютын журналын буцаалт
   нээлт дэд дэвтэрт тусдаа бүртгэгддэг (SIM2-011/009)
 - **DB түвшний хамгаалалт** (2026-10-01, `scripts/lib/ledger-invariants.mjs` — эх
   НЭГ): `ea_journal_lines_balanced` + `ea_journal_vouchers_balanced` (батлагдсан /
-  буцаагдсан журнал commit үед ΣДт = ΣКт ±0.011, deferred), `ea_journal_lines_protect`
+  буцаагдсан журнал commit үед ΣДт = ΣКт ±0.011, deferred), `ea_journal_vouchers_posted_note`
+  (батлагдсан журналын ID-г транзакцын GUC-д — fork-ийн hook бүх модульд, `docs/dev/fork-custom.md`),
+  `ea_journal_lines_protect`
   (батлагдсан журналын МӨРИЙГ дангаар UPDATE/DELETE хориглоно — журналыг бүтнээр нь
   устгах cascade саадгүй), `journal_lines_dr_xor_cr` CHECK (Дт, Кт зэрэг биш). Тэмдэг
   хязгаарлахгүй (улаан сторно). `db:predeploy` нь `drizzle-kit push`-ийн ДАРАА

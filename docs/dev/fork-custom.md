@@ -22,10 +22,22 @@
 - **Мэдэгдлийн суваг** (фаз 2): `EntryCustomization.notificationChannels[]` —
   `NotificationChannel { key, label, deliver(ctx) }` (§9d); core Telegram-тай
   нэг sweep-ээр хүргэгдэнэ, тохиргооны матрицад автоматаар багана болно
-- **Hook цэгүүд** (guardrail-ийн ДАРАА, транзакц дотор): `postVoucherCore` /
-  `createVoucherCore(posted)` → `beforeJournalPost` (шидвэл rollback),
-  commit + subledger sync дараа `afterJournalPost` (алдаа залгина);
-  `closePeriod` → `beforePeriodClose` (`hook-rejected` код + reason). Hook
+- **Журналын hook — БҮХ модульд, НЭГ цэгээс** (2026-10-02, ontology-audit M4):
+  GL, касс, АР/АП, POS, ҮХ, өртөг, хангамж, цалин, НӨАТ, банкны хуулга, QPay —
+  батлагдсан журнал бүр (шууд батлагдсан insert `create_posted` | ноорог → posted
+  `post`). DB trigger `ea_journal_vouchers_posted_note` (`scripts/lib/ledger-invariants.mjs`,
+  deploy бүрд) транзакц дотор ID-г `ea.posted_vouchers` GUC-д тэмдэглэнэ;
+  `db.transaction` wrapper (`lib/db/index.ts`) callback-ийн ДАРАА, commit-ийн ӨМНӨ
+  `runJournalPostHooksInTx` (`lib/custom/journal-hooks.ts`) → `beforeJournalPost`
+  (шидвэл транзакц БҮХЭЛДЭЭ буцна — POS борлуулалт ч), commit-ийн ДАРАА
+  `afterJournalPost` (алдаа залгина). Модулийн код hook ГАРААР дуудахгүй — шинэ
+  бичилтийн зам `db.transaction` дотор л бичнэ (`tests/journal-hooks-all-modules.test.ts`).
+  Контекст: `lines[].account` = хадгалсан бүтэн код, `userId` = журнал үүсгэгч,
+  `documentNo` (модуль угтвараас), `externalRef`, `reversal`. **Буцаалтын журнал
+  (улаан сторно / `reversalOfVoucherId`) `beforeJournalPost`-оор ХОРИГЛОГДОХГҮЙ** —
+  засварын зам хаагдахгүй; `afterJournalPost`-д `reversal: true`. Hook бүртгээгүй бол
+  wrapper шууд дамжуулна (GUC уншихгүй)
+- `closePeriod` → `beforePeriodClose` (`hook-rejected` код + reason). Hook
   байгаа хоригийг сулруулж ЧАДАХГҮЙ
 - **Fork-ийн predeploy DDL:** `custom/predeploy.mjs` — `db:predeploy` нь
   `apply-pending-ddl`-ийн ДАРАА, `drizzle-kit push`-ийн ӨМНӨ

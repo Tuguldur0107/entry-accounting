@@ -11,6 +11,7 @@ export const LEDGER_GUARD_TRIGGERS = [
   "ea_journal_lines_balanced",
   "ea_journal_vouchers_balanced",
   "ea_journal_lines_protect",
+  "ea_journal_vouchers_posted_note",
 ] as const;
 export const LEDGER_GUARD_CONSTRAINT = "journal_lines_dr_xor_cr";
 
