@@ -93,6 +93,15 @@ ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтв�
 том байгууллагад хуучин баримт «олдсонгүй» гарч AI түүнийг «байхгүй» гэж
 ойлгоод давхар үүсгэдэг (H3, `tests/ai-ref-lookups.test.ts`).
 
+**Хамгаалалт сулруулахгүй (2026-10-02, ontology-audit H6):** AI tool-оор
+хамгаалалтыг ЗӨВХӨН чангатгана — сулруулах нь `[HUMAN_REQUIRED]`, вэбээс хүн:
+`update_pos_settings` (`allowNegativeStock: true`, `maxManual/TotalDiscountPercent`
+өсгөх), `update_costing_accounts` (`openPoCloseMode: warn`),
+`update_company_settings` (`controlAccountGuard: warn`, хязгаар 1 тэрбумаас дээш).
+Батлах шинжтэй засвар нь батлахтай ИЖИЛ дүрэмтэй: батлагдсан PO-ийн мөр засах
+(`update_purchase_order`) ба `create_recurring_invoice{autoPost}` — шууд горим +
+батлах хязгаар. Тест `tests/ai-guardrail-loosening.test.ts`.
+
 **Idempotency (externalRef):** create_{journal_voucher,arap_invoice,
 cash_transaction} нь externalRef (eBarimt ДДТД, банкны гүйлгээний ID) авдаг —
 ижил ref-тэй хоёр дахь дуудлага ШИНЭ баримт үүсгэхгүй, байгааг нь буцаана

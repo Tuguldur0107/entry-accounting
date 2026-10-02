@@ -24,6 +24,7 @@ try {
 
 import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
+import { updatePosSettings } from "../lib/actions/pos";
 import { syncStandardAccounts } from "../lib/actions/gl";
 import { db } from "../lib/db";
 import {
@@ -203,7 +204,11 @@ test("create_goods_receipt: давтан дуудлага нэг хүлээн а
 
 test("create_pos_sale: давтан дуудлага давхар борлуулалт үүсгэхгүй", { skip: !DB_READY }, async () => {
   await setupOrg();
-  ok(await tool("update_pos_settings", { allowNegativeStock: true }));
+  // H6: хасах үлдэгдлийг AI асаахгүй — вэбийн замаар (server action).
+  {
+    const posSettings = await asOrg(() => updatePosSettings({ allowNegativeStock: true }));
+    assert.ok(!posSettings.error, posSettings.error);
+  }
   ok(await tool("open_pos_shift", { cashAccount: "Касс", warehouseCode: "WH1" }));
   const sale = { lines: [{ itemCode: "ITM", quantity: 1 }], payments: [{ method: "CASH", amount: 5_000 }], skipEbarimt: true, externalRef: ref("pos") };
   const { first, second } = await twice("create_pos_sale", sale);

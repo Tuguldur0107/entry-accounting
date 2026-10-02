@@ -20,7 +20,7 @@ try {
 import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts } from "../lib/actions/gl";
-import { previewPosReceipt } from "../lib/actions/pos";
+import { previewPosReceipt, updatePosSettings } from "../lib/actions/pos";
 import { db } from "../lib/db";
 import {
   journalLines,
@@ -91,7 +91,11 @@ test("НХАТ: POS борлуулалт ба буцаалт — Cr/Dr 31440000,
   ok(await tool("create_inventory_item", { code: "BREAD", name: "Талх", unit: "ш", salesPrice: 3_300 }));
   ok(await tool("create_cash_account", { name: "Касс", accountType: "cash", currency: "MNT", glAccount: "10000001" }));
   // Үлдэгдэлгүй туршилт — хасах үлдэгдлийг зөвшөөрнө; НХАТ-ын хувийг байгууллага өөрөө бичнэ.
-  ok(await tool("update_pos_settings", { allowNegativeStock: true, cityTaxPercent: 2 }));
+  // H6: хасах үлдэгдлийг AI асаахгүй — вэбийн замаар (server action).
+  {
+    const posSettings = await asOrg(() => updatePosSettings({ allowNegativeStock: true, cityTaxPercent: 2 }));
+    assert.ok(!posSettings.error, posSettings.error);
+  }
   ok(await tool("open_pos_shift", { cashAccount: "Касс", warehouseCode: "WH1" }, "post"));
 
   // [Урьдчилж харах] — ижил тооцоо, гэхдээ DB-д борлуулалт БИЧИГДЭХГҮЙ.

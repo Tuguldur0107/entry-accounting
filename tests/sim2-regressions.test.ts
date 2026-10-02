@@ -18,6 +18,8 @@ try {
 
 import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
+import { saveCostingAccountSettings } from "../lib/actions/costing-master";
+import { loadCostingAccountSettings } from "../lib/costing/master-data";
 import { postVoucher, syncStandardAccounts, updateVoucher } from "../lib/actions/gl";
 import { backfillCashDraftsForUser } from "../lib/cash/sync-voucher";
 import { getPayrollRunData } from "../lib/actions/payroll";
@@ -159,7 +161,12 @@ test("SIM2-023: хэсэгчлэн хүлээн авсан PO — анхдагч
   const blocked = await tool("close_period", { code: "2025-01" }, "post");
   assert.match(blocked.resultText, /НЭЭЛТТЭЙ захиалга/, "анхдагч OD-011 хориг хэвээр");
 
-  ok(await tool("update_costing_accounts", { openPoCloseMode: "warn" }));
+  // H6: AI хоригийг сулруулахгүй — вэбээс хүн (saveCostingAccountSettings).
+  const viaAi = await tool("update_costing_accounts", { openPoCloseMode: "warn" });
+  assert.match(viaAi.resultText, /HUMAN_REQUIRED/, viaAi.resultText);
+  const roles = await loadCostingAccountSettings(orgId);
+  const saved = await asOrg(() => saveCostingAccountSettings({ ...roles, openPoCloseMode: "warn" }));
+  assert.equal(saved.ok, true, JSON.stringify(saved));
   ok(await tool("close_period", { code: "2025-01" }, "post"));
   const period = await db.query.accountingPeriods.findFirst({
     where: and(eq(accountingPeriods.organizationId, orgId), eq(accountingPeriods.code, "2025-01")),
