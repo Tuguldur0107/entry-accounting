@@ -74,6 +74,16 @@ export const EBARIMT_TAX_CHECK_TONES: Record<string, StatusTone> = {
   not_synced: "muted",
 };
 
+/** eTax илгээлтийн төлөвийн өнгө (lib/itc/etax/constants ETAX_STATUS_LABELS, docs/dev/etax.md). */
+export const ETAX_STATUS_TONES: Record<string, StatusTone> = {
+  draft: "muted",
+  ready: "warning",
+  submitted: "success",
+  accepted: "success",
+  rejected: "danger",
+  cancelled: "muted",
+};
+
 /** Давтамжтай нэхэмжлэхийн төлөвийн өнгө (lib/arap/recurring RECURRING_STATUS_LABELS). */
 export const RECURRING_STATUS_TONES: Record<string, StatusTone> = {
   active: "success",

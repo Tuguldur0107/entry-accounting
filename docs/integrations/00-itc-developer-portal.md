@@ -162,15 +162,24 @@ lib/itc/
 │                    ITC_AUTH_BASE (Keycloak ч Монголын IP-д л — прокси; нууц header
 │                    зөвхөн EBARIMT_GATEWAY_HOSTS руу) — docs/deployment/mongolia-network-runbook.md
 │                    (Монголд байрлах прокси — §3), ITC_ENV, ITC_TPI_API_KEY (.env.example)
-├── etax/            ⏳ client.ts (REST), forms/ (маягт → JSON mapper, ЦЭВЭР, тесттэй), types.ts —
-│                    «ETAX API documentation v1.1» PDF-ээс (§4.4 №2–3)
-└── token-store.ts   ⏳ Байгууллага бүрийн token шифртэй (`encryptSecret`), refresh — DB давхарга
-lib/actions/etax.ts  ⏳ Server Actions (requireModuleAction("vat"|"payroll", "post"), actionError)
-app/(dashboard)/tax/etax   ⏳ Тохиргоо (холболт, орчин), илгээлтийн түүх, төлөв
+├── etax/            ✅ 2026-10-02 СУУРЬ (docs/dev/etax.md): constants (ETAX_FORMS vat ТТ-03А, төлөв),
+│                    submission.ts (ЦЭВЭР: snapshot, шалгалт, төлөвийн машин), store.ts (DB,
+│                    Keycloak нэвтрэлт шалгах), types.ts. ⏳ client.ts + forms/ — v1.1 PDF-ээс (§4.4)
+lib/actions/etax.ts  ✅ холболт (admin), бэлтгэх (tax:write), тушаалт бүртгэх (tax:post)
+app/(dashboard)/tax/etax   ✅ Тохиргоо, энэ сарын илгээлт, түүх; тушаалт etax.mta.mn-ээс ГАРААР
+                           (ТЕГ-ийн дугаараар бүртгэнэ) — API спек ирмэгц автоматжина
 ```
 
 ⚠ `salesTotalDataBody`-ийн wire талбарын нэр (year/month/day/status/startCount/endCount)
 албан ТАЙЛБАРЫН нэрээр — staging дээр Монголоос шалгаж баталгаажуулна (§4.4 №3).
+
+### 4.3a eTax вэбээс ажиглагдсан бүтэц (2026-10-02, албан биш — `docs/dev/etax.md` §1.1)
+
+`etax.mta.mn` ба `auth.itc.gov.mn` энэ орчноос нээгдэв (зөвхөн developer/share портал хаалттай).
+Вэбийн bundle: Keycloak realm `ITC`, client `etax-gui`; backend `/backapi/beta/return/*`
+(getReportPeriod → getFormList/getFormDetail → saveSheetData / sheetExcelImport → validate →
+submit → гарын үсэг E-sign / gSign / SMS OTP → getHistory); НӨАТ-ын хуудас `TT-03A_4…8`.
+Дотоод, баримтжаагүй тул кодонд ХЭРЭГЛЭХГҮЙ — зөвхөн загварын ойлголт; албан спек §4.4-ээр.
 
 ### 4.4 Нээлттэй асуултууд — ITC-ээс (posapi@itc.gov.mn / info@itc.gov.mn) тодруулах
 

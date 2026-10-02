@@ -237,6 +237,7 @@ export const MODULES: Module[] = [
     items: [
       { label: "Татварын самбар", href: "/tax", icon: "dashboard" },
       { label: "НӨАТ", href: "/tax/vat", icon: "report" },
+      { label: "eTax тайлан", href: "/tax/etax", icon: "send" },
       // ТЕГ-ийн холболт (ITC TPI) — борлуулалт/худалдан авалт/гаалийн татлагын тохиргоо, төлөв
       // (баримт ОЛГОХ тохиргоо нь Бараа → POS тохиргоо → eBarimt; жагсаалтууд Авлага/Өглөгт).
       { label: "ТЕГ-ийн холболт", href: "/tax/ebarimt", icon: "settings" },

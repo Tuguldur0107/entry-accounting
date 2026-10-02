@@ -14,7 +14,7 @@ const ALLOW = new Set(
     "GL", "AP", "AR", "VAT", "POS", "PO", "COGS", "NBV", "NRV", "IFRS", "IAS", "FX", "PWA", "IBAN", "TIN",
     "PTD", "QTD", "YTD", "MNT", "USD", "EUR", "CNY", "RUB", "JPY", "KRW", "GBP",
     // Брэнд / бүтээгдэхүүн
-    "Entry", "Accounting", "QPay", "eBarimt", "PosAPI", "Excel", "Claude", "Cowork", "Code", "Anthropic",
+    "Entry", "Accounting", "QPay", "eBarimt", "eTax", "PosAPI", "Excel", "Claude", "Cowork", "Code", "Anthropic",
     "OpenAI", "GPT", "Haiku", "Sonnet", "Opus", "Fable", "Telegram", "Resend", "Railway", "Console",
     "GitHub", "Google", "Veritech", "Mongolbank",
     // Техникийн нэр
