@@ -17,7 +17,6 @@ import {
   journalVouchers,
   journalLines,
   moduleConfigs,
-  organizationProfile,
   payrollRuns,
   purchaseOrders,
   segmentConfigs,
@@ -68,13 +67,7 @@ import {
 } from "@/lib/custom/loader";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { carryCashAccountTags } from "@/lib/cash/gl-sync";
-import {
-  DEFAULT_CONTROL_ACCOUNTS,
-  controlAccountHits,
-  controlAccountMessage,
-  isGuardExemptRef,
-  normalizeGuardMode,
-} from "@/lib/gl/control-accounts";
+import { checkControlAccountGuard } from "@/lib/gl/control-account-guard";
 import { extractMainAccount } from "@/lib/reports/balances";
 import {
   syncAllSegmentDefaultValues,
@@ -695,40 +688,6 @@ function assertBalanced(lines: { debit: number; credit: number }[]) {
 // production дээр шидсэн алдааны мессежийг нуудаг (React #441) тул client
 // компонент зөвхөн wrapper-ыг дуудна. Server-талын дуудагч (lib/ai/tools.ts
 // г.м) unwrapAction-аар шидэлтээ сэргээнэ.
-
-/**
- * SIM2-038: гар журнал (GL модуль) АР/АП-ийн хяналтын дансыг хөндвөл
- * анхааруулга буцаана, «block» горимд хориглоно. Нээлтийн журнал чөлөөтэй.
- */
-async function checkControlAccountGuard(
-  orgId: string,
-  accountNumbers: string[],
-  externalRef: string | null | undefined
-): Promise<string | null> {
-  if (isGuardExemptRef(externalRef)) return null;
-  const [settings, used] = await Promise.all([
-    db.query.organizationProfile.findFirst({
-      where: eq(organizationProfile.organizationId, orgId),
-      columns: { controlAccountGuard: true },
-    }),
-    db
-      .selectDistinct({ account: arApDocuments.controlAccountNumber })
-      .from(arApDocuments)
-      .where(eq(arApDocuments.organizationId, orgId)),
-  ]);
-  const control = new Set<string>([
-    ...DEFAULT_CONTROL_ACCOUNTS,
-    ...used.map((row) => extractMainAccount(row.account)),
-  ]);
-  const hits = controlAccountHits(accountNumbers, control);
-  if (hits.length === 0) return null;
-  const message = controlAccountMessage(hits);
-  if (normalizeGuardMode(settings?.controlAccountGuard) === "block")
-    throw new Error(
-      `[CONTROL_ACCOUNT] ${message}. (Тохиргоо → Компанийн мэдээлэл: хяналтын дансны хориг идэвхтэй)`
-    );
-  return message;
-}
 
 async function createVoucherCore(data: VoucherCurrencyInput & {
   date: string;

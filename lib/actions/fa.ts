@@ -8,6 +8,7 @@ import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { moduleOfVoucherNo, nextVoucherNo } from "@/lib/gl/voucher-no";
+import { checkControlAccountGuard } from "@/lib/gl/control-account-guard";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -211,7 +212,7 @@ export async function createFixedAsset(
     /** Idempotency түлхүүр — давтан дуудлага анхныхыг буцаана (lib/idempotency.ts). */
     externalRef?: string;
   }
-): Promise<ActionResult<{ id: string; code: string; voucherNo: string | null; dedup?: true }>> {
+): Promise<ActionResult<{ id: string; code: string; voucherNo: string | null; dedup?: true; warning?: string }>> {
   try {
     return await createFixedAssetCore(data, options);
   } catch (caught) {
@@ -272,6 +273,7 @@ async function createFixedAssetCore(
   // өглөг, банк …). Эх данс өгөөгүй бол GL-д бичихгүй (АП-аар ҮХ-ийн дансанд
   // шууд авсан — өртөг аль хэдийн GL-д; нээлтийн карт — нээлтийн журналаар).
   const capitalizeFrom = options?.capitalizeFrom?.trim() || null;
+  let controlWarning: string | null = null;
   if (capitalizeFrom) {
     if (capitalizeFrom === data.assetAccountNumber.trim())
       throw new Error("Капиталжуулах эх данс нь хөрөнгийн данснаас өөр байна");
@@ -280,6 +282,9 @@ async function createFixedAssetCore(
         "Нээлтийн (openingAsOf-той) карт капиталжуулах журналгүй — өртөг нээлтийн журналаар GL-д орно"
       );
     await assertEnabledMainAccount(orgId, capitalizeFrom);
+    // M6: Кт хяналтын данс (31000001 г.м.) — өглөгийн нэхэмжлэхгүй тул дэд
+    // дэвтэр ↔ GL зөрнө. Гар журналтай ИЖИЛ хамгаалалт (warn | block).
+    controlWarning = await checkControlAccountGuard(orgId, [capitalizeFrom], externalRef);
     await assertPeriodOpen(orgId, data.acquisitionDate);
     // Батлагдсан журнал бичих нь батлах түвшний эрх.
     if (!options?.asDraft) await requireModuleAction("fa", "post");
@@ -362,7 +367,7 @@ async function createFixedAssetCore(
   const { created, voucherNo } = transacted;
   if (voucherNo) revalidatePath("/gl/journal");
   revalidateFa();
-  return { id: created.id, code, voucherNo };
+  return { id: created.id, code, voucherNo, ...(controlWarning ? { warning: controlWarning } : {}) };
 }
 
 // Ноорог картыг (гараар үүсгэсэн эсвэл АП/GL sync-ээс ирсэн) бөглөж

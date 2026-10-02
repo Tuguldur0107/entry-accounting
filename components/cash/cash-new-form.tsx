@@ -12,6 +12,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { Icon } from "@/components/ui/icon";
 import { feedback } from "@/lib/ui/feedback";
+import { toast } from "sonner";
 
 import { AccountInput } from "@/components/account/account-input";
 import { CounterpartySelect } from "@/components/arap/counterparty-select";
@@ -198,6 +199,8 @@ export function CashNewForm({
           return;
         }
         if (postNow) feedback.posted("Гүйлгээ хадгалагдаж батлагдлаа");
+        // M6: хяналтын дансны анхааруулга (warn горим) — гар журналтай ижил.
+        if ("warning" in result && result.warning) toast.warning(result.warning, { duration: 10_000 });
         else feedback.saved("Ноорог гүйлгээ хадгалагдлаа");
         onSaved();
       } catch {

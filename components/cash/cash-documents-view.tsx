@@ -266,7 +266,7 @@ export function CashDocumentsView({
   );
 
   const runAction = useCallback(
-    (action: () => Promise<{ error?: string }>, successMessage: string) => {
+    (action: () => Promise<{ error?: string; warning?: string }>, successMessage: string) => {
       startTransition(async () => {
         try {
           // Action алдааг шидэхгүй — { error } утгаар буцаана (production
@@ -279,6 +279,8 @@ export function CashDocumentsView({
           refreshOpenPanels();
           router.refresh();
           toast.success(successMessage);
+          // M6: хяналтын дансны анхааруулга (warn горим) — гар журналтай ижил.
+          if (result.warning) toast.warning(result.warning, { duration: 10_000 });
         } catch {
           toast.error("Үйлдэл амжилтгүй");
         }
