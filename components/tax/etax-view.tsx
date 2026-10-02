@@ -11,13 +11,20 @@ import type { ColDef, ICellRendererParams } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { EtaxConnectionSettings } from "@/components/tax/etax-connection-settings";
+import { EtaxMappingEditor } from "@/components/tax/etax-mapping-editor";
 import { TaxPageHeader, TaxStatCard } from "@/components/tax/tax-info";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { LinkButton } from "@/components/ui/link-button";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { prepareEtaxVatReturn, setEtaxSubmissionStatus } from "@/lib/actions/etax";
+import {
+  prepareEtaxVatReturn,
+  refreshEtaxSubmissionStatus,
+  saveEtaxSubmissionToTax,
+  setEtaxSubmissionStatus,
+  submitEtaxSubmissionToTax,
+} from "@/lib/actions/etax";
 import { fmtDateTimeUb } from "@/lib/format/datetime";
 import { fmtMnt } from "@/lib/grid/formatters";
 import { col } from "@/lib/grid/columnTypes";
@@ -107,6 +114,49 @@ export function EtaxView({
   const validation = current?.validation ?? null;
   const canReady = !!current && current.status === "draft" && (validation?.errors.length ?? 0) === 0 && !data.stale;
   const webUrl = data.connection?.webUrl ?? "https://etax.mta.mn";
+  const apiReady = !!data.connection?.apiReady && data.connection.entId != null && !!data.mapping && data.mapping.problems.length === 0;
+  const apiHint = !data.connection
+    ? "eTax холболт тохируулаагүй"
+    : !data.connection.apiReady
+      ? "Операторын NE-KEY серверт тохируулагдаагүй"
+      : data.connection.entId == null
+        ? "«Байгууллага татах» хийгээгүй"
+        : !data.mapping
+          ? "Маягтын нүдний холболт тохируулаагүй"
+          : data.mapping.problems.length
+            ? `Маягтын холболт дутуу (${data.mapping.problems.length})`
+            : null;
+
+  function saveToTax() {
+    if (!current) return;
+    startTransition(async () => {
+      const { error, submission, message } = await saveEtaxSubmissionToTax({ id: current.id });
+      if (error || !submission) feedback.error(error ?? "ТЕГ-д хадгалж чадсангүй");
+      else feedback.saved(`ТЕГ-д хадгалагдлаа — reportNo ${submission.reportNo}${message ? `; ${message}` : ""}`);
+      router.refresh();
+    });
+  }
+
+  function submitToTax() {
+    if (!current || !window.confirm("Тайланг ТЕГ-д ИЛГЭЭХ үү? Илгээснийг Entry-ээс буцаах боломжгүй.")) return;
+    startTransition(async () => {
+      const { error, submission, message } = await submitEtaxSubmissionToTax({ id: current.id });
+      if (error || !submission) feedback.error(error ?? "ТЕГ-д илгээж чадсангүй");
+      else feedback.saved(`ТЕГ-д илгээгдлээ${message ? ` — ${message}` : ""}`);
+      router.refresh();
+    });
+  }
+
+  function refreshStatus() {
+    if (!current) return;
+    startTransition(async () => {
+      const { error, submission, found } = await refreshEtaxSubmissionStatus({ id: current.id });
+      if (error || !submission) feedback.error(error ?? "Төлөв шинэчлэгдсэнгүй");
+      else if (!found) feedback.error("ТЕГ-ийн түүхэд энэ тайлан олдсонгүй");
+      else feedback.saved(`ТЕГ-ийн төлөв: ${submission.taxStatusName ?? submission.taxStatusId ?? "—"}`);
+      router.refresh();
+    });
+  }
 
   return (
     <>
@@ -180,12 +230,24 @@ export function EtaxView({
                 ))}
               </ul>
             ) : null}
+            {current.reportNo != null || current.taxStatusName ? (
+              <div className="text-xs text-[var(--ea-text-2)]">
+                ТЕГ-ийн тайлангийн № {current.reportNo ?? "—"} · төлөв {current.taxStatusName ?? current.taxStatusId ?? "—"} · шалгасан{" "}
+                {fmtDateTimeUb(current.taxSyncedAt) ?? "—"}
+              </div>
+            ) : null}
             {current.resultNote ? <p className="text-xs text-[var(--ea-text-2)]">Тэмдэглэл: {current.resultNote}</p> : null}
 
             {current.status === "ready" ? (
               <p className="text-xs text-[var(--ea-text-2)]">
-                Дараагийн алхам: etax.mta.mn → Тайлан → Тайлан тушаах хэсэгт {form.code} маягтыг дээрх дүнгээр бөглөж тоон
-                гарын үсгээр баталгаажуулна. Хүлээн авсан дугаарыг доор бичиж «Тушаасан» гэж бүртгэнэ.
+                {apiReady
+                  ? "Дараагийн алхам: «ТЕГ-д хадгалах» (API — reportNo авна), дараа нь «ТЕГ-д илгээх». Эсвэл etax.mta.mn-ээс гараар тушааж дугаарыг доор бичнэ."
+                  : `Дараагийн алхам: etax.mta.mn → Тайлан тушаах хэсэгт ${form.code} маягтыг дээрх дүнгээр бөглөж баталгаажуулна; хүлээн авсан дугаарыг доор бичиж «Тушаасан» гэж бүртгэнэ.${apiHint ? ` (API: ${apiHint})` : ""}`}
+              </p>
+            ) : null}
+            {current.status === "saved" ? (
+              <p className="text-xs text-[var(--ea-text-2)]">
+                ТЕГ-д хадгалагдсан (илгээгээгүй). «ТЕГ-д илгээх» дарахад ТЕГ маягтын шалгуураа тулгаж хүлээн авна; алдаа гарвал мессеж ил.
               </p>
             ) : null}
 
@@ -215,9 +277,24 @@ export function EtaxView({
                   Ноорог руу
                 </Button>
               ) : null}
-              {canPost && canTransition(current.status, "submitted") ? (
-                <Button size="sm" onClick={() => move("submitted")} disabled={isPending || !taxReference.trim()}>
-                  Тушаасан гэж бүртгэх
+              {canWrite && canTransition(current.status, "saved") ? (
+                <Button size="sm" onClick={saveToTax} disabled={isPending || !apiReady || data.stale} title={apiHint ?? undefined}>
+                  {current.status === "saved" ? "ТЕГ-д дахин хадгалах" : "ТЕГ-д хадгалах"}
+                </Button>
+              ) : null}
+              {canPost && current.status === "saved" ? (
+                <Button size="sm" onClick={submitToTax} disabled={isPending || !apiReady}>
+                  ТЕГ-д илгээх
+                </Button>
+              ) : null}
+              {canWrite && (current.status === "saved" || current.status === "submitted") && data.connection?.apiReady ? (
+                <Button size="sm" variant="outline" onClick={refreshStatus} disabled={isPending}>
+                  ТЕГ-ийн төлөв шинэчлэх
+                </Button>
+              ) : null}
+              {canPost && canTransition(current.status, "submitted") && current.status === "ready" ? (
+                <Button size="sm" variant="outline" onClick={() => move("submitted")} disabled={isPending || !taxReference.trim()}>
+                  Гараар тушаасан гэж бүртгэх
                 </Button>
               ) : null}
               {canPost && canTransition(current.status, "accepted") ? (
@@ -266,7 +343,17 @@ export function EtaxView({
         />
       </section>
 
-      {isAdmin ? <EtaxConnectionSettings connection={data.connection} /> : null}
+      {isAdmin ? (
+        <>
+          <EtaxConnectionSettings connection={data.connection} />
+          <EtaxMappingEditor
+            key={`${data.mapping?.templateFetchedAt ?? "none"}:${JSON.stringify(data.mapping?.cells ?? {})}`}
+            mapping={data.mapping}
+            periodCode={periodCode}
+            enabled={!!data.connection?.apiReady && data.connection.entId != null}
+          />
+        </>
+      ) : null}
     </>
   );
 }

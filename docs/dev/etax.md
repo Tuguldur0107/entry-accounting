@@ -4,15 +4,25 @@
 > Хатуу дүрмийн хураангуй `CLAUDE.md`-д — хоёуланг ЗЭРЭГ шинэчилнэ. Албан эх, нэвтрэлт,
 > гео-хязгаар, ITC-д тавих асуулт: `docs/integrations/00-itc-developer-portal.md` §2–§4.
 
-## 1. Төлөв (2026-10-02) — суурь ХЭРЭГЖСЭН, илгээлт нь ГАРААР
+## 1. Төлөв (2026-10-02) — АЛБАН API ХЭРЭГЖСЭН (staging баталгаажуулалт хүлээгдэж буй)
 
-ТЕГ-ийн eTax API-ийн албан спек («ETAX API documentation v1.1», developer портал `etax-api`)
-Монголын IP-ээс л татагддаг тул энэ орчинд уншигдаагүй. Тиймээс одоо хэрэгжсэн нь
-**спекээс хамаарахгүй суурь**: Entry-ийн НӨАТ-ын бодолтыг ТЕГ-ийн маягтын хуулбар
-(snapshot) болгон бэлтгэж, шалгаж, хүн хянаж, etax.mta.mn-ээс гараар тушаасан дугаараар
-бүртгэнэ. ТЕГ рүү Entry **юу ч илгээхгүй**; зөвхөн ITC Keycloak нэвтрэлтийг шалгана.
-Спек ирмэгц `lib/itc/etax/client.ts` + маягтын mapper нэмэгдэж, «Тушаасан» алхам
-автоматжина (төлөвийн машин, хүснэгт, UI хэвээр).
+Албан спек `docs/integrations/etax/00-etax-api-spec.md` (developer портал «Цахим татварын
+систем» proj-1787125468395, product owner 2026-10-02-нд татсан). Хэрэгжсэн урсгал:
+Entry-ийн НӨАТ-ын бодолт → snapshot (ноорог) → хүн «Бэлэн» → **API-аар ТЕГ-д хадгалах**
+(`saveFormData`, reportNo) → **API-аар илгээх** (`submit`) → **төлөв** (`getHistory`: хүлээн
+авсан / буцаасан). Гараар (etax.mta.mn-ээс) тушааж дугаараар бүртгэх зам ХЭВЭЭР — NE-KEY
+байхгүй / API алдаатай үед. ТЕГ-ийн маягт ДИНАМИК (`getFormDetail` нүд бүр `tagKey`) тул аль
+нүд аль дүн болохыг спек хэлдэггүй — админ **нэг удаа нүдний холболт** тохируулна (§4).
+
+**Албан спекийн гол зүйл** (§3): Keycloak token (`etax-api-staging` — staging; бодит client_id
+спекд үгүй), header `NE-KEY` (ХСН-д posapi@itc.gov.mn-ээс; бодит орчинд ТЕГ-ийн ТТҮГ-т албан
+бичгээр), `getUserOrgs` → `entId` (бүх дуудлагын query), `getList` → тушаах тайлангийн мөр
+(taxTypeId, branchId, formNo, year/period, reportNo, returnDueDate), `getFormDetail` →
+sections/rows/cells (`tagId`, `key`, `isDisable` = «утга авна», `expression`, `validations`),
+`saveFormData` body `{reportData{…reportStatusId 2}, reportDataDetail[{tagId,type,tagKey,value}]}`
+→ `reportNo`; `submit` → ТЕГ validations-оо шалгана; төлвийн код 2 хадгалсан · 3 илгээсэн ·
+6 хуваарилсан · 11 хүлээн авсан · 8 буцаасан. Хавсралт МЭДЭЭ (§3.11–§3.16: борлуулалт/худалдан
+авалтын задаргаа г.м. `sheet`) ХАРААХАН ХЭРЭГЖЭЭГҮЙ — §6.
 
 ### 1.1 eTax вэбээс ажиглагдсан зүйл (2026-10-02, бодит bundle — АЛБАН БИШ)
 
@@ -37,20 +47,25 @@
 ## 2. Урсгал
 
 ```
+Тохиргоо (админ, нэг удаа): ITC нэвтрэлт → «Байгууллага татах» (getUserOrgs → entId, регистрээр)
+   → «Жагсаалт татах» (getList → татварын төрөл × маягт) → «Загвар татах» (getFormDetail → нүднүүд)
+   → нүдний холболт: outputVat/inputVat/payableVat (заавал), carriedInVat/refundableVat → tagKey
+
 /tax/vat (computeVatReturn)
    │  «Бэлтгэх (ноорог)»  tax:write
    ▼
-etax_submissions  status=draft   snapshot = buildVatSnapshot(summary, settings, Компанийн мэдээлэл)
-   │                              validation = validateVatSnapshot(snapshot, УБ өнөөдөр)
+draft   snapshot = buildVatSnapshot(summary, settings, Компанийн мэдээлэл), validation
    │  «Бэлэн — хянасан»  tax:write  (алдаагүй, бодолт зөрөөгүй — stale бол хаалттай)
    ▼
-ready ──«Ноорог руу»──▶ draft           «Дахин бодох»: дүн зөрвөл ready → draft АВТОМАТ
-   │  хэрэглэгч etax.mta.mn-д ТТ-03А бөглөж тоон гарын үсгээр тушаана
-   │  «Тушаасан гэж бүртгэх» tax:post — ТЕГ-ийн хүлээн авсан дугаар ЗААВАЛ
+ready ──«ТЕГ-д хадгалах» tax:write──▶ saved   (saveFormData → reportNo, ТЕГ-ийн төлөв 2;
+   │                                            дахин хадгалах saved → saved ижил reportNo)
+   │  ──«Гараар тушаасан гэж бүртгэх» tax:post (ТЕГ-ийн дугаар ЗААВАЛ)──▶ submitted
    ▼
-submitted ──▶ accepted (tax:post)
-          └─▶ rejected (tax:post, шалтгаан ЗААВАЛ) → шинэ ноорог «Бэлтгэх»-ээр
-draft/ready ──▶ cancelled (tax:write)
+saved ──«ТЕГ-д илгээх» tax:post──▶ submitted   (submit — ТЕГ validations, алдаа мессеж ил)
+   │
+submitted ──«ТЕГ-ийн төлөв шинэчлэх» tax:write (getHistory)──▶ accepted (11) | rejected (8)
+          ──«ТЕГ хүлээн авсан» / «ТЕГ буцаасан» tax:post (гараар, шалтгаан ЗААВАЛ)
+«Дахин бодох»: дүн зөрвөл ready/saved → draft АВТОМАТ; draft/ready/saved → cancelled (tax:write)
 ```
 
 - Нэг маягт × тайлант үед ЗЭРЭГ нэг л амьд (draft/ready/submitted/accepted) илгээлт —
@@ -76,37 +91,64 @@ draft/ready ──▶ cancelled (tax:write)
 - **Нууц** (`passwordEnc`) `encryptSecret`-ээр, утга нь client/лог/аудит/алдаа/тестэд ХЭЗЭЭ Ч
   гарахгүй; талбар write-only (хоосон = хуучнаа хадгална). Хост ЗӨВХӨН `lib/itc/constants.ts`
   (+ `ITC_AUTH_BASE*` прокси), `ETAX_WEB_BASE`; хэрэглэгч URL оруулахгүй
-- **Клиент бичихгүй** спекгүйгээр: `/backapi/*` (§1.1) ХОРИОТОЙ; `ETAX_PATHS` зөвхөн албан
-  баримтаас. client_id env `ETAX_CLIENT_ID` (default `etax-gui`)
+- **Замууд ЗӨВХӨН албан спекээс** (`ETAX_PATHS`, `/api/beta/...`); вэбийн `/backapi/*` (§1.1)
+  ХОРИОТОЙ. `NE-KEY` = операторын env `ETAX_NE_KEY` (харилцагчид харуулахгүй, UI талбар
+  байхгүй); client_id staging `etax-api-staging`, бодит `ETAX_CLIENT_ID` (default `etax-gui`)
+- **Нүдний холболтыг ТААХГҮЙ** — `getFormDetail`-ийн нүднээс админ сонгоно (`etax_form_mappings`);
+  томьёотой нүд сонгогдохгүй; холболт дутуу бол «ТЕГ-д хадгалах» хаалттай (`mappingProblems`)
+- **ТЕГ-д хадгалах ≠ илгээх:** `saved` нь ТЕГ-ийн төлөв 2 (reportNo-той, илгээгээгүй); `submit`
+  ЗӨВХӨН `tax:post` + хүний баталгаажуулалт (confirm); ТЕГ-ийн хариу мессеж (`code ≠ 0`) ил
+- **ТЕГ-ийн төлөв зөвхөн уншина** (`getHistory`), УРАГШ л: saved → submitted (3/6 — вэбээс
+  илгээсэн), submitted → accepted (11) | rejected (8); танигдахгүй код төлөв хөндөхгүй
 - Үйлдэл бүр `logAuditEvent` (`etax_connection` / `etax_submission`); нууц утгагүй
 
 ## 4. Файлууд
 
 ```
-lib/itc/etax/constants.ts   client-safe: ETAX_WEB_BASE, ETAX_CLIENT_ID_DEFAULT, ETAX_FORMS (vat ТТ-03А),
-                            төлөв + шошго, ETAX_ACTIVE_STATUSES, ETAX_ERRORS
+docs/integrations/etax/00-etax-api-spec.md  АЛБАН спек (хуулбар) — замын ЦОРЫН ГАНЦ эх
+lib/itc/etax/constants.ts   client-safe: ETAX_API_BASE, ETAX_PATHS, ETAX_CLIENT_IDS, ETAX_TAX_STATUS,
+                            ETAX_FORMS (vat ТТ-03А), төлөв + шошго, ETAX_VAT_FIELDS, ETAX_ERRORS
+lib/itc/etax/api.ts         ЦЭВЭР (tests/etax-api.test.ts): parseUserOrgs/pickEtaxOrg, parseReportList/
+                            findVatReportRow, parseHistory/taxStatusToEntry/findHistoryRow, parseFormDetail/
+                            describeCell, normalizeCellMapping/mappingProblems/buildReportDataDetail,
+                            reportHeadOf/saveFormDataBody/submitBody, parseSaveResponse/parseSubmitResponse
+lib/itc/etax/client.ts      SERVER HTTP: etaxClientId/etaxNeKey/etaxApiBase (env), Bearer + NE-KEY,
+                            fetchEtaxUserOrgs/ReportList/History/FormDetail, saveEtaxFormData, submitEtaxReport
 lib/itc/etax/submission.ts  ЦЭВЭР (tests/etax-submission.test.ts): buildVatSnapshot, validateVatSnapshot,
-                            snapshotAmountsDiffer, ETAX_TRANSITIONS / canTransition / assertTransition,
+                            snapshotAmountsDiffer, ETAX_TRANSITIONS (draft→ready→saved→submitted→…),
                             isPostingTransition, requiresTaxReference, normalizeTaxReference
-lib/itc/etax/types.ts       view төрлүүд (EtaxConnectionView, EtaxSubmissionView, EtaxPageData)
-lib/itc/etax/store.ts       DB (server): холболт, checkEtaxConnection (Keycloak), loadEtaxTaxpayer,
+lib/itc/etax/types.ts       view төрлүүд (Connection/Mapping/Submission/PageData, EtaxReportChoice)
+lib/itc/etax/store.ts       DB: холболт, etaxSessionOf/requireEtaxSession, checkEtaxConnection, mapping row/view,
                             loadEtaxPageData, prepareVatSubmission, transitionEtaxSubmission
-lib/actions/etax.ts         Server Actions (ActionResult): get/save/test/deleteEtaxConnection,
-                            prepareEtaxVatReturn, setEtaxSubmissionStatus
+lib/itc/etax/tax-flow.ts    DB + API: syncEtaxOrg, loadEtaxReportChoices, fetchEtaxTemplate, saveEtaxMapping,
+                            saveSubmissionToTax, submitSubmissionToTax, refreshTaxStatus
+lib/actions/etax.ts         Server Actions (ActionResult): холболт (admin), syncEtaxOrganization,
+                            getEtaxReportChoices, fetchEtaxFormTemplate, saveEtaxFormMapping (admin),
+                            prepareEtaxVatReturn, saveEtaxSubmissionToTax, refreshEtaxSubmissionStatus
+                            (tax:write), submitEtaxSubmissionToTax, setEtaxSubmissionStatus (tax:post)
 app/(dashboard)/tax/etax/page.tsx       хуудас (tax layout-ийн ModuleGuard дор)
-components/tax/etax-view.tsx            карт, илгээлт, товчнууд, түүх (DataGridDynamic)
-components/tax/etax-connection-settings.tsx  тохиргоо (админ)
-lib/db/schema.ts            etax_connections, etax_submissions (docs/dev/db-schema.md)
+components/tax/etax-view.tsx            карт, илгээлт, API/гар товчнууд, түүх (DataGridDynamic)
+components/tax/etax-connection-settings.tsx  тохиргоо + «Байгууллага татах» (админ)
+components/tax/etax-mapping-editor.tsx       маягтын нүдний холболт (админ)
+lib/db/schema.ts            etax_connections (+entId…), etax_form_mappings, etax_submissions (+reportNo, taxStatus*)
 lib/status.ts               ETAX_STATUS_TONES
 ```
 
-## 5. Дараагийн алхам (спек ирэхэд)
+## 5. Staging-д батлах зүйл (Монголын IP шаардахгүй — etax.mta.mn, auth.itc.gov.mn гадаадаас нээгддэг)
 
-1. `docs/integrations/00` §4.4-ийн хариу + «ETAX API documentation v1.1» → `ETAX_PATHS`,
-   `lib/itc/etax/client.ts` (ижил `request` хэв маяг, `ITC_AUTH_BASE` прокси), маягтын
-   mapper `lib/itc/etax/forms/vat.ts` (snapshot → ТТ-03А-ийн хуудас/мөр, ЦЭВЭР, тесттэй)
-2. «Тушаасан» алхам: API-аар ноорог илгээх → ТЕГ-ийн ID-г `taxReference`-д; гарын үсэг/OTP
-   шаардвал хэрэглэгч etax.mta.mn-д баталгаажуулж, Entry төлөвөө `getReportStatusData`-тай
-   дүйцэх уншилтаар шинэчилнэ (E4 — `attention.ts` дохио)
-3. ХАОАТ (`payroll_runs`), ААНОАТ маягтууд — ижил snapshot/validation загвараар
-4. MCP tool: `get_etax_submissions` (унших), `prepare_etax_vat_return` (ноорог)
+1. Бодит орчны Keycloak **client_id** (спек зөвхөн staging `etax-api-staging`) — ITC-ээс; хүртэл `etax-gui`
+2. `NE-KEY` staging/бодит — ХСН-д posapi@itc.gov.mn / ТЕГ-ийн ТТҮГ албан бичиг (00 §4.4)
+3. `getUserOrgs` хариу массив уу, нэг объект уу (parser хоёуланг уншина); олон байгууллагад регистрээр
+4. `getList`-д `activitiType` байхгүй — `reportHeadOf` 1 гэж явуулна (спекийн жишээ); ТЕГ татгалзвал
+   `getFormData`/жагсаалтаас авах
+5. Шинэ тайланд `reportNo = 0`-оор `saveFormData` хүлээн авах эсэх; `isDisable` = «утга авна» утга
+6. НӨАТ-ын маягтын хавсралт МЭДЭЭ (`getSheetList` → `saveSheetData`: борлуулалт/худалдан авалтын
+   задаргаа) шаардлагатай эсэх — шаардвал TPI-ийн `ebarimt_tax_receipts` / `_purchases`-аас бөглөх (§6)
+
+## 6. Дараагийн алхам
+
+1. Хавсралт мэдээ (`sheet`): `ETAX_PATHS.sheetList/sheetDetail/saveSheetData` + мөрийн mapper (ЦЭВЭР, тесттэй)
+2. ХАОАТ (`payroll_runs`), ААНОАТ маягтууд — ижил snapshot/holbolt загвараар (`form` түлхүүр нэмнэ)
+3. `attention.ts`: хуулийн хугацаа ойртсон тушаагаагүй тайлан (`getLateList`) → «Анхаарах»
+4. MCP tool: `get_etax_submissions` (унших), `prepare_etax_vat_return` (ноорог); илгээх tool НЭМЭХГҮЙ
+   (`[HUMAN_REQUIRED]` — татварын тайлан = хүний баталгаажуулалт)

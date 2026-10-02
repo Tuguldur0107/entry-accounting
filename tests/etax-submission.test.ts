@@ -116,6 +116,11 @@ test("төлөвийн машин — зөвхөн зөвшөөрөгдсөн и
   assert.equal(canTransition("draft", "submitted"), false); // хүний хяналтгүй тушаахгүй
   assert.equal(canTransition("ready", "submitted"), true);
   assert.equal(canTransition("ready", "draft"), true); // дахин бодох
+  assert.equal(canTransition("ready", "saved"), true); // API-аар ТЕГ-д хадгалах
+  assert.equal(canTransition("saved", "submitted"), true);
+  assert.equal(canTransition("saved", "saved"), true); // дахин хадгалах
+  assert.equal(canTransition("saved", "draft"), true);
+  assert.equal(canTransition("draft", "saved"), false); // хүний «Бэлэн» заавал
   assert.equal(canTransition("submitted", "accepted"), true);
   assert.equal(canTransition("submitted", "rejected"), true);
   assert.equal(canTransition("submitted", "draft"), false);
@@ -145,6 +150,7 @@ test("constants — төлөв бүр монгол шошготой, амьд т
   assert.equal(ETAX_ACTIVE_STATUSES.includes("rejected"), false);
   assert.equal(ETAX_ACTIVE_STATUSES.includes("cancelled"), false);
   assert.equal(ETAX_ACTIVE_STATUSES.includes("accepted"), true);
+  assert.equal(ETAX_ACTIVE_STATUSES.includes("saved"), true);
   assert.equal(isEtaxFormKey("vat"), true);
   assert.equal(isEtaxFormKey("cit"), false);
 });

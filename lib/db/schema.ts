@@ -5001,10 +5001,55 @@ export const etaxConnections = pgTable(
     lastCheckOkAt: timestamp("last_check_ok_at"),
     /** Сүүлийн шалгалтын алдаа (нууц утгагүй); амжилттай бол null. */
     lastCheckError: text("last_check_error"),
+    /**
+     * ТЕГ-ийн татвар төлөгчийн бүртгэлийн дугаар (`getUserOrgs` → id, спек §3.2) — eTax API
+     * бүрийн `entId`. null = «Байгууллага татах» хийгээгүй. Регистрээр (Компанийн мэдээлэл) сонгогдоно.
+     */
+    entId: integer("ent_id"),
+    entName: text("ent_name"),
+    entTin: text("ent_tin"),
+    branchCode: text("branch_code"),
+    branchName: text("branch_name"),
+    lastOrgSyncAt: timestamp("last_org_sync_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [uniqueIndex("etax_connections_org_ux").on(table.organizationId)]
+);
+
+/**
+ * Маягтын НҮДНИЙ ХОЛБОЛТ — Entry-ийн НӨАТ-ын талбар (outputVat …) → ТЕГ-ийн маягтын
+ * нүдний `tagKey` (`getFormDetail`, спек §3.7). Загвар динамик, аль нүд аль дүн болохыг спек
+ * хэлдэггүй тул хэрэглэгч нэг удаа холбоно (docs/dev/etax.md §4). Байгууллага × маягтад нэг.
+ */
+export const etaxFormMappings = pgTable(
+  "etax_form_mappings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** "vat" */
+    form: text("form").notNull(),
+    /** ТЕГ-ийн маягтын дугаар (`formNo`) ба татварын төрөл — тушаах жагсаалтаас сонгосон. */
+    formNo: integer("form_no").notNull(),
+    taxTypeId: integer("tax_type_id").notNull(),
+    taxTypeName: text("tax_type_name"),
+    reportCode: text("report_code"),
+    /** Загварын хувилбар — өөрчлөгдвөл холболтыг дахин шалгана. */
+    templateVersion: integer("template_version"),
+    /** `{ outputVat: "TG101", … }` — null = холбоогүй. */
+    cells: jsonb("cells").$type<Record<string, string | null>>().notNull().default({}),
+    /** Сүүлд татсан загварын нүдний товч жагсаалт (UI сонголт; нууц биш). */
+    templateCells: jsonb("template_cells").$type<Record<string, unknown>[]>(),
+    templateFetchedAt: timestamp("template_fetched_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("etax_form_mappings_org_form_ux").on(table.organizationId, table.form)]
 );
 
 /**
@@ -5034,8 +5079,16 @@ export const etaxSubmissions = pgTable(
     environment: text("environment").notNull().default("production"),
     snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
     validation: jsonb("validation").$type<{ errors: string[]; warnings: string[]; checkedOn: string }>(),
-    /** ТЕГ-ийн хүлээн авсан / бүртгэлийн дугаар — «Тушаасан» төлөвт ЗААВАЛ. */
+    /** ТЕГ-ийн хүлээн авсан / бүртгэлийн дугаар — «Тушаасан» төлөвт ЗААВАЛ (API-аар бол = reportNo). */
     taxReference: text("tax_reference"),
+    /** eTax API `saveFormData`-ийн reportNo (спек §3.9) — «ТЕГ-д хадгалсан»-аас хойш. */
+    reportNo: integer("report_no"),
+    /** ТЕГ-ийн сүүлийн төлвийн код/нэр (`getHistory`, 2/3/6/11/8) ба шалгасан мөч. */
+    taxStatusId: integer("tax_status_id"),
+    taxStatusName: text("tax_status_name"),
+    taxSyncedAt: timestamp("tax_synced_at"),
+    /** ТЕГ-д явуулсан толгой (taxTypeId, branchId, formNo …) — submit/түүхэд дахин хэрэглэнэ. */
+    taxHead: jsonb("tax_head").$type<Record<string, unknown>>(),
     submittedAt: timestamp("submitted_at"),
     submittedByUserId: text("submitted_by_user_id").references(() => users.id, { onDelete: "set null" }),
     /** ТЕГ-ийн хариу / буцаасан шалтгаан / хүчингүй болгосон тайлбар. */
@@ -5046,7 +5099,7 @@ export const etaxSubmissions = pgTable(
   (table) => [
     uniqueIndex("etax_submissions_org_form_period_active_ux")
       .on(table.organizationId, table.form, table.periodCode)
-      .where(sql`${table.status} in ('draft', 'ready', 'submitted', 'accepted')`),
+      .where(sql`${table.status} in ('draft', 'ready', 'saved', 'submitted', 'accepted')`),
     index("etax_submissions_org_period_ix").on(table.organizationId, table.periodCode),
   ]
 );
@@ -5526,3 +5579,4 @@ export type KnowledgeArticle = typeof knowledgeArticles.$inferSelect;
 export type KnowledgeRead = typeof knowledgeReads.$inferSelect;
 export type EtaxConnection = typeof etaxConnections.$inferSelect;
 export type EtaxSubmission = typeof etaxSubmissions.$inferSelect;
+export type EtaxFormMapping = typeof etaxFormMappings.$inferSelect;
