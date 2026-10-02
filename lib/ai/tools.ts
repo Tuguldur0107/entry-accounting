@@ -961,6 +961,10 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "boolean",
           description: "НХАТ (нийслэлийн албан татвар) ногдох бараа эсэх — хувь нь POS тохиргооны cityTaxPercent (0 бол бодохгүй). Сонголтоор, default false",
         },
+        exciseStamped: {
+          type: "boolean",
+          description: "Онцгой албан татварын тэмдэгтэй бараа (архи, тамхи) эсэх — кассад ширхэг бүрийн тэмдгийн QR уншуулж eBarimt stockQR-д илгээнэ. Хэрэглэгч ИЛ хэлсэн үед л (таахгүй). Сонголтоор, default false",
+        },
         categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
         revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
         ebarimtClassificationCode: { type: "string", description: "eBarimt: ТЕГ/ҮСХ-ын бараа, үйлчилгээний ангиллын код 7 орон (хоосон бол ангиллаас өвлөнө) — сонголтоор. Код ЗОХИОХГҮЙ — мэдэхгүй бол хэрэглэгчээс асууна" },
@@ -1166,6 +1170,10 @@ export const AI_TOOLS: AiToolDef[] = [
         cityTaxable: {
           type: "boolean",
           description: "НХАТ (нийслэлийн албан татвар) ногдох бараа эсэх — хувь нь POS тохиргооны cityTaxPercent (0 бол бодохгүй). Сонголтоор, default false",
+        },
+        exciseStamped: {
+          type: "boolean",
+          description: "Онцгой албан татварын тэмдэгтэй бараа (архи, тамхи) эсэх — кассад ширхэг бүрийн тэмдгийн QR уншуулж eBarimt stockQR-д илгээнэ. Хэрэглэгч ИЛ хэлсэн үед л (таахгүй). Сонголтоор, default false",
         },
         categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
         revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
@@ -3539,6 +3547,11 @@ export const AI_TOOLS: AiToolDef[] = [
               unitPrice: { type: "number", description: "Нэгж үнэ — өгөхгүй бол барааны борлуулах үнэ; өөрчилбөл менежерийн эрх (pos post)" },
               discountPercent: { type: "number", description: "Гар хөнгөлөлт % (сонголтоор)" },
               discountAmount: { type: "number", description: "Гар хөнгөлөлт ₮ (сонголтоор)" },
+              stockQr: {
+                type: "array",
+                items: { type: "string" },
+                description: "ОАТ-ын тэмдэгтэй бараа (архи, тамхи): ширхэг БҮРИЙН тэмдгийн QR (тоо = quantity) — eBarimt асаалттай бол ЗААВАЛ ([STOCK_QR_REQUIRED]). QR ЗОХИОХГҮЙ — хэрэглэгч уншуулсан утгыг л",
+              },
             },
             required: ["itemCode", "quantity"],
           },
@@ -5757,6 +5770,7 @@ type ItemPosInput = {
   barcode?: string;
   vatMode?: "standard" | "exempt" | "zero";
   cityTaxable?: boolean;
+  exciseStamped?: boolean;
   categoryCode?: string;
   revenueAccountNumber?: string;
   ebarimtClassificationCode?: string;
@@ -5776,6 +5790,7 @@ function itemPosFieldsOf(input: ItemPosInput) {
     barcode?: string | null;
     vatMode?: "standard" | "exempt" | "zero";
     cityTaxable?: boolean;
+    exciseStamped?: boolean;
     categoryCode?: string | null;
     revenueAccountNumber?: string | null;
     ebarimtClassificationCode?: string | null;
@@ -5808,6 +5823,7 @@ function itemPosFieldsOf(input: ItemPosInput) {
     fields.vatMode = input.vatMode;
   }
   if (input.cityTaxable != null) fields.cityTaxable = !!input.cityTaxable;
+  if (input.exciseStamped != null) fields.exciseStamped = !!input.exciseStamped;
   if (input.categoryCode != null) fields.categoryCode = input.categoryCode.trim() || null;
   if (input.revenueAccountNumber != null)
     fields.revenueAccountNumber = input.revenueAccountNumber.trim() || null;
@@ -5833,6 +5849,7 @@ async function runCreateItem(
     pos.barcode ? `баркод ${pos.barcode}` : null,
     pos.vatMode && pos.vatMode !== "standard" ? `НӨАТ ${pos.vatMode}` : null,
     pos.cityTaxable ? "НХАТ ногдоно" : null,
+    pos.exciseStamped ? "ОАТ-ын тэмдэгтэй" : null,
     pos.categoryCode ? `бүлэг ${pos.categoryCode}` : null,
   ].filter(Boolean);
   return {
@@ -12492,7 +12509,7 @@ async function posMethodByRef(orgId: string, ref: string) {
 async function runCreatePosSale(
   orgId: string,
   input: {
-    lines: { itemCode: string; quantity: number; unitPrice?: number; discountPercent?: number; discountAmount?: number }[];
+    lines: { itemCode: string; quantity: number; unitPrice?: number; discountPercent?: number; discountAmount?: number; stockQr?: string[] }[];
     payments: { method: string; amount: number; reference?: string; giftCardCode?: string }[];
     customer?: string;
     warehouseCode?: string;
@@ -12564,6 +12581,7 @@ async function runCreatePosSale(
       unitPrice: line.unitPrice == null ? null : Number(line.unitPrice),
       manualDiscountPercent: line.discountPercent == null ? null : Number(line.discountPercent),
       manualDiscountAmount: line.discountAmount == null ? null : Number(line.discountAmount),
+      ...(Array.isArray(line.stockQr) ? { stockQr: line.stockQr.map(String) } : {}),
     });
   }
   const quoteInput: SaleQuoteInput = {
@@ -12905,6 +12923,9 @@ async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
     ...(settings.ebarimtDistrictCode
       ? [`Дүүргийн код: ${settings.ebarimtDistrictCode} — ${districtLabel(settings.ebarimtDistrictCode) ?? "ТЕГ-ийн албан жагсаалтад БАЙХГҮЙ (шалгана уу)"}`]
       : []),
+    settings.ebarimtLatitude && settings.ebarimtLongitude
+      ? `Салбарын байршил (GPS): ${settings.ebarimtLatitude}, ${settings.ebarimtLongitude} — баримт бүрд илгээгдэнэ`
+      : "Салбарын байршил (GPS): тохируулаагүй — POS тохиргоо → eBarimt (ХСН шаардлага №13)",
     readiness.ready
       ? "Кодын бэлэн байдал: бараа ба төлбөрийн хэлбэр бүрэн"
       : `Кодын дутуу (баримт илгээгдэхгүй): ${readiness.problems.join("; ")}`,

@@ -389,3 +389,69 @@ test("§8 F-2/F-3: 7 оронтой taxProductCode хүлээн авна; бар
     /3–7 орон/
   );
 });
+
+test("§8 F-6: салбарын GPS байршил дэд баримт бүрийн data.location-д; хоосон бол илгээхгүй", async () => {
+  const { gpsLocationProblem } = await import("../lib/ebarimt/receipt");
+  const mixed = sale({
+    lines: [
+      line({ itemName: "Талх", quantity: 1, lineTotal: 1_100 }),
+      line({ itemName: "Ном", quantity: 1, lineTotal: 1_000, vatMode: "exempt", vatAmount: 0, taxProductCode: "305" }),
+    ],
+    total: 2_100,
+    payments: [{ kind: "cash", methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 2_100, reference: null }],
+  });
+  const located = buildEbarimtReceipt(mixed, { ...settings, latitude: "47.918873", longitude: "106.917701" });
+  assert.equal(located.receipts.length, 2);
+  for (const receipt of located.receipts)
+    assert.deepEqual(receipt.data, { location: [{ locationType: "GPS", latitude: "47.918873", longitude: "106.917701" }] });
+  const plain = buildEbarimtReceipt(mixed, settings);
+  assert.ok(plain.receipts.every((receipt) => receipt.data === undefined));
+
+  assert.equal(gpsLocationProblem("", ""), null);
+  assert.equal(gpsLocationProblem(" 47.9 ", "106.9"), null);
+  assert.match(gpsLocationProblem("47.9", "")!, /хоёуланг/);
+  assert.match(gpsLocationProblem("97", "106")!, /өргөрөг/);
+  assert.match(gpsLocationProblem("47", "abc")!, /уртраг/);
+  // Буруу координат тохиргооны асуудал болж payload зохиогдохгүй.
+  assert.throws(() => buildEbarimtReceipt(mixed, { ...settings, latitude: "47.9", longitude: "" }), /EBARIMT_SETTINGS/);
+});
+
+test("§8 F-10: reportMonth — зөвхөн B2B, сарын 1–7-нд, өмнөх сарын баримт, засвар биш", async () => {
+  const { reportMonthFor } = await import("../lib/ebarimt/receipt");
+  const b2b = { type: "B2B_RECEIPT" as const, documentDate: "2026-09-28" };
+  assert.equal(reportMonthFor({ ...b2b, todayUb: "2026-10-01" }), "2026-09-28");
+  assert.equal(reportMonthFor({ ...b2b, todayUb: "2026-10-07" }), "2026-09-28");
+  assert.equal(reportMonthFor({ ...b2b, todayUb: "2026-10-08" }), null, "8-нд цонх хаагдана");
+  assert.equal(reportMonthFor({ ...b2b, documentDate: "2026-08-31", todayUb: "2026-10-02" }), null, "2 сарын өмнөх биш");
+  assert.equal(reportMonthFor({ ...b2b, documentDate: "2026-10-01", todayUb: "2026-10-02" }), null, "энэ сарынх — ердийн");
+  assert.equal(reportMonthFor({ type: "B2B_INVOICE", documentDate: "2025-12-30", todayUb: "2026-01-05" }), "2025-12-30", "оны хил");
+  assert.equal(reportMonthFor({ type: "B2C_RECEIPT", documentDate: "2026-09-28", todayUb: "2026-10-02" }), null, "B2C нөхөгдөхгүй");
+  assert.equal(reportMonthFor({ type: "B2C_INVOICE", documentDate: "2026-09-28", todayUb: "2026-10-02" }), null, "staging хүртэл");
+  assert.equal(reportMonthFor({ ...b2b, todayUb: "2026-10-02", correction: true }), null, "inactiveId засвар");
+  assert.equal(reportMonthFor({ ...b2b, documentDate: null, todayUb: "2026-10-02" }), null);
+
+  // Builder: B2B (ТТД-тэй) өмнөх сарын борлуулалт → reportMonth; B2C → үгүй.
+  const b2bSale = sale({ customerTin: "37900846788" });
+  const backdate = { documentDate: "2026-09-30", todayUb: "2026-10-03" };
+  assert.equal(buildEbarimtReceipt(b2bSale, settings, { backdate }).reportMonth, "2026-09-30");
+  assert.equal(buildEbarimtReceipt(sale(), settings, { backdate }).reportMonth, undefined);
+  assert.equal(buildEbarimtReceipt(b2bSale, settings, { backdate, inactiveId: "1".repeat(33) }).reportMonth, undefined);
+  assert.equal(buildEbarimtReceipt(b2bSale, settings).reportMonth, undefined);
+});
+
+test("ОАТ: тэмдэгтэй мөрөнд items[].data.stockQR; QR дутуу бол [EBARIMT_STOCK_QR]", () => {
+  const qr = ["A17F974BE497F14CE0536F50A8C057A7", "A17F974BE495F14CE0536F50A8C057A7"];
+  const alcohol = (stockQr: string[], quantity = 2) =>
+    sale({
+      lines: [line({ itemName: "Архи", quantity, lineTotal: 22_000 * quantity, exciseStamped: true, stockQr })],
+      total: 22_000 * quantity,
+      payments: [{ kind: "cash", methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 22_000 * quantity, reference: null }],
+    });
+  const request = buildEbarimtReceipt(alcohol(qr), settings);
+  assert.deepEqual(request.receipts[0].items[0].data, { stockQR: qr });
+  assert.throws(() => buildEbarimtReceipt(alcohol(qr.slice(0, 1)), settings), /EBARIMT_STOCK_QR.*2 ширхэгт 1 QR/);
+  // Хэсэгчилсэн буцаалтын дараах үлдсэн 1 ширхэг ба 1 QR — хэвийн.
+  assert.deepEqual(buildEbarimtReceipt(alcohol(qr.slice(0, 1), 1), settings).receipts[0].items[0].data, { stockQR: qr.slice(0, 1) });
+  // Тэмдэггүй бараанд data байхгүй.
+  assert.equal(buildEbarimtReceipt(sale(), settings).receipts[0].items[0].data, undefined);
+});

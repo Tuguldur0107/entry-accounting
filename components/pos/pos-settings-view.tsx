@@ -1003,6 +1003,8 @@ type EbarimtForm = Pick<
   | "ebarimtPosNo"
   | "ebarimtPosApiUrl"
   | "ebarimtMode"
+  | "ebarimtLatitude"
+  | "ebarimtLongitude"
 >;
 
 const fmtDateTime = (iso: string | null) => {
@@ -1043,6 +1045,8 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
     ebarimtPosNo: settings.ebarimtPosNo || "001",
     ebarimtPosApiUrl: settings.ebarimtPosApiUrl,
     ebarimtMode: settings.ebarimtMode,
+    ebarimtLatitude: settings.ebarimtLatitude,
+    ebarimtLongitude: settings.ebarimtLongitude,
   });
   const patch = (changes: Partial<EbarimtForm>) => setForm((current) => ({ ...current, ...changes }));
   const dirty =
@@ -1055,6 +1059,8 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
       ebarimtPosNo: settings.ebarimtPosNo,
       ebarimtPosApiUrl: settings.ebarimtPosApiUrl,
       ebarimtMode: settings.ebarimtMode,
+      ebarimtLatitude: settings.ebarimtLatitude,
+      ebarimtLongitude: settings.ebarimtLongitude,
     });
 
   const [status, setStatus] = useState<EbarimtStatusSummary | null>(null);
@@ -1084,6 +1090,26 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
       cancelled = true;
     };
   }, []);
+
+  /**
+   * Салбарын координатыг БРАУЗЕРААС (хэрэглэгч ИЛ зөвшөөрнө) — касс салбар дээрээ
+   * байх үед дарна. Байршил ЗОХИОХГҮЙ: татаж чадахгүй бол гараар бичнэ.
+   */
+  function fillCurrentLocation() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      feedback.error("Энэ браузер байршил тодорхойлохгүй — өргөрөг/уртрагийг гараар бичнэ үү");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) =>
+        patch({
+          ebarimtLatitude: position.coords.latitude.toFixed(6),
+          ebarimtLongitude: position.coords.longitude.toFixed(6),
+        }),
+      () => feedback.error("Байршил авах зөвшөөрөл олгогдсонгүй — өргөрөг/уртрагийг гараар бичнэ үү"),
+      { enableHighAccuracy: true, timeout: 10_000 }
+    );
+  }
 
   function save() {
     startTransition(async () => {
@@ -1298,6 +1324,32 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
             placeholder="10000001"
             onChange={(e) => patch({ ebarimtPosNo: e.target.value })}
           />
+        </FormField>
+        <FormField
+          label="Салбарын байршил (GPS)"
+          hint="Баримт хэвлэж буй салбарын өргөрөг, уртраг — ТЕГ-т баримт бүртэй илгээгдэнэ (сонголтоор; хоосон бол илгээхгүй)"
+        >
+          <div className="flex gap-2">
+            <Input
+              value={form.ebarimtLatitude}
+              className="font-mono"
+              inputMode="decimal"
+              placeholder="47.918873"
+              aria-label="Өргөрөг"
+              onChange={(e) => patch({ ebarimtLatitude: e.target.value })}
+            />
+            <Input
+              value={form.ebarimtLongitude}
+              className="font-mono"
+              inputMode="decimal"
+              placeholder="106.917701"
+              aria-label="Уртраг"
+              onChange={(e) => patch({ ebarimtLongitude: e.target.value })}
+            />
+            <Button type="button" variant="outline" onClick={fillCurrentLocation}>
+              Одоогийн байршил
+            </Button>
+          </div>
         </FormField>
         <FormField label="PosAPI URL" hint="http://posapi.railway.internal:7080 эсвэл http://localhost:7080">
           <Input

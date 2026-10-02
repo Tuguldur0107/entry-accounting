@@ -131,3 +131,31 @@ test("parsePosApiBankAccounts: албан хэлбэр, давхардал/хо�
   );
   assert.deepEqual(parsePosApiBankAccounts({ message: "error" }), []);
 });
+
+test("§8 F-6: төлөлтийн баримтын дэд баримт бүрд тохиргооны GPS байршил", () => {
+  const location = { locationType: "GPS" as const, latitude: "47.918873", longitude: "106.917701" };
+  const request = buildInvoicePaymentReceipt({ ...base, amount: 1_101_000, location });
+  assert.ok(request.receipts.length > 0);
+  for (const receipt of request.receipts) assert.deepEqual(receipt.data, { location: [location] });
+  const plain = buildInvoicePaymentReceipt({ ...base, amount: 1_101_000 });
+  assert.ok(plain.receipts.every((receipt) => receipt.data === undefined));
+});
+
+test("§8 F-10: B2B нэхэмжлэхийн өмнөх сарын төлөлт 1–7-нд reportMonth-тэй", () => {
+  const request = buildInvoicePaymentReceipt({ ...base, amount: 1_101_000, backdate: { documentDate: "2026-09-29", todayUb: "2026-10-04" } });
+  assert.equal(request.type, "B2B_RECEIPT");
+  assert.equal(request.reportMonth, "2026-09-29");
+  const late = buildInvoicePaymentReceipt({ ...base, amount: 1_101_000, backdate: { documentDate: "2026-09-29", todayUb: "2026-10-09" } });
+  assert.equal(late.reportMonth, undefined);
+});
+
+test("ОАТ: нэхэмжлэхээр очсон stockQR төлөлтийн баримтад ДАХИН явахгүй", () => {
+  const withStamp = {
+    ...invoice,
+    receipts: invoice.receipts.map((receipt, index) =>
+      index === 1 ? { ...receipt, items: receipt.items.map((item) => ({ ...item, data: { stockQR: ["A17F974BE497F14CE0536F50A8C057A7"] } })) } : receipt
+    ),
+  };
+  const request = buildInvoicePaymentReceipt({ ...base, invoiceRequest: withStamp, amount: 1_101_000 });
+  assert.ok(request.receipts.flatMap((receipt) => receipt.items).every((item) => item.data === undefined));
+});

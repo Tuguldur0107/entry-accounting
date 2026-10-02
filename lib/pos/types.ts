@@ -82,6 +82,8 @@ export interface CartLine {
   vatMode: VatMode;
   /** НХАТ ногдох бараа (inventory_items.cityTaxable). */
   cityTaxable?: boolean;
+  /** ОАТ-ын тэмдэгтэй бараа (inventory_items.exciseStamped) — QR шаардана (lib/pos/stock-qr.ts). */
+  exciseStamped?: boolean;
   minSalesPrice: number | null;
   /** Кассчны гар хөнгөлөлт — хувь ЭСВЭЛ дүн (мөрөнд). */
   manualDiscountPercent?: number | null;
@@ -393,6 +395,9 @@ export interface PosSettingsView {
   ebarimtPosNo: string;
   ebarimtPosApiUrl: string;
   ebarimtMode: "server" | "browser";
+  /** Салбарын байршил (GPS) — `receipts[].data.location`; хоосон бол илгээхгүй. */
+  ebarimtLatitude: string;
+  ebarimtLongitude: string;
   /** АР нэхэмжлэх → eBarimt нэхэмжлэх (docs/pos/05 Шат 2) — анхнаасаа унтраалттай. */
   ebarimtArapEnabled: boolean;
   /** Нэхэмжлэхийн төлбөрийн АЛБАН код (CASH / PAYMENT_CARD / BANK_TRANSFER / BANK_TRANSFER_QPAY). */

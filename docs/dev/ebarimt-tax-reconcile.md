@@ -18,7 +18,7 @@ Entry нэхэмжлэх (`*_INVOICE`) ба төлөлт бүрийг `invoiceId
 
 ```
 Тохиргоо (админ): POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт (TPI)»
-  орчин, ITC нэвтрэх нэр, нууц үг, (X-API-KEY) → ebarimt_tpi_connections (шифртэй)
+  орчин, ITC нэвтрэх нэр, нууц үг → ebarimt_tpi_connections (шифртэй); X-API-KEY = серверийн env
       │
 ticker (10 мин тутам шалгана) → isTaxSyncDue → syncEbarimtTaxReceipts
   Keycloak password grant (vatps) → өдөр бүрд:
@@ -79,9 +79,13 @@ Entry-ийн «илгээсэн төлөлт» = `sent` төлөвтэй `paymen
 
 - **ЗӨВХӨН унших** — ТЕГ-д юу ч бичихгүй, тулгалт дүн ЗОХИОХГҮЙ, автоматаар засахгүй
   (зөрүүг хэрэглэгч ТЕГ-ийн портал / «Дахин илгээх»-ээр шийднэ).
-- Нууц (нууц үг, X-API-KEY) `encryptSecret`-ээр; утга нь client, лог, аудит, алдаа,
-  тестэд ХЭЗЭЭ Ч гарахгүй; талбар write-only (хоосон = хуучнаа хадгална).
-  X-API-KEY байгууллагад хадгалаагүй бол серверийн `ITC_TPI_API_KEY`.
+- Нууц үг `encryptSecret`-ээр; утга нь client, лог, аудит, алдаа, тестэд ХЭЗЭЭ Ч
+  гарахгүй; талбар write-only (хоосон = хуучнаа хадгална).
+- **X-API-KEY = Entry-ийн ОПЕРАТОРЫН түлхүүр** (product owner 2026-10-02: «манайд
+  operator эрх байгаа») — серверийн env `ITC_TPI_API_KEY`; харилцагчийн UI-д талбар
+  БАЙХГҮЙ, харуулахгүй. Хуучин байгууллагын түлхүүр (`apiKeyEnc`) зөвхөн серверийн
+  түлхүүр тохируулаагүй үед нөөц (`sessionOf`). Info сервисийн key мөн серверийн env
+  (`EBARIMT_INFO_API_KEY`, docs/deployment/ebarimt.md).
 - Хост ЗӨВХӨН `lib/itc/constants.ts` (staging/production) эсвэл env `ITC_TPI_BASE` /
   `ITC_AUTH_BASE` (Монголд байрлах прокси — api.ebarimt.mn, auth.itc.gov.mn зөвхөн
   Монголын IP); хэрэглэгч URL оруулахгүй.

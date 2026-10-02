@@ -15,6 +15,8 @@ export type InventoryItemView = {
   vatMode: ItemVatMode;
   /** НХАТ (нийслэлийн албан татвар) ногдох бараа. */
   cityTaxable: boolean;
+  /** ОАТ-ын тэмдэгтэй бараа — кассад тэмдгийн QR уншуулна (eBarimt stockQR). */
+  exciseStamped: boolean;
   /** Барааны орлогын дансны override — null бол POS тохиргооны данс. */
   revenueAccountNumber: string | null;
   categoryCode: string | null;

@@ -90,9 +90,15 @@ export function sessionOf(row: ConnectionRow): TpiSession {
   const env = row.environment;
   const password = decryptSecret(row.passwordEnc);
   if (!password) throw new ItcError(ITC_ERRORS.config, "Нууц үг тайлагдсангүй (AUTH_SECRET солигдсон?) — тохиргоонд дахин оруулна уу");
-  const ownKey = row.apiKeyEnc ? decryptSecret(row.apiKeyEnc) : null;
-  if (row.apiKeyEnc && !ownKey) throw new ItcError(ITC_ERRORS.config, "X-API-KEY тайлагдсангүй — тохиргоонд дахин оруулна уу");
-  const apiKey = ownKey ?? (process.env.ITC_TPI_API_KEY?.trim() || null);
+  // X-API-KEY = Entry-ийн ОПЕРАТОРЫН түлхүүр (серверийн env) — харилцагч оруулахгүй
+  // (product owner 2026-10-02). Хуучин байгууллагын түлхүүр (apiKeyEnc) зөвхөн
+  // серверийн түлхүүр тохируулаагүй үед нөөц болно.
+  const serverKey = process.env.ITC_TPI_API_KEY?.trim() || null;
+  let apiKey = serverKey;
+  if (!apiKey && row.apiKeyEnc) {
+    apiKey = decryptSecret(row.apiKeyEnc);
+    if (!apiKey) throw new ItcError(ITC_ERRORS.config, "ITC-ийн түлхүүр тайлагдсангүй — Entry багт хандана уу");
+  }
   let current: ItcToken | null = null;
   return {
     env,

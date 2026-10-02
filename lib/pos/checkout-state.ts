@@ -10,6 +10,8 @@
 // данс дагана), өсгөх нь барааны карт дээр (үнийн түүх) — хэрэглэгчийн шийдвэр
 // 2026-09-24.
 
+import { cleanStockQrList, normalizeStockQr, stockQrProblem } from "./stock-qr";
+
 export interface CartRow {
   key: string;
   itemId: string;
@@ -21,6 +23,10 @@ export interface CartRow {
   unitPrice: number;
   manualDiscountPercent: number | null;
   manualDiscountAmount: number | null;
+  /** ОАТ-ын тэмдэгтэй бараа — ширхэг бүрийн QR уншуулна (lib/pos/stock-qr.ts). */
+  exciseStamped?: boolean;
+  /** Уншуулсан ОАТ-ын тэмдгийн QR (≤ тоо хэмжээ). */
+  stockQr?: string[];
 }
 
 /** Сагсанд нэмэгдэх бараа — `CheckoutItem`-ийн дэд олонлог. */
@@ -34,6 +40,8 @@ export interface CartItemLike {
   /** Ангиллын өвөг кодууд [өөр, эцэг, …] — эцэг ангиллын chip дэд ангиллын барааг ч харуулна. */
   categoryPath?: string[];
   salesPrice: number | null;
+  /** ОАТ-ын тэмдэгтэй бараа (inventory_items.exciseStamped). */
+  exciseStamped?: boolean;
 }
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -78,6 +86,7 @@ export function addToCart(
         unitPrice: item.salesPrice,
         manualDiscountPercent: null,
         manualDiscountAmount: null,
+        ...(item.exciseStamped ? { exciseStamped: true, stockQr: [] } : {}),
       },
     ],
     key,
@@ -139,7 +148,45 @@ export function resolveLineAmounts(
 export function setLineQuantity(cart: CartRow[], key: string, quantity: number): CartRow[] {
   if (!Number.isFinite(quantity)) return cart;
   if (quantity <= 0) return cart.filter((row) => row.key !== key);
-  return cart.map((row) => (row.key === key ? { ...row, quantity } : row));
+  // Тоо багассан бол илүү уншуулсан ОАТ-ын QR-ийг сүүлээс нь хасна.
+  return cart.map((row) =>
+    row.key === key
+      ? { ...row, quantity, ...(row.stockQr && row.stockQr.length > quantity ? { stockQr: row.stockQr.slice(0, Math.floor(quantity)) } : {}) }
+      : row
+  );
+}
+
+/**
+ * Мөрөнд ОАТ-ын тэмдгийн QR нэмнэ. Буцаана: шинэ сагс эсвэл шалтгаан (QR буруу,
+ * энэ эсвэл өөр мөрөнд аль хэдийн уншуулсан, тоо хэмжээнээс хэтэрсэн).
+ */
+export function addStockQr(cart: CartRow[], key: string, raw: string): { cart: CartRow[] } | { error: string } {
+  const code = normalizeStockQr(raw);
+  if (!code) return { error: "QR уншигдсангүй — тэмдгийн QR-ийг дахин уншуулна уу" };
+  const row = cart.find((entry) => entry.key === key);
+  if (!row) return { error: "Мөр олдсонгүй" };
+  if (cart.some((entry) => entry.stockQr?.includes(code))) return { error: "Энэ тэмдгийг аль хэдийн уншуулсан" };
+  const current = row.stockQr ?? [];
+  if (current.length >= Math.floor(row.quantity))
+    return { error: `${row.name}: ${row.quantity} ширхэгийн тэмдэг бүгд уншигдсан — тоог нэмээд уншуулна уу` };
+  return { cart: cart.map((entry) => (entry.key === key ? { ...entry, stockQr: [...current, code] } : entry)) };
+}
+
+export function removeStockQr(cart: CartRow[], key: string, code: string): CartRow[] {
+  return cart.map((row) => (row.key === key ? { ...row, stockQr: (row.stockQr ?? []).filter((entry) => entry !== code) } : row));
+}
+
+/**
+ * Төлбөрийн өмнөх ОАТ-ын шалгалт (сервертэй ИЖИЛ дүрэм — `stockQrProblem`):
+ * шаардлагагүй бол null; эс бөгөөс эхний асуудалтай мөрийн тайлбар.
+ */
+export function cartStockQrProblem(cart: CartRow[], required: boolean): string | null {
+  if (!required) return null;
+  for (const row of cart) {
+    const problem = stockQrProblem({ name: row.name, quantity: row.quantity, exciseStamped: !!row.exciseStamped, stockQr: row.stockQr ?? [] });
+    if (problem) return problem;
+  }
+  return null;
 }
 
 export function adjustLineQuantity(cart: CartRow[], key: string, delta: number): CartRow[] {
@@ -317,6 +364,13 @@ function parseCartRow(value: unknown): CartRow | null {
     unitPrice,
     manualDiscountPercent: pct != null && pct > 0 && pct <= 100 ? pct : null,
     manualDiscountAmount: amt != null && amt > 0 ? amt : null,
+    // ОАТ-ын тэмдгийн QR сэргээгдсэн сагсанд ч хадгалагдана (дахин уншуулахгүй).
+    ...(value.exciseStamped === true
+      ? {
+          exciseStamped: true,
+          stockQr: cleanStockQrList(Array.isArray(value.stockQr) ? value.stockQr.map(String) : []).slice(0, Math.floor(quantity)),
+        }
+      : {}),
   };
 }
 

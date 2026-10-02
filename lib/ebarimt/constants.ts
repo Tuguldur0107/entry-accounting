@@ -36,6 +36,15 @@ export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
 /** Баримтын төрөл — PosAPI `type`. */
 export const EBARIMT_RECEIPT_TYPES = ["B2C_RECEIPT", "B2B_RECEIPT", "B2C_INVOICE", "B2B_INVOICE"] as const;
 export type EbarimtReceiptType = (typeof EBARIMT_RECEIPT_TYPES)[number];
+/**
+ * Өмнөх сарын баримтыг НӨХӨН үүсгэх (`reportMonth`) төрлүүд — developer портал
+ * Release v3.1.82 (2025-06-12): «Зөвхөн B2B_RECEIPT, B2B_INVOICE». Талбарын
+ * тайлбар B2C_INVOICE-ийг ч нэрлэдэг (зөрчилтэй) — staging (§8.3 #19) батлах хүртэл
+ * хоёр эхэд НИЙТЛЭГ нь л. docs/integrations/01 §8 F-10.
+ */
+export const EBARIMT_REPORT_MONTH_TYPES: readonly EbarimtReceiptType[] = ["B2B_RECEIPT", "B2B_INVOICE"];
+/** Нөхөн үүсгэх цонх — сар бүрийн 1…7-ны өдөр, ЗӨВХӨН өмнөх сарын баримт. */
+export const EBARIMT_REPORT_MONTH_LAST_DAY = 7;
 /** Баримтын төрлийн UI шошго — төлбөрийн баримт vs нэхэмжлэх, иргэн vs ААН. */
 export const EBARIMT_RECEIPT_TYPE_LABELS: Record<EbarimtReceiptType, string> = {
   B2C_RECEIPT: "Төлбөрийн баримт · иргэн",
@@ -168,6 +177,8 @@ export const EBARIMT_ERRORS = {
   posApiTimeout: "EBARIMT_POSAPI_TIMEOUT",
   /** Борлуулалтын дугаараас `billIdSuffix` гаргах боломжгүй. */
   billId: "EBARIMT_BILL_ID",
+  /** ОАТ-ын тэмдэгтэй барааны QR дутуу/илүү — тэмдэг ширхэг бүрд (lib/pos/stock-qr.ts). */
+  stockQr: "EBARIMT_STOCK_QR",
   rejected: "EBARIMT_REJECTED",
   notSent: "EBARIMT_NOT_SENT",
 } as const;

@@ -16,8 +16,8 @@
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 import { EBARIMT_ERRORS, EBARIMT_PAYMENT_STATUS_PAID, type EbarimtPaymentCode, type EbarimtReceiptType } from "./constants";
-import { EbarimtError } from "./receipt";
-import type { EbarimtItem, EbarimtReceiptRequest, EbarimtSubReceipt } from "./types";
+import { EbarimtError, reportMonthFor, type EbarimtBackdate } from "./receipt";
+import type { EbarimtGpsLocation, EbarimtItem, EbarimtReceiptRequest, EbarimtSubReceipt } from "./types";
 
 /** QPay-ийн нэхэмжлэхийн линкээр орсон кассын баримтын `externalRef` угтвар (lib/qpay/arap.ts). */
 export const QPAY_ARAP_EXTERNAL_REF_PREFIX = "qpay-arap:";
@@ -54,12 +54,20 @@ export interface InvoicePaymentInput {
   amount: number;
   paymentCode: EbarimtPaymentCode;
   billIdSuffix: string;
+  /** Одоогийн тохиргооны салбарын байршил (`gpsLocationOf`) — дэд баримт бүрд (§8 F-6). */
+  location?: EbarimtGpsLocation | null;
+  /** Төлөлтийн (кассын баримтын) огноо + УБ-ын өнөөдөр — B2B_RECEIPT-ийг 1–7-нд нөхөх (`reportMonthFor`). */
+  backdate?: EbarimtBackdate;
 }
 
 function scaleItem(item: EbarimtItem, factor: number): EbarimtItem {
   const totalAmount = round2(item.totalAmount * factor);
+  // ОАТ-ын тэмдгийн QR (`data.stockQR`) нэхэмжлэхээр аль хэдийн ТЕГ-д очсон — төлөлтийн
+  // баримтад ДАХИН явуулбал тэмдэг давхар борлуулагдсан мэт харагдана; хасна.
+  const { data: _stockData, ...rest } = item;
+  void _stockData;
   return {
-    ...item,
+    ...rest,
     totalAmount,
     totalVAT: round2(item.totalVAT * factor),
     totalCityTax: round2(item.totalCityTax * factor),
@@ -111,6 +119,7 @@ export function buildInvoicePaymentReceipt(input: InvoicePaymentInput): EbarimtR
         totalAmount: round2(own.reduce((sum, item) => sum + item.totalAmount, 0)),
         totalVAT: round2(own.reduce((sum, item) => sum + item.totalVAT, 0)),
         totalCityTax: round2(own.reduce((sum, item) => sum + item.totalCityTax, 0)),
+        ...(input.location ? { data: { location: [input.location] } } : {}),
         items: own,
       };
     })
@@ -137,5 +146,9 @@ export function buildInvoicePaymentReceipt(input: InvoicePaymentInput): EbarimtR
   };
   if (invoice.customerTin) request.customerTin = invoice.customerTin;
   else if (invoice.consumerNo) request.consumerNo = invoice.consumerNo;
+  if (input.backdate) {
+    const reportMonth = reportMonthFor({ type, ...input.backdate });
+    if (reportMonth) request.reportMonth = reportMonth;
+  }
   return request;
 }

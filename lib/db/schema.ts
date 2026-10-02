@@ -2298,6 +2298,12 @@ export const inventoryItems = pgTable(
     ebarimtTaxProductCode: text("ebarimt_tax_product_code"),
     /** Баркодын төрөл — PosAPI `barCodeType` ("GS1" | "ISBN" | "UNDEFINED"); null = UNDEFINED. */
     barcodeType: text("barcode_type"),
+    /**
+     * Онцгой албан татварын тэмдэгтэй бараа (архи, тамхи) — кассад ширхэг бүрийн
+     * тэмдгийн QR уншуулж eBarimt `items[].data.stockQR`-д илгээнэ (2025-04-01-ээс
+     * заавал). ИЛ тэмдэглэнэ, ЗОХИОХГҮЙ. lib/pos/stock-qr.ts.
+     */
+    exciseStamped: boolean("excise_stamped").notNull().default(false),
     // ── Дэлгэрэнгүй мэдээлэл (барааны карт) — бүгд сонголтоор, тооцоонд нөлөөгүй ──
     /** Барааны тайлбар / онцлог. */
     description: text("description"),
@@ -4299,6 +4305,13 @@ export const posSettings = pgTable(
     ebarimtPosApiUrl: text("ebarimt_pos_api_url").notNull().default("http://localhost:7080"),
     /** "server" (Railway-ийн posapi service, worker илгээнэ) | "browser" (кассын PC-ийн localhost, дэлгэц илгээнэ). */
     ebarimtMode: text("ebarimt_mode").notNull().default("server"),
+    /**
+     * Салбарын байршил — PosAPI `receipts[].data.location` GPS (v3.2.48; ХСН шаардлага
+     * №13 «байршил бүртгэх»). Мөрөөр (албан спек), хоёулаа хоосон бол илгээхгүй.
+     * docs/integrations/01 §8 F-6.
+     */
+    ebarimtLatitude: text("ebarimt_latitude").notNull().default(""),
+    ebarimtLongitude: text("ebarimt_longitude").notNull().default(""),
     // ── eBarimt: АР НЭХЭМЖЛЭХ (docs/pos/05 Шат 1–2) — анхнаасаа УНТРААЛТТАЙ ──
     // PosAPI-ийн нэхэмжлэхийн урсгал албан баталгаажаагүй (05 §3 Q1–Q2) тул
     // байгууллага өөрөө асаана; зөвхөн "server" горимд илгээгдэнэ.
@@ -4607,6 +4620,11 @@ export const posSaleLines = pgTable(
     cityTaxAmount: numeric("city_tax_amount", { precision: 18, scale: 2 }).notNull().default("0"),
     /** Хөнгөлөлтийн дараах, татвар (НӨАТ + НХАТ) орсон мөрийн дүн. */
     lineTotal: numeric("line_total", { precision: 18, scale: 2 }).notNull(),
+    /**
+     * ОАТ-ын тэмдгийн QR (ширхэг бүрд нэг) — борлуулалтын мөрд кассаас, буцаалтын
+     * мөрд буцаасан ширхэгийнх (lib/pos/stock-qr.ts). Тэмдэггүй бараанд хоосон.
+     */
+    stockQr: jsonb("stock_qr").$type<string[]>().notNull().default([]),
     /** Буцаалтын мөр бол эх борлуулалтын мөр. */
     originalLineId: uuid("original_line_id"),
     arApLineId: uuid("ar_ap_line_id").references(() => arApDocumentLines.id, {

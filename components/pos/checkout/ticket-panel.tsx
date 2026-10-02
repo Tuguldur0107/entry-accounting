@@ -42,6 +42,7 @@ export function TicketPanel({
   onSetQty,
   onQtyEditDone,
   onRemove,
+  onOpenStockQr,
   quote,
   quoteBusy,
   quoteError,
@@ -73,6 +74,8 @@ export function TicketPanel({
   /** Тоо бичиж дуусав (Enter / Esc / blur) — сканнерын focus буцна. */
   onQtyEditDone: () => void;
   onRemove: (key: string) => void;
+  /** ОАТ-ын тэмдэгтэй мөрийн QR уншуулах цонх нээнэ. */
+  onOpenStockQr?: (key: string) => void;
   quote: SaleQuote | null;
   quoteBusy: boolean;
   quoteError: string;
@@ -134,6 +137,7 @@ export function TicketPanel({
                 onSetQty={(quantity) => onSetQty(line.key, quantity)}
                 onQtyEditDone={onQtyEditDone}
                 onRemove={() => onRemove(line.key)}
+                onOpenStockQr={onOpenStockQr ? () => onOpenStockQr(line.key) : undefined}
               />
             ))}
           </ul>
@@ -248,6 +252,7 @@ function TicketLine({
   onSetQty,
   onQtyEditDone,
   onRemove,
+  onOpenStockQr,
 }: {
   index: number;
   line: TicketLineView;
@@ -258,7 +263,10 @@ function TicketLine({
   onSetQty: (quantity: number) => void;
   onQtyEditDone: () => void;
   onRemove: () => void;
+  onOpenStockQr?: () => void;
 }) {
+  const qrCount = line.stockQr?.length ?? 0;
+  const qrDone = qrCount === line.quantity;
   return (
     <li
       role="button"
@@ -297,6 +305,24 @@ function TicketLine({
               <Icon name="warning" size="xs" label="Хасах үлдэгдэл" />
               {fmtQty(line.stockAfter)}
             </span>
+          )}
+          {line.exciseStamped && onOpenStockQr && (
+            <button
+              type="button"
+              className={cn(
+                "ml-1.5 rounded border px-1 font-sans text-[10px] font-medium",
+                qrDone
+                  ? "border-[var(--ea-border)] text-[var(--ea-success-fg)]"
+                  : "border-[var(--ea-warning-fg)] text-[var(--ea-warning-fg)]"
+              )}
+              title="ОАТ-ын тэмдгийн QR уншуулах"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenStockQr();
+              }}
+            >
+              ОАТ {qrCount}/{fmtQty(line.quantity)}
+            </button>
           )}
         </span>
         <span className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>

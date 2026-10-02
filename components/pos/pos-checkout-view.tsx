@@ -26,6 +26,7 @@ import { toast } from "sonner";
 
 import { DiscountDialog } from "@/components/pos/checkout/discount-dialog";
 import { ParkedDialog } from "@/components/pos/checkout/parked-dialog";
+import { StockQrDialog } from "@/components/pos/checkout/stock-qr-dialog";
 import { ProductPanel } from "@/components/pos/checkout/product-panel";
 import { TicketPanel, type TicketLineView } from "@/components/pos/checkout/ticket-panel";
 import { VatReceiptBar } from "@/components/pos/checkout/vat-receipt-bar";
@@ -66,13 +67,16 @@ import {
 import { POSAPI_PATHS } from "@/lib/ebarimt/constants";
 import type { EbarimtReceiptResponse } from "@/lib/ebarimt/types";
 import {
+  addStockQr,
   addToCart,
   adjustLineQuantity,
   cartQuantityByItem,
+  cartStockQrProblem,
   parkTicket,
   parseParkedTickets,
   parseStoredCart,
   removeLine,
+  removeStockQr,
   resolveLineAmounts,
   resolveScan,
   setLineDiscountPercent,
@@ -407,6 +411,12 @@ export function PosCheckoutView({
     [warehouseId]
   );
 
+  // ОАТ-ын тэмдгийн QR — eBarimt олгох борлуулалтад ширхэг бүрд (сервер ч ижил дүрмээр хаана).
+  const stockQrNeeded = data.settings.ebarimtEnabled && !nonVat;
+  const stockQrProblemText = cartStockQrProblem(cart, stockQrNeeded);
+  const [stockQrKey, setStockQrKey] = useState<string | null>(null);
+  const stockQrRow = stockQrKey ? (cart.find((row) => row.key === stockQrKey) ?? null) : null;
+
   const receiptDiscountNumber = Number(receiptDiscountValue);
   const receiptDiscountPercent =
     receiptDiscountMode === "percent" && receiptDiscountNumber > 0 ? receiptDiscountNumber : null;
@@ -420,6 +430,7 @@ export function PosCheckoutView({
         quantity: row.quantity,
         manualDiscountPercent: row.manualDiscountPercent,
         manualDiscountAmount: row.manualDiscountAmount,
+        ...(row.exciseStamped ? { stockQr: row.stockQr ?? [] } : {}),
       })),
     [cart]
   );
@@ -480,10 +491,17 @@ export function PosCheckoutView({
         toast.error(`${item.name}: борлуулах үнэ тохируулаагүй — Бараа материал → Бараа дээр оруулна уу`);
         return;
       }
-      setCart((current) => addToCart(current, item, nextLineKey)?.cart ?? current);
+      let addedKey: string | null = null;
+      setCart((current) => {
+        const result = addToCart(current, item, nextLineKey);
+        addedKey = result?.key ?? null;
+        return result?.cart ?? current;
+      });
       setSelectedKey(null);
+      // ОАТ-ын тэмдэгтэй бараа — нэмэгдмэгц тэмдгийн QR уншуулах цонх нээгдэнэ.
+      if (item.exciseStamped && stockQrNeeded) setTimeout(() => addedKey && setStockQrKey(addedKey), 0);
     },
-    []
+    [stockQrNeeded]
   );
 
   const incLine = useCallback((key: string) => {
@@ -606,7 +624,7 @@ export function PosCheckoutView({
   // Санал шинэчлэгдэж байх үед ч ТӨЛБӨР идэвхтэй (анивчихгүй) — дарвал шинэ
   // санал ирмэгц диалог нээгдэнэ. Эцсийн дүн ҮРГЭЛЖ серверийн шинэ саналаас.
   const canPay =
-    cart.length > 0 && !quoteError && !!shift && !saleBusy && online && !buyerProblem && !nonVatProblem;
+    cart.length > 0 && !quoteError && !!shift && !saleBusy && online && !buyerProblem && !nonVatProblem && !stockQrProblemText;
 
   const openPayment = useCallback(() => {
     if (!shift) return toast.error("Эхлээд ээлж нээнэ үү");
@@ -909,6 +927,7 @@ export function PosCheckoutView({
           onSetQty={setLineQty}
           onQtyEditDone={focusSearch}
           onRemove={dropLine}
+          onOpenStockQr={stockQrNeeded ? setStockQrKey : undefined}
           quote={quote}
           quoteBusy={quoteBusy}
           quoteError={quoteError}
@@ -926,7 +945,7 @@ export function PosCheckoutView({
                 buyer={buyerState}
                 onBuyerTypeChange={setBuyerType}
                 onOrgNoChange={setOrgNo}
-                problem={buyerProblem ?? nonVatProblem}
+                problem={buyerProblem ?? nonVatProblem ?? stockQrProblemText}
               />
             ) : null
           }
@@ -1008,6 +1027,23 @@ export function PosCheckoutView({
         maxManualDiscountPercent={data.settings.maxManualDiscountPercent}
         lines={ticketLines}
         onLineDiscountChange={setLineDiscount}
+      />
+      <StockQrDialog
+        row={stockQrRow}
+        onOpenChange={(open) => {
+          if (!open) {
+            setStockQrKey(null);
+            focusSearch();
+          }
+        }}
+        onAdd={(code) => {
+          if (!stockQrKey) return "Мөр олдсонгүй";
+          const result = addStockQr(cart, stockQrKey, code);
+          if ("error" in result) return result.error;
+          setCart(result.cart);
+          return null;
+        }}
+        onRemove={(code) => stockQrKey && setCart((current) => removeStockQr(current, stockQrKey, code))}
       />
       <ParkedDialog
         open={parkedOpen}

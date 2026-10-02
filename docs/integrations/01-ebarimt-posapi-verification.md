@@ -315,7 +315,14 @@ PosService 3.0.12 багцаар Ubuntu 20.04 VM дээр §4.1-ийг ажил�
 > хаяг руу, `infoApiKeyHeadersFor` тесттэй), F-2 (`TAX_PRODUCT_CODE_RE` 3–7, UI/AI/импортын
 > текст), F-3 (баркодгүй мөрөнд `"barCode": null, "barCodeType": "UNDEFINED"` — албан
 > жишээний хэлбэр, staging #16-аар батална) кодонд оров. F-4 (`receipts[].data`) staging #17
-> хүлээнэ. F-5/F-6/F-10, §8.2-ын 4 зүйл — product owner-ийн шийдвэр/схем шаардах feature.
+> хүлээнэ. F-5, §8.2-ын (3)(4) — product owner-ийн шийдвэр/схем шаардах feature.
+>
+> **Төлөв 2026-10-02 (2):** product owner-ийн шийдвэрээр F-6 (GPS — `pos_settings.ebarimt
+> Latitude/Longitude`, `gpsLocationOf`), F-10 (`reportMonthFor` — B2B_RECEIPT/B2B_INVOICE,
+> сарын 1–7, өмнөх сар, засвар биш; POS, АР нэхэмжлэх, төлөлтийн баримтад автомат),
+> §8.2 (1) ОАТ `stockQR` (`inventory_items.exciseStamped`, `pos_sale_lines.stockQr`,
+> `lib/pos/stock-qr.ts`) кодонд оров. TPI-ийн X-API-KEY = операторын серверийн env
+> (харилцагчийн UI-аас хасав).
 
 | # | Портал | Entry одоо | Ач холбогдол / санал |
 |---|---|---|---|
