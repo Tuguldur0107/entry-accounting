@@ -32,13 +32,15 @@ name: Upstream sync
 
 on:
   schedule:
-    - cron: "0 2 * * 1" # Даваа гараг бүр 02:00 UTC (10:00 УБ)
+    # Даваа гараг бүр 02:00 UTC (10:00 УБ) — ref-гүй тул ХАМГИЙН СҮҮЛИЙН RELEASE TAG-ийг
+    # татна (main БИШ: fork-ууд release хийгдээгүй кодыг авахгүй).
+    - cron: "0 2 * * 1"
   workflow_dispatch:
     inputs:
       ref:
-        description: "Upstream ref (tag vX.Y.Z эсвэл main)"
+        description: "Upstream ref (tag vX.Y.Z / commit / main). Хоосон бол хамгийн сүүлийн release tag"
         required: false
-        default: "main"
+        default: ""
 
 env:
   UPSTREAM_REPO: Tuguldur0107/entry-accounting
@@ -68,7 +70,7 @@ jobs:
           # хэрэглэнэ; шинэ харилцагчид энийг тавихаа больсон.
           UPSTREAM_TOKEN: ${{ secrets.UPSTREAM_TOKEN }}
         run: |
-          REF="${{ github.event.inputs.ref || 'main' }}"
+          REF="${{ github.event.inputs.ref }}"
           if [ -n "$UPSTREAM_SSH_KEY" ]; then
             mkdir -p ~/.ssh
             printf '%s\n' "$UPSTREAM_SSH_KEY" > ~/.ssh/upstream_key
@@ -81,6 +83,14 @@ jobs:
             git remote add upstream "https://x-access-token:${UPSTREAM_TOKEN}@github.com/${UPSTREAM_REPO}.git"
           else
             git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          fi
+          # Ref заагаагүй (cron эсвэл хоосон dispatch) → хамгийн сүүлийн release tag.
+          # Fork-ууд ЗӨВХӨН release хийгдсэн (CHANGELOG-тэй) хувилбар авна; main-ий
+          # release хийгдээгүй commit-ууд санамсаргүй орохгүй. Tag алга бол main.
+          if [ -z "$REF" ]; then
+            REF="$(git ls-remote --tags --refs upstream 'v*.*.*' | sed 's#.*refs/tags/##' | sort -V | tail -n 1)"
+            [ -n "$REF" ] || REF=main
+            echo "Ref заагаагүй — хамгийн сүүлийн release: $REF"
           fi
           if ! git fetch upstream --tags "$REF"; then
             echo "::error::Upstream-ээс татаж чадсангүй — шинэчлэлт авах эрх цуцлагдсан эсвэл дуусан байж магадгүй. Entry Console-оор шалгана уу."
