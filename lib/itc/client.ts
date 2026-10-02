@@ -1,6 +1,6 @@
 // ITC HTTP клиент — Keycloak token + eBarimt TPI дуудлага (SERVER; DB-гүй).
 // Монголын IP-ээс л хандагддаг (docs/integrations/00 §3) — гадаад бүсийн серверт
-// `ITC_TPI_BASE` / `ITC_AUTH_BASE`-ээр Монголд байрлах прокси
+// `ITC_TPI_BASE` / `ITC_AUTH_BASE` (+ `_STAGING`)-ээр Монголд байрлах прокси, ОРЧИН БҮРД ТУСДАА
 // (docs/deployment/mongolia-network-runbook.md §A; ebarimt-ийн
 // `EBARIMT_PUBLIC_API_BASE`-тэй ижил зарчим). Прокси Cloudflare WAF-ын ард бол
 // нууц header нь ЗӨВХӨН `EBARIMT_GATEWAY_HOSTS`-ийн хост руу (gateway-auth.ts) —
@@ -47,18 +47,43 @@ function trimBase(url: string): string {
   return url.trim().replace(/\/+$/, "");
 }
 
-/** Орчны хаяг — env override (Монголд байрлах прокси) байвал түрүүлнэ. */
-export function itcTpiBase(env: ItcEnvironment, override = process.env.ITC_TPI_BASE): string {
+export type ItcProxyEnvName = "ITC_TPI_BASE" | "ITC_AUTH_BASE" | "ITC_CUSTOMS_BASE";
+
+/**
+ * Прокси env-ийн нэр орчноор: `ITC_*_BASE` = БОДИТ орчны хост руу дамжуулдаг прокси,
+ * `ITC_*_BASE_STAGING` = туршилтын орчных (st.auth.itc.gov.mn, st-api.ebarimt.mn — мөн
+ * зөвхөн Монголын IP). Бодитын проксиг staging-д хэрэглэвэл realm/хост зөрж 404 гардаг
+ * (2026-10-02 — Keycloak `Staging` realm бодит хост дээр байхгүй) тул ХОЛИХГҮЙ.
+ * Гаалийн хост хоёр орчинд ижил тул staging нь `ITC_CUSTOMS_BASE`-ийг ч хэрэглэнэ.
+ */
+export function itcProxyEnvName(name: ItcProxyEnvName, env: ItcEnvironment): string {
+  return env === "staging" ? `${name}_STAGING` : name;
+}
+
+/** Орчны прокси override (ЦЭВЭР — `vars` өгч тестлэнэ); хоосон бол undefined. */
+export function itcProxyOverride(
+  name: ItcProxyEnvName,
+  env: ItcEnvironment,
+  vars: Record<string, string | undefined> = process.env
+): string | undefined {
+  const own = vars[itcProxyEnvName(name, env)]?.trim();
+  if (own) return own;
+  if (name === "ITC_CUSTOMS_BASE" && env === "staging") return vars[name]?.trim() || undefined;
+  return undefined;
+}
+
+/** TPI хост — орчны прокси (`ITC_TPI_BASE` / `ITC_TPI_BASE_STAGING`) байвал түрүүлнэ. */
+export function itcTpiBase(env: ItcEnvironment, override = itcProxyOverride("ITC_TPI_BASE", env)): string {
   const value = (override ?? "").trim();
   if (value) {
-    if (!/^https?:\/\//i.test(value)) throw new ItcError(ITC_ERRORS.config, "ITC_TPI_BASE http(s) URL байна");
+    if (!/^https?:\/\//i.test(value)) throw new ItcError(ITC_ERRORS.config, `${itcProxyEnvName("ITC_TPI_BASE", env)} http(s) URL байна`);
     return trimBase(value);
   }
   return EBARIMT_TPI_BASE[env];
 }
 
-/** Keycloak token URL — env `ITC_AUTH_BASE` (Монголд байрлах прокси) байвал түрүүлнэ. */
-export function itcAuthTokenUrl(env: ItcEnvironment, override = process.env.ITC_AUTH_BASE): string {
+/** Keycloak token URL — орчны прокси (`ITC_AUTH_BASE` / `ITC_AUTH_BASE_STAGING`) байвал түрүүлнэ. */
+export function itcAuthTokenUrl(env: ItcEnvironment, override = itcProxyOverride("ITC_AUTH_BASE", env)): string {
   return itcTokenUrl(env, override);
 }
 
@@ -114,13 +139,16 @@ export async function fetchItcToken(
 function assertKeycloakReply(env: ItcEnvironment, status: number, body: unknown): void {
   const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   if ("access_token" in record || "error" in record) return;
-  const proxy = process.env.ITC_AUTH_BASE?.trim();
+  const envName = itcProxyEnvName("ITC_AUTH_BASE", env);
+  const proxy = itcProxyOverride("ITC_AUTH_BASE", env);
+  const hint = proxy
+    ? ` — ${envName} прокси (${proxy}) зөв ажиллаж буйг шалгана`
+    : env === "staging"
+      ? " — туршилтын орчны st.auth.itc.gov.mn зөвхөн Монголын IP-ээс хандагддаг: Entry баг ITC_AUTH_BASE_STAGING (Монголд байрлах прокси) тохируулна, эсвэл бодит ITC нэвтрэлттэй бол холболтын орчныг «Бодит орчин» болгоно"
+      : " — auth.itc.gov.mn зөвхөн Монголын IP-ээс хандагддаг; гадаад серверт ITC_AUTH_BASE (Монголд байрлах прокси) тохируулна";
   throw new ItcError(
     ITC_ERRORS.network,
-    `ITC-ийн нэвтрэлтийн сервер (${env === "staging" ? "туршилтын" : "бодит"} орчин) Keycloak-ийн хариу өгсөнгүй (HTTP ${status})` +
-      (proxy
-        ? ` — ITC_AUTH_BASE прокси (${proxy}) зөв ажиллаж буйг шалгана`
-        : " — auth.itc.gov.mn зөвхөн Монголын IP-ээс хандагддаг; гадаад серверт ITC_AUTH_BASE (Монголд байрлах прокси) тохируулна")
+    `ITC-ийн нэвтрэлтийн сервер (${env === "staging" ? "туршилтын" : "бодит"} орчин) Keycloak-ийн хариу өгсөнгүй (HTTP ${status})${hint}`
   );
 }
 
@@ -145,11 +173,18 @@ export interface TpiAuth {
 }
 
 async function tpiPost<T>(env: ItcEnvironment, path: string, auth: TpiAuth, body: unknown): Promise<T> {
+  // Албан хуудас: getSalesTotalData / getSaleListERP хоёул X-API-KEY шаарддаг — түлхүүргүй
+  // дуудвал 401/403-ын ойлгомжгүй алдааны оронд тохиргооны дутууг ИЛ хэлнэ (CLAUDE.md §5c).
+  if (!auth.apiKey?.trim())
+    throw new ItcError(
+      ITC_ERRORS.config,
+      "ТЕГ-ийн TPI X-API-KEY (Entry-ийн операторын түлхүүр, серверийн env ITC_TPI_API_KEY) тохируулагдаагүй — Entry багт хандана уу"
+    );
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...bearerHeader(auth.token),
+    "X-API-KEY": auth.apiKey.trim(),
   };
-  if (auth.apiKey?.trim()) headers["X-API-KEY"] = auth.apiKey.trim();
   const { status, body: json } = await request<T & { message?: string }>(
     `${itcTpiBase(env)}${path}`,
     { method: "POST", headers, body: JSON.stringify(body) },
@@ -172,8 +207,11 @@ export async function tpiSaleListErp(env: ItcEnvironment, auth: TpiAuth, input: 
   return parseSaleListErp(await tpiPost(env, TPI_PATHS.saleListErp, auth, saleListErpBody(input)));
 }
 
-/** Гаалийн мэдүүлгийн хост — env `ITC_CUSTOMS_BASE` (Монголд байрлах прокси) байвал түрүүлнэ. */
-export function itcCustomsBase(env: ItcEnvironment, override = process.env.ITC_CUSTOMS_BASE): string {
+/**
+ * Гаалийн мэдүүлгийн хост — прокси `ITC_CUSTOMS_BASE` (staging-д `_STAGING` байвал тэр)
+ * байвал түрүүлнэ. data.ebarimt.mn ЗӨВХӨН Монголын IP (2026-10-02 гадаадаас timeout).
+ */
+export function itcCustomsBase(env: ItcEnvironment, override = itcProxyOverride("ITC_CUSTOMS_BASE", env)): string {
   const value = (override ?? "").trim();
   if (value) {
     if (!/^https?:\/\//i.test(value)) throw new ItcError(ITC_ERRORS.config, "ITC_CUSTOMS_BASE http(s) URL байна");

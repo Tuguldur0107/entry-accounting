@@ -88,7 +88,10 @@ Entry-ийн «илгээсэн төлөлт» = `sent` төлөвтэй `paymen
   (`EBARIMT_INFO_API_KEY`, docs/deployment/ebarimt.md).
 - Хост ЗӨВХӨН `lib/itc/constants.ts` (staging/production) эсвэл env `ITC_TPI_BASE` /
   `ITC_AUTH_BASE` (Монголд байрлах прокси — api.ebarimt.mn, auth.itc.gov.mn зөвхөн
-  Монголын IP); хэрэглэгч URL оруулахгүй.
+  Монголын IP); хэрэглэгч URL оруулахгүй. **Прокси орчин бүрд ТУСДАА** (`itcProxyOverride`):
+  `ITC_*_BASE` зөвхөн бодит орчинд, туршилтынх `ITC_*_BASE_STAGING` — бодитын проксиг
+  staging холболтод хэрэглэвэл Keycloak `Staging` realm бодит хост дээр байхгүй тул 404
+  (2026-10-02 бодит тохиолдол). TPI дуудлага X-API-KEY-гүй бол `[ITC_CONFIG]` ил алдаа.
 - Хуваарьт татлага ХЭЗЭЭ Ч шидэхгүй, request scope ашиглахгүй; багцад eBarimt
   боломжгүй бол алгасна. Тохиргоо хадгалах/шалгах/устгах admin+, гар татлага `ar:write`,
   унших `ar:read`; хадгалах/устгах/гар татлага бүр `logAuditEvent` (`ebarimt_tpi_connection`).

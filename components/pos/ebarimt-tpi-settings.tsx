@@ -187,7 +187,14 @@ export function EbarimtTpiSettings() {
               )}
             </div>
           )}
-          <FormField label="Орчин">
+          <FormField
+            label="Орчин"
+            hint={
+              environment === "staging"
+                ? "Туршилтын орчин = ITC-ийн ТЕСТИЙН хэрэглэгч (st.auth.itc.gov.mn) + Entry-ийн тусдаа прокси. Байгууллагын бодит ITC нэвтрэлттэй бол «Бодит орчин»."
+                : "Байгууллагын бодит ITC нэвтрэлт (auth.itc.gov.mn)."
+            }
+          >
             <FilterChips options={ENVIRONMENT_OPTIONS} value={environment} onChange={setEnvironment} />
           </FormField>
           {connection && !connection.serverApiKey && !connection.hasApiKey && (
