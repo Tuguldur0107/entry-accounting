@@ -6,17 +6,31 @@
 
 import { redirect } from "next/navigation";
 
-import { getActiveOrg } from "@/lib/auth";
+import { auth, getActiveOrg } from "@/lib/auth";
+import { resolveConsentOrg } from "@/lib/oauth/consent-org";
 import {
   clientRedirectUris,
   createAuthCode,
   findOAuthClient,
+  listConsentOrgs,
 } from "@/lib/oauth/server";
 
+/** Идэвхтэй байгууллага (ea-org) — гишүүнчлэлгүй/сонгоогүй бол null. */
+async function activeOrgIdOrNull(): Promise<string | null> {
+  try {
+    return (await getActiveOrg()).orgId;
+  } catch {
+    return null;
+  }
+}
+
 export async function approveOAuthRequest(formData: FormData) {
-  // Фаз 01 (Шат 6): consent хуудас хэрэглэгчийн session-тэй ажилладаг тул
-  // идэвхтэй байгууллагыг эндээс аваад code → token-д уяна.
-  const { userId, orgId } = await getActiveOrg();
+  // Token НЭГ байгууллагад уягдана. Олон байгууллагатай хэрэглэгч consent
+  // хуудсанд компаниа ИЛ сонгоно (organization_id) — гишүүнчлэлээр ДАХИН
+  // шалгана; вэбийн идэвхтэй байгууллага руу далдуур унахгүй.
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Нэвтрэх шаардлагатай");
 
   const clientId = String(formData.get("client_id") ?? "");
   const redirectUri = String(formData.get("redirect_uri") ?? "");
@@ -37,6 +51,13 @@ export async function approveOAuthRequest(formData: FormData) {
   }
 
   if (!codeChallenge) throw new Error("PKCE code_challenge шаардлагатай");
+
+  const orgId = resolveConsentOrg(
+    String(formData.get("organization_id") ?? ""),
+    await listConsentOrgs(userId),
+    await activeOrgIdOrNull()
+  );
+  if (!orgId) throw new Error("Холбох компаниа сонгоно уу (гишүүн байгууллага олдсонгүй)");
 
   const code = await createAuthCode({
     clientId,

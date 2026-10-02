@@ -235,6 +235,9 @@ export function AiConnectView({
                 <div key={token.id} className="flex items-center gap-3 rounded-md border border-[var(--ea-border)] px-3 py-2 text-xs">
                   <span className="font-medium text-[var(--ea-text-1)]">{token.name}</span>
                   <span className="font-mono text-[var(--ea-text-4)]">eak_••••{token.tokenHint}</span>
+                  <span className="truncate text-[var(--ea-text-3)]" title="Энэ token зөвхөн энэ компанид ажиллана">
+                    {token.organizationName}
+                  </span>
                   {token.expired ? (
                     <span className="font-medium text-[var(--ea-danger-fg)]">хугацаа дууссан</span>
                   ) : (

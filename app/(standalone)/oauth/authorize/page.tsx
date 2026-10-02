@@ -8,8 +8,10 @@ import { redirect } from "next/navigation";
 import { EAMark, EAWordmark } from "@/components/auth/brand";
 import { Button } from "@/components/ui/button";
 import { approveOAuthRequest } from "@/lib/actions/oauth";
-import { auth } from "@/lib/auth";
-import { clientRedirectUris, findOAuthClient } from "@/lib/oauth/server";
+import { auth, getActiveOrg } from "@/lib/auth";
+import { ROLE_LABELS } from "@/lib/constants/roles";
+import { defaultConsentOrg } from "@/lib/oauth/consent-org";
+import { clientRedirectUris, findOAuthClient, listConsentOrgs } from "@/lib/oauth/server";
 
 export const metadata = { title: "Холболт зөвшөөрөх — Entry Accounting" };
 
@@ -65,6 +67,17 @@ export default async function OAuthAuthorizePage({
   if (!codeChallenge || codeChallengeMethod !== "S256")
     return <ErrorCard message="PKCE (S256 code_challenge) шаардлагатай" />;
 
+  // Token НЭГ компанид уягдана — олон компанитай хэрэглэгч ИЛ сонгоно
+  // (анхдагч нь вэбийн идэвхтэй компани). Сервер approve дээр дахин шалгана.
+  const orgs = await listConsentOrgs(session.user.id);
+  if (orgs.length === 0)
+    return <ErrorCard message="Та ямар ч компанид гишүүн биш байна — эхлээд Entry-д компаниа үүсгэнэ үү" />;
+  const activeOrgId = await getActiveOrg()
+    .then((active) => active.orgId)
+    .catch(() => null);
+  const selectedOrgId = defaultConsentOrg(orgs, activeOrgId);
+  const formatMnt = (value: number) => `${value.toLocaleString("en-US")}₮`;
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--ea-bg)] p-6">
       <div className="w-full max-w-md rounded-xl border border-[var(--ea-border)] bg-[var(--ea-surface)] p-6">
@@ -86,16 +99,54 @@ export default async function OAuthAuthorizePage({
           <li>• Данс, харилцагч, бараа, журналын жагсаалт унших</li>
           <li>
             • Батлах үйлдэл зөвхөн таны сонгосон &quot;Шууд бичих&quot; горимд,
-            10 сая ₮ хүртэл
+            компанийн батлах хязгаар хүртэл
           </li>
+          <li>• Холболт зөвхөн доор сонгосон НЭГ компанид хамаарна</li>
         </ul>
+
+        <fieldset className="mt-4">
+          <legend className="text-xs font-medium text-[var(--ea-text-2)]">
+            {orgs.length > 1 ? "Аль компанид холбох вэ?" : "Холбох компани"}
+          </legend>
+          <div className="mt-1.5 space-y-1.5">
+            {orgs.map((org) => (
+              <label
+                key={org.id}
+                className="flex cursor-pointer items-start gap-2.5 rounded-md border border-[var(--ea-border)] px-3 py-2 has-[:checked]:border-[var(--ea-primary)] has-[:checked]:bg-[var(--ea-bg)]"
+              >
+                <input
+                  type="radio"
+                  name="organization_id"
+                  value={org.id}
+                  form="oauth-consent"
+                  defaultChecked={org.id === selectedOrgId}
+                  required
+                  className="mt-0.5 accent-[var(--ea-primary)]"
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-[var(--ea-text-1)]">
+                    {org.name}
+                  </span>
+                  <span className="block text-xs text-[var(--ea-text-3)]">
+                    {ROLE_LABELS[org.role] ?? org.role} · шууд батлах хязгаар {formatMnt(org.postLimitMnt)}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {orgs.length > 1 ? (
+            <p className="mt-1.5 text-xs text-[var(--ea-text-3)]">
+              Өөр компанид ажиллуулах бол тэр компаниар тусад нь дахин холбоно.
+            </p>
+          ) : null}
+        </fieldset>
 
         <p className="mt-3 text-xs text-[var(--ea-text-3)]">
           Хэрэглэгч: {session.user.email ?? session.user.id}. Холболтыг хожим
           Тохиргоо хэсгээс таслах боломжтой.
         </p>
 
-        <form action={approveOAuthRequest} className="mt-5 flex gap-2">
+        <form id="oauth-consent" action={approveOAuthRequest} className="mt-5 flex gap-2">
           <input type="hidden" name="client_id" value={clientId} />
           <input type="hidden" name="redirect_uri" value={redirectUri} />
           <input type="hidden" name="state" value={state} />

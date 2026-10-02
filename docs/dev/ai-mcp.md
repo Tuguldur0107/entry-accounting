@@ -193,6 +193,15 @@ components/ai/ai-connect-view.tsx  «AI холболт»: заавар · гор
 - Бүх нууц (code/access/refresh) sha256 hash-аар `oauth_*` хүснэгтүүдэд;
   code нэг удаагийн, access 7 хоног, refresh rotation-тэй
 - MCP-ийн `resolveApiToken` `eak_` (PAT) болон `eoat_` (OAuth) хоёуланг танина
+- **Token = НЭГ байгууллага.** Олон компанитай хэрэглэгч consent хуудсанд
+  компаниа ИЛ сонгоно (radio, анхдагч = вэбийн идэвхтэй компани; мөр бүрд эрх +
+  тэр компанийн батлах хязгаар). `approveOAuthRequest` формын `organization_id`-г
+  `listConsentOrgs` (гишүүнчлэл) ↔ `resolveConsentOrg` (`lib/oauth/consent-org.ts`
+  ЦЭВЭР, `tests/oauth-consent-org.test.ts`)-оор тулгана: гишүүн биш id → татгалзана,
+  идэвхтэй компани руу ДАЛДУУР унахгүй (дэмжлэгийн сессийн байгууллага ч орохгүй).
+  MCP-д компани СОЛИХ tool НЭМЭХГҮЙ — нэг ярианы дунд сэлгэвэл буруу компанид
+  бичих эрсдэлтэй; өөр компани = тусдаа холболт (OAuth дахин Connect эсвэл тэр
+  компанийн PAT). PAT жагсаалт token бүрийн компанийн нэрийг харуулна
 - proxy matcher `.well-known`-ийг алгасдаг; login redirect callbackUrl дамжуулдаг
 
 - **Нэвтрэлт:** Personal Access Token (`eak_...`, Тохиргоо → AI холболт `/settings/ai` → Token). DB-д зөвхөн sha256 hash (`api_tokens`); үүсгэхэд НЭГ л

@@ -11,7 +11,7 @@ import { revalidatePath } from "next/cache";
 
 import { auth, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { apiTokens } from "@/lib/db/schema";
+import { apiTokens, organizations } from "@/lib/db/schema";
 import { MAX_TOKENS_PER_USER } from "@/lib/mcp/constants";
 
 async function requireUserId(): Promise<string> {
@@ -31,6 +31,8 @@ export interface ApiTokenView {
   expiresAt: string | null;
   /** Хугацаа нь дууссан эсэх — ийм token-оор нэвтрэх боломжгүй. */
   expired: boolean;
+  /** Token уягдсан компанийн нэр — олон компанитай хэрэглэгч ялгаж харна. */
+  organizationName: string;
 }
 
 /** Token-ий хугацааны зөвшөөрөгдсөн сонголтууд (хоногоор). */
@@ -46,10 +48,20 @@ function fmtTime(value: Date | null): string | null {
 /** Хэрэглэгчийн бүх token (hash-гүй, зөвхөн танилтын мэдээлэл). */
 export async function listApiTokens(): Promise<ApiTokenView[]> {
   const userId = await requireUserId();
-  const rows = await db.query.apiTokens.findMany({
-    where: eq(apiTokens.userId, userId),
-    orderBy: [desc(apiTokens.createdAt)],
-  });
+  const rows = await db
+    .select({
+      id: apiTokens.id,
+      name: apiTokens.name,
+      tokenHint: apiTokens.tokenHint,
+      createdAt: apiTokens.createdAt,
+      lastUsedAt: apiTokens.lastUsedAt,
+      expiresAt: apiTokens.expiresAt,
+      organizationName: organizations.name,
+    })
+    .from(apiTokens)
+    .innerJoin(organizations, eq(apiTokens.organizationId, organizations.id))
+    .where(eq(apiTokens.userId, userId))
+    .orderBy(desc(apiTokens.createdAt));
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -58,6 +70,7 @@ export async function listApiTokens(): Promise<ApiTokenView[]> {
     lastUsedAt: fmtTime(row.lastUsedAt),
     expiresAt: row.expiresAt ? fmtTime(row.expiresAt)!.slice(0, 10) : null,
     expired: !!row.expiresAt && row.expiresAt.getTime() < Date.now(),
+    organizationName: row.organizationName,
   }));
 }
 
