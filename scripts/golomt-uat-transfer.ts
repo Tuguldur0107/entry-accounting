@@ -116,7 +116,8 @@ async function main() {
   const remarks = (await ask("Гүйлгээний утга (Entry UAT туршилт): ")) || "Entry UAT туршилт";
 
   // refCode — давтагдашгүй (D6). Хариу тодорхойгүй бол ЭНЭ кодоор хуулгаас хайна.
-  const refCode = `entry-uat-${Date.now()}`;
+  // Банк ЗӨВХӨН ^[a-zA-Z0-9_]*$ зөвшөөрнө (2026-10-02 UAT: зураас «-» → 400).
+  const refCode = `EUAT${Date.now()}`;
   const payload: Json = {
     registerNumber,
     fromAccount,
