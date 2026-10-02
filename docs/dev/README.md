@@ -31,7 +31,7 @@
 | [knowledge.md](knowledge.md) | §9e | Мэдлэгийн сан, `knowledge-sync`, skills багц |
 | [public-chat.md](public-chat.md) | §9f | Landing-ийн чат: нийтийн өрөө, хувийн яриа, Telegram, модерац |
 | [ebarimt-tax-reconcile.md](ebarimt-tax-reconcile.md) | §5c eBarimt | ТЕГ-ийн TPI-ээс нэхэмжлэх + төлбөрийн баримт татаж үлдэгдлийг Entry-тэй тулгах |
-| [bank-api.md](bank-api.md) | Банкны API | Голомт OBI (Фаз 1, зөвхөн унших): хуулга татах, нууц хадгалалт, протокол |
+| [bank-api.md](bank-api.md) | §5f | Голомт OBI (Фаз 1, зөвхөн унших): хуулга татах, нууц хадгалалт, протокол, production баталгаажуулалт; Фаз 2 (гүйлгээ) санал `docs/bank/00-payments-proposal.md` |
 | [platform.md](platform.md) | Гол дүрэм | Багц/billing, үнэ, QPay-ээр төлөх, funnel, дэмжлэгийн хандалт, нууц үг сэргээх |
 | [ui.md](ui.md) | UI стандарт | Токен, панель, төлөв, тайлангийн стандарт, AG Grid, товчлол, Excel, surface inventory |
 | [db-schema.md](db-schema.md) | DB бүтэц | Хүснэгтийн бүлэг, баганын тайлбар |
