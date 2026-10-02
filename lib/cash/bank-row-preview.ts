@@ -6,6 +6,7 @@
 
 import type { ParsedBankStatementRow } from "./bank-statement-types";
 import { bankRowActionInvoiceType, isBankRowAction } from "@/lib/arap/advance-math";
+import { matchCounterpartyByName } from "./list-columns";
 
 /** Бүтэн 10 сегмент код эсвэл үндсэн данснаас үндсэн (S3) дугаар. */
 export function mainAccountOfCode(code: string | null | undefined): string {
@@ -29,7 +30,25 @@ export type InvoiceAccountHints = {
   ap: Record<string, string>;
   /** Байгууллагын борлуулалтын нэхэмжлэхүүдэд хамгийн их хэрэглэсэн орлогын данс. */
   arDefault: string | null;
+  /**
+   * Байгууллагын өглөгийн нэхэмжлэхүүдэд хамгийн их хэрэглэсэн зардлын данс —
+   * түүхгүй ШИНЭ ханган нийлүүлэгчид (product owner 2026-10-02). Хэрэглэгч
+   * бичилтийн урьдчилсан харагдацаар шалгаж засна.
+   */
+  apDefault: string | null;
 };
+
+/** Хамгийн олон удаа хэрэглэсэн данс; тэнцвэл эхэлж (шинээр) таарсан нь. */
+function mostUsed(counts: Map<string, number>): string | null {
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [main, count] of counts)
+    if (count > bestCount) {
+      best = main;
+      bestCount = count;
+    }
+  return best;
+}
 
 /**
  * Өмнөх нэхэмжлэхийн мөрүүдээс (ШИНЭЭС хуучин руу эрэмбэлсэн) харьцах дансны
@@ -41,8 +60,9 @@ export function buildInvoiceAccountHints(
   vatAccountMains: (string | null | undefined)[]
 ): InvoiceAccountHints {
   const vat = new Set(vatAccountMains.map((main) => (main ?? "").trim()).filter(Boolean));
-  const hints: InvoiceAccountHints = { ar: {}, ap: {}, arDefault: null };
+  const hints: InvoiceAccountHints = { ar: {}, ap: {}, arDefault: null, apDefault: null };
   const arCounts = new Map<string, number>();
+  const apCounts = new Map<string, number>();
   for (const line of lines) {
     const main = mainAccountOfCode(line.accountNumber);
     if (!main || vat.has(main)) continue;
@@ -50,14 +70,11 @@ export function buildInvoiceAccountHints(
       line.documentType === "ar_invoice" ? hints.ar : line.documentType === "ap_bill" ? hints.ap : null;
     if (!ledger) continue;
     if (!(line.counterpartyId in ledger)) ledger[line.counterpartyId] = main;
-    if (line.documentType === "ar_invoice") arCounts.set(main, (arCounts.get(main) ?? 0) + 1);
+    const counts = line.documentType === "ar_invoice" ? arCounts : apCounts;
+    counts.set(main, (counts.get(main) ?? 0) + 1);
   }
-  let best = 0;
-  for (const [main, count] of arCounts)
-    if (count > best) {
-      best = count;
-      hints.arDefault = main;
-    }
+  hints.arDefault = mostUsed(arCounts);
+  hints.apDefault = mostUsed(apCounts);
   return hints;
 }
 
@@ -70,7 +87,7 @@ export function suggestInvoiceCounterAccount(
   if (!hints) return null;
   const ledger = documentType === "ar_invoice" ? hints.ar : hints.ap;
   if (counterpartyId && ledger[counterpartyId]) return ledger[counterpartyId];
-  return documentType === "ar_invoice" ? hints.arDefault : null;
+  return documentType === "ar_invoice" ? hints.arDefault : hints.apDefault;
 }
 
 /**
@@ -93,6 +110,62 @@ export function fillInvoiceCounterAccounts(
     if (!main) return row;
     changed = true;
     return { ...row, [counterField]: codeOf(main) };
+  });
+  return changed ? next : rows;
+}
+
+// ── Харилцагчийн автомат холбоос ─────────────────────────────────────────
+
+export type CounterpartyLinkCandidate = {
+  id: string;
+  name: string;
+  bankAccountNo?: string | null;
+};
+
+/** Дансны дугаарын цифрүүд (зай, зураас, IBAN-ий «MN» хасна). */
+function accountDigits(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+/**
+ * Хуулгын «харьцсан данс» ↔ харилцагчийн бүртгэлтэй данс. IBAN-ий төгсгөл нь
+ * дансны дугаар тул нэг нь нөгөөгөөр төгсвөл таарна (≥ 8 оронтой). ГАНЦ
+ * харилцагч таарвал л — олон бол таамаглахгүй.
+ */
+export function matchCounterpartyByAccount<T extends CounterpartyLinkCandidate>(
+  counterAccount: string | null | undefined,
+  candidates: readonly T[]
+): T | null {
+  const digits = accountDigits(counterAccount);
+  if (digits.length < 8) return null;
+  const hits = candidates.filter((item) => {
+    const own = accountDigits(item.bankAccountNo);
+    if (own.length < 8) return false;
+    return own === digits || own.endsWith(digits) || digits.endsWith(own);
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * Харилцагч сонгоогүй мөрийг бүртгэлтэй харилцагчтай холбоно: эхлээд
+ * харьцсан дансаар, дараа нь нэрээр ЯГ (том/жижиг үсэг, зай ялгахгүй —
+ * `matchCounterpartyByName`, хадгалах сервертэй ИЖИЛ дүрэм). Таараагүй бол
+ * хуулгын нэр текстээрээ үлдэнэ (ХОЛБООС ЗОХИОХГҮЙ). Өөрчлөлтгүй бол ИЖИЛ массив.
+ */
+export function linkStatementCounterparties<T extends CounterpartyLinkCandidate>(
+  rows: ParsedBankStatementRow[],
+  candidates: readonly T[] | null | undefined
+): ParsedBankStatementRow[] {
+  if (!candidates?.length) return rows;
+  let changed = false;
+  const next = rows.map((row) => {
+    if (row.counterpartyId || row.settleInvoiceId) return row;
+    const master =
+      matchCounterpartyByAccount(row.counterAccount, candidates) ??
+      matchCounterpartyByName(row.counterparty, candidates);
+    if (!master) return row;
+    changed = true;
+    return { ...row, counterpartyId: master.id, counterparty: master.name };
   });
   return changed ? next : rows;
 }

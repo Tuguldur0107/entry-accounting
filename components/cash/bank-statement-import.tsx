@@ -68,6 +68,7 @@ import { InvoicePickerDialog } from "@/components/cash/invoice-picker-dialog";
 import { BankRowPreviewStrip } from "@/components/cash/bank-row-preview-strip";
 import {
   fillInvoiceCounterAccounts,
+  linkStatementCounterparties,
   mainAccountOfCode,
   suggestInvoiceCounterAccount,
   type InvoiceAccountHints,
@@ -174,7 +175,7 @@ type ImportContext = MatchContext & {
   rules?: BankRule[];
   ewalletMethods?: EwalletSettlementMethod[];
   /** Идэвхтэй харилцагчид — мөрийн харилцагч сонгогч (docs/dev/arap.md §5l). */
-  counterparties?: { id: string; name: string; counterpartyType: string }[];
+  counterparties?: { id: string; name: string; counterpartyType: string; bankAccountNo?: string | null }[];
   /** Нэхэмжлэх үүсгэх мөрийн харьцах дансны санал (өмнөх нэхэмжлэхээс). */
   invoiceAccountHints?: InvoiceAccountHints;
   /** Урьдчилгааны дансны роль — «Бүртгэл» сонгоход харьцах тал бөглөгдөнө. */
@@ -476,12 +477,16 @@ export function BankStatementImport({
   // Саналын лавлах ирмэгц «Бүртгэл» нь нэхэмжлэх үүсгэх боловч харьцах тал
   // хоосон мөрүүдийг бөглөнө (сэргээсэн ноорог г.м.). Fetch-ийн callback-аас
   // дуудагддаг тул ref-ээр хамгийн сүүлийн сегментийн тохиргоог авна.
-  const applyInvoiceHintsRef = useRef<(hints: InvoiceAccountHints | undefined) => void>(() => {});
+  // Эхлээд харилцагчгүй мөрийг бүртгэлтэй харилцагчтай холбоно (харьцсан данс,
+  // ЯГ нэр) — нэхэмжлэх үүсгэх мөрд харилцагч ЗААВАЛ, дансны санал ч түүнээс.
+  const applyInvoiceHintsRef = useRef<(context: ImportContext) => void>(() => {});
   useEffect(() => {
-    applyInvoiceHintsRef.current = (hints) =>
+    applyInvoiceHintsRef.current = (context) =>
       setRows((current) =>
-        fillInvoiceCounterAccounts(current, hints, (main) =>
-          buildSegCode({ ...defaultSegments, 3: main }, activeSegIds, defaultSegments)
+        fillInvoiceCounterAccounts(
+          linkStatementCounterparties(current, context.counterparties),
+          context.invoiceAccountHints,
+          (main) => buildSegCode({ ...defaultSegments, 3: main }, activeSegIds, defaultSegments)
         )
       );
   }, [activeSegIds, defaultSegments]);
@@ -912,7 +917,7 @@ export function BankStatementImport({
       .then((data: (ImportContext & { error?: string }) | null) => {
         if (!data || data.error) return;
         setMatchContext(data);
-        applyInvoiceHintsRef.current(data.invoiceAccountHints);
+        applyInvoiceHintsRef.current(data);
       })
       .catch(() => {});
   }, []);
@@ -1337,7 +1342,7 @@ export function BankStatementImport({
       .then((data: (ImportContext & { error?: string }) | null) => {
         if (!data || data.error) return;
         setMatchContext(data);
-        applyInvoiceHintsRef.current(data.invoiceAccountHints);
+        applyInvoiceHintsRef.current(data);
         // «Шууд бөглөх» дүрэм уншигдмагц хэрэгжинэ — хэрэглэгч
         // хадгалахаас өмнө хянаж засна (§9). Аль хэдийн бөглөгдсөн
         // (хэрэглэгчийн засварласан) талыг дарж бичихгүй.
@@ -1580,7 +1585,7 @@ export function BankStatementImport({
       .then((data: (ImportContext & { error?: string }) | null) => {
         if (!data || data.error) return;
         setMatchContext(data);
-        applyInvoiceHintsRef.current(data.invoiceAccountHints);
+        applyInvoiceHintsRef.current(data);
       })
       .catch(() => {});
     feedback.saved(

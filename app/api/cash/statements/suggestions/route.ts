@@ -98,12 +98,13 @@ export async function GET() {
       loadEwalletSettlementContext(orgId),
       db.query.counterparties.findMany({
         where: and(eq(counterparties.organizationId, orgId), eq(counterparties.isActive, true)),
-        columns: { id: true, name: true, counterpartyType: true },
+        // bankAccountNo — хуулгын харьцсан дансаар автоматаар холбоход.
+        columns: { id: true, name: true, counterpartyType: true, bankAccountNo: true },
         orderBy: [asc(counterparties.name)],
       }),
       loadAdvanceSettings(orgId),
       // Нэхэмжлэх үүсгэх мөрийн харьцах дансны санал — харилцагчийн сүүлийн
-      // нэхэмжлэх, байгууллагын хамгийн их хэрэглэсэн орлогын данс (данс ЗОХИОХГҮЙ).
+      // нэхэмжлэх, байгууллагын хамгийн их хэрэглэсэн орлого / зардлын данс (данс ЗОХИОХГҮЙ).
       db
         .select({
           counterpartyId: arApDocuments.counterpartyId,
@@ -143,7 +144,7 @@ export async function GET() {
     const context: MatchContext & {
       rules: BankRule[];
       ewalletMethods: EwalletSettlementMethod[];
-      counterparties: { id: string; name: string; counterpartyType: string }[];
+      counterparties: { id: string; name: string; counterpartyType: string; bankAccountNo: string | null }[];
       advanceSettings: AdvanceSettings;
       invoiceAccountHints: InvoiceAccountHints;
     } = {
