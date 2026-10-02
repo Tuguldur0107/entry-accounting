@@ -29,6 +29,12 @@ type GridRow = {
 
 /** Мөр засагдах бүрд дахин асуухгүй — бичиж дуусахыг хүлээнэ. */
 const DEBOUNCE_MS = 350;
+/**
+ * Хэсгийн биеийн ТОГТМОЛ өндөр (толгой + ~4 мөр + нийт) — мөр солих, бодож байх,
+ * мөр сонгоогүй үед хүснэгтийн өндөр үсрэхгүй (product owner 2026-10-02:
+ * «байрандаа тогтмол»). Олон мөртэй бичилт доторх гүйлгэгчээр.
+ */
+const BODY_HEIGHT = 200;
 
 type FetchState =
   | { status: "idle" }
@@ -43,7 +49,8 @@ export function BankRowPreviewStrip({
   missing,
   onClose,
 }: {
-  row: ParsedBankStatementRow;
+  /** null = мөр сонгоогүй — хэсэг байрандаа үлдэж заавар харуулна. */
+  row: ParsedBankStatementRow | null;
   statement: Omit<ParsedBankStatement, "rows">;
   cashAccountId: string;
   /** Мөр бэлэн биш бол шалтгаан (данс / харилцагч дутуу) — серверт асуухгүй. */
@@ -53,7 +60,7 @@ export function BankRowPreviewStrip({
   const [state, setState] = useState<FetchState>({ status: "idle" });
   const requestBody = useMemo(
     () =>
-      missing
+      !row || missing
         ? null
         : JSON.stringify({ ...statement, cashAccountId, rows: [{ ...row, rowNumber: row.rowNumber }] }),
     [missing, statement, cashAccountId, row]
@@ -87,7 +94,7 @@ export function BankRowPreviewStrip({
     };
   }, [requestBody]);
 
-  const preview = !missing && state.status === "ready" ? state.preview : null;
+  const preview = row && !missing && state.status === "ready" ? state.preview : null;
   const gridRows = useMemo<GridRow[]>(
     () =>
       (preview?.vouchers ?? []).flatMap((voucher, voucherIndex) =>
@@ -141,12 +148,16 @@ export function BankRowPreviewStrip({
     <div className="flex shrink-0 flex-col gap-2 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface-raised)] p-2">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <Icon name="journal" size="sm" className="text-[var(--ea-primary)]" />
-        <span className="font-semibold text-[var(--ea-text-1)]">{row.rowNumber}-р мөрийн бичилт</span>
-        <span className="min-w-0 max-w-80 truncate text-[var(--ea-text-3)]" title={row.description}>
-          {row.description}
+        <span className="font-semibold text-[var(--ea-text-1)]">
+          {row ? `${row.rowNumber}-р мөрийн бичилт` : "Мөрийн бичилт"}
         </span>
+        {row && (
+          <span className="min-w-0 max-w-80 truncate text-[var(--ea-text-3)]" title={row.description}>
+            {row.description}
+          </span>
+        )}
         <span className="text-[var(--ea-text-4)]">· батлахад ингэж бичигдэнэ, одоогоор бичигдээгүй</span>
-        {missing ? (
+        {!row ? null : missing ? (
           <StatusBadge tone="warning" size="sm" icon="warning">
             {missing}
           </StatusBadge>
@@ -172,16 +183,30 @@ export function BankRowPreviewStrip({
           <Icon name="close" size="sm" />
         </Button>
       </div>
-      {preview && (
+      {preview ? (
         <DataGridDynamic<GridRow>
           rowData={gridRows}
           columnDefs={columnDefs}
           getRowId={(params) => params.data.id}
           pinnedBottomRowData={pinnedBottom}
-          height={Math.min(280, 96 + gridRows.length * 34)}
+          height={BODY_HEIGHT}
           suppressCellFocus
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
         />
+      ) : (
+        // Бичилт бэлэн биш үед ч ИЖИЛ өндөр — хүснэгт үсрэхгүй.
+        <div
+          className="flex items-center justify-center rounded-md border border-dashed border-[var(--ea-border)] px-4 text-center text-xs text-[var(--ea-text-3)]"
+          style={{ height: BODY_HEIGHT }}
+        >
+          {!row
+            ? "Хүснэгтээс мөр сонгоход тухайн мөрийн бичилт энд харагдана"
+            : missing
+              ? missing
+              : state.status === "error"
+                ? state.message
+                : "Бичилтийг бодож байна…"}
+        </div>
       )}
     </div>
   );
