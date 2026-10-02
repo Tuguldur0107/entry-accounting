@@ -1,5 +1,6 @@
 "use server";
 
+import { getOfficialRateForDate } from "@/lib/cash/official-rate";
 import { reverseVoucherInTx } from "@/lib/gl/reverse-voucher";
 import { stateChangedError } from "@/lib/state-guard";
 import { db } from "@/lib/db";
@@ -1510,6 +1511,30 @@ async function duplicateVoucherCore(id: string) {
     timeZone: "Asia/Ulaanbaatar",
   });
 
+  // Валютын журнал (IAS 21, ontology-audit M2): хуулбар ЭХИЙН валют, валютын
+  // дүнгээр, харин ханш нь ХУУЛБАРЫН огнооны албан ханш (эхийн ханшийг шинэ
+  // огноонд ЗӨӨХГҮЙ, ханш ЗОХИОХГҮЙ — олдохгүй бол ил алдаа).
+  let money: ReturnType<typeof resolveVoucherCurrency> | null = null;
+  if (voucher.currency !== BASE_CURRENCY) {
+    const official = await getOfficialRateForDate(voucher.currency, today).catch(() => null);
+    if (!official)
+      throw new Error(
+        `[RATE_REQUIRED] ${today}-ны ${voucher.currency} албан ханш олдсонгүй — ханшаа оруулсны дараа дахин хуулбарлана уу`
+      );
+    money = resolveVoucherCurrency(
+      voucher.lines.map((line) => ({
+        account: line.accountNumber,
+        debit: 0,
+        credit: 0,
+        description: line.description ?? "",
+        debitFc: Number(line.debitFc),
+        creditFc: Number(line.creditFc),
+      })),
+      { currency: voucher.currency, exchangeRate: official.rate, rateSource: "mongolbank", rateDate: official.rateDate },
+      false
+    );
+  }
+
   const copyId = await db.transaction(async (tx) => {
     const [copy] = await tx
       .insert(journalVouchers)
@@ -1518,6 +1543,14 @@ async function duplicateVoucherCore(id: string) {
         organizationId: orgId,
         date: today,
         description: voucher.description,
+        ...(money
+          ? {
+              currency: money.currency,
+              exchangeRate: money.exchangeRate,
+              rateSource: money.rateSource,
+              rateDate: money.rateDate,
+            }
+          : {}),
         // Хуулбар нь шинэ бичилт тул ШИНЭ дугаар авна (эхийнхээ модульд).
         documentNo: await nextVoucherNo(
           tx,
@@ -1532,8 +1565,11 @@ async function duplicateVoucherCore(id: string) {
       voucher.lines.map((line, index) => ({
         voucherId: copy.id,
         accountNumber: line.accountNumber,
-        debit: line.debit,
-        credit: line.credit,
+        debit: money ? String(money.lines[index].debit) : line.debit,
+        credit: money ? String(money.lines[index].credit) : line.credit,
+        debitFc: money ? line.debitFc : "0",
+        creditFc: money ? line.creditFc : "0",
+        cashAccountId: line.cashAccountId,
         description: line.description,
         sortOrder: index,
       }))

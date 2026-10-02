@@ -78,6 +78,12 @@ tests/voucher-no.test.ts  Жилийн хил, модуль тус бүрийн 
 - **Журналын жагсаалт**: журнал ӨӨРӨӨ валюттай бол мөрд хадгалагдсан
   ЖИНХЭНЭ валютын дүнг үзүүлнэ (`fcFromLines`); хуучин бичилтэд эх баримтын
   ханшаар бодсон MNT ÷ ханш гэсэн ЛАВЛАГАА хэвээр
+- **Буцаалт ЭХИЙН валют, ханш, валютын дүнгээр** (`reverseVoucherInTx`): мөр
+  бүрийн `debitFc/creditFc` ч улаан сторно (сөрөг), `cashAccountId` ба бизнес
+  объектын түлхүүр хадгалагдана — эх + буцаалт MNT ба валютаар 0 (ontology-audit M2)
+- **Хуулбар** (`duplicateVoucher`) эхийн валют, валютын дүнгээр, харин ханш нь
+  ХУУЛБАРЫН огнооны албан ханш (`getOfficialRateForDate`) — эхийн ханшийг шинэ
+  огноонд ЗӨӨХГҮЙ; олдохгүй бол `[RATE_REQUIRED]`
 
 ```
 lib/gl/currency.ts        ЦЭВЭР (тесттэй): normalizeCurrency, assertRate,
@@ -86,6 +92,7 @@ lib/actions/gl.ts         resolveVoucherCurrency — create/update/post бүх �
 components/gl/journal-entry-form.tsx  Валют + ханшийн талбар, автомат таталт
 components/journal/journal-lines-grid.tsx  Валютын Дт/Кт багана (MNT нь readonly)
 tests/gl-currency.test.ts Хөрвүүлэлт, шингээлт, тэнцэл, гажиг оролт
+tests/gl-fx-reverse-copy.test.ts  Валютын журналын буцаалт / хуулбар (DB)
 ```
 
 ### 2c. Хяналтын данс, батлагдсан журнал (SIM2) — ХЭРЭГЖСЭН
