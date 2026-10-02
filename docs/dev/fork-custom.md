@@ -8,7 +8,11 @@
 `custom/README.md`, `custom/CLAUDE.md`.
 
 - **Харилцагч = GitHub fork.** Core шинэчлэлт `upstream-sync.yml` PR-аар
-  (`vX.Y.Z` tag → `release.yml` GitHub Release). Хувилбарын эх сурвалж
+  (`vX.Y.Z` tag → `release.yml` GitHub Release). Ref заагаагүй sync (Даваагийн cron,
+  хоосон dispatch) ХАМГИЙН СҮҮЛИЙН RELEASE TAG-ийг татна — `main` БИШ (release хийгдээгүй
+  commit fork-д орохгүй; `tests/upstream-sync-ref.test.ts`). Entry Console sync-ийн өмнө
+  fork-ийн workflow файлуудыг ЯГ ТЭР ref-ийнхтэй тэнцүүлнэ (`bootstrapSyncWorkflow`) —
+  зөрвөл GITHUB_TOKEN workflow өөрчилсөн push хийж чадахгүй. Хувилбарын эх сурвалж
   `package.json` → `lib/version.ts`; `/api/health` → `{version, sha}`;
   `/settings/system` хуудас; MCP `serverInfo.version`; REST `X-Entry-Version`
 - **custom/ гэрээ:** харилцагч ЗӨВХӨН `custom/`-д бичнэ, core `custom/`-д
