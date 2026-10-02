@@ -10,7 +10,11 @@ import type { EbarimtBarcodeType, EbarimtPaymentStatus, EbarimtReceiptType, Ebar
 
 export interface EbarimtItem {
   name: string;
-  barCode?: string;
+  /**
+   * Спект ✔ (заавал): баркодгүй бараанд албан жишээ шиг `null` + `UNDEFINED`
+   * (docs/integrations/01 §8 F-3). Optional нь хуучин хадгалсан payload-д л.
+   */
+  barCode?: string | null;
   barCodeType?: EbarimtBarcodeType;
   classificationCode: string;
   taxProductCode?: string;
@@ -22,6 +26,8 @@ export interface EbarimtItem {
   totalVAT: number;
   totalCityTax: number;
   totalAmount: number;
+  /** Барааны нэмэлт өгөгдөл — ОАТ-ын тэмдгийн QR (`stockQR`, 2025-04-01-ээс заавал). */
+  data?: { stockQR?: string[] };
 }
 
 export interface EbarimtSubReceipt {
@@ -38,7 +44,26 @@ export interface EbarimtSubReceipt {
   bankAccountNo?: string;
   /** Тухайн дансны IBAN (v3.1.72-оос; шилжилтийн үед заавал биш). */
   iBan?: string;
+  /** Дэд баримтын нэмэлт өгөгдөл — үйл ажиллагааны байршил (v3.2.48, §8 F-6). */
+  data?: EbarimtSubReceiptData;
   items: EbarimtItem[];
+}
+
+/**
+ * Үйл ажиллагаа бодитоор явагдаж буй байршил (developer портал v3.2.48 /
+ * 2026-06-18). Entry зөвхөн `GPS` (салбарын координат, тохиргооноос) илгээнэ;
+ * `LICENSE` нь операторын X-API-KEY-тэй лавлах шаардана — дэмжихгүй.
+ */
+export interface EbarimtGpsLocation {
+  locationType: "GPS";
+  /** Өргөрөг — албан спекээр мөр ("47.918873"). */
+  latitude: string;
+  /** Уртраг — мөр ("106.917701"). */
+  longitude: string;
+}
+
+export interface EbarimtSubReceiptData {
+  location?: EbarimtGpsLocation[];
 }
 
 export interface EbarimtPayment {
@@ -79,6 +104,12 @@ export interface EbarimtReceiptRequest {
    * засварт ӨМНӨХ (сүүлийн) ДДТД-г өгч гинжлэнэ. DELETE нь зөвхөн БҮТЭН буцаалт.
    */
   inactiveId?: string;
+  /**
+   * Баримт харьяалагдах тайлант сар ("yyyy-MM-dd") — өмнөх сарын B2B баримтыг
+   * сарын 1–7-нд НӨХӨН үүсгэхэд (Release v3.1.82; `reportMonthFor`). Байхгүй бол
+   * ТЕГ серверийн өнөөдрийн огноогоор бүртгэнэ.
+   */
+  reportMonth?: string;
   /**
    * НЭХЭМЖЛЭХИЙН ТӨЛӨЛТ — төлж буй нэхэмжлэхийн ДДТД (албан спек §5 «Нэхэмжлэхийн
    * төлбөр»): төлбөрийн баримт (`*_RECEIPT`, PAID) НӨАТ-ын тайланд ДАВХАР
@@ -138,6 +169,9 @@ export interface EbarimtSettingsInput {
   posNo: string;
   posApiUrl: string;
   mode: "server" | "browser";
+  /** Салбарын өргөрөг/уртраг (`pos_settings.ebarimtLatitude/Longitude`) — хоёулаа хоосон бол байршил илгээхгүй. */
+  latitude?: string;
+  longitude?: string;
 }
 
 export interface EbarimtSaleLineInput {
@@ -157,6 +191,10 @@ export interface EbarimtSaleLineInput {
   vatAmount: number;
   /** НХАТ (нийслэлийн албан татвар) — байхгүй бол 0 (`totalCityTax`). */
   cityTaxAmount?: number;
+  /** ОАТ-ын тэмдэгтэй бараа — үлдсэн ширхэг бүрд QR ЗААВАЛ (`stockQr.length === quantity`). */
+  exciseStamped?: boolean;
+  /** Үлдсэн (буцаагдаагүй) ширхэгийн ОАТ-ын QR → `items[].data.stockQR`. */
+  stockQr?: string[];
 }
 
 export interface EbarimtSalePaymentInput {

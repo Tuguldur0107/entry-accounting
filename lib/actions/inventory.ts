@@ -113,9 +113,11 @@ export type InventoryItemPosFields = {
   vatMode?: ItemVatMode;
   /** НХАТ (нийслэлийн албан татвар) ногдох бараа — хувь нь POS тохиргооноос. */
   cityTaxable?: boolean;
+  /** ОАТ-ын тэмдэгтэй бараа (архи, тамхи) — кассад тэмдгийн QR уншуулна (lib/pos/stock-qr.ts). */
+  exciseStamped?: boolean;
   revenueAccountNumber?: string | null;
   categoryCode?: string | null;
-  /** eBarimt ангилалын код (7 орон) / татварын бүтээгдэхүүний код (3–5 орон). */
+  /** eBarimt ангилалын код (7 орон) / татварын бүтээгдэхүүний код (3–7 орон). */
   ebarimtClassificationCode?: string | null;
   ebarimtTaxProductCode?: string | null;
   /** Баркодын төрөл — "GS1" | "ISBN" | "UNDEFINED" (PosAPI barCodeType). */
@@ -177,6 +179,7 @@ async function validateItemPosFields(
   barcode?: string | null;
   vatMode?: ItemVatMode;
   cityTaxable?: boolean;
+  exciseStamped?: boolean;
   revenueAccountNumber?: string | null;
   categoryCode?: string | null;
   ebarimtClassificationCode?: string | null;
@@ -253,7 +256,7 @@ async function validateItemPosFields(
   if (data.ebarimtTaxProductCode !== undefined) {
     ebarimtTaxProductCode = cleanText(data.ebarimtTaxProductCode);
     if (ebarimtTaxProductCode && !TAX_PRODUCT_CODE_RE.test(ebarimtTaxProductCode))
-      throw new Error("Татварын бүтээгдэхүүний код 3–5 оронтой тоо байна");
+      throw new Error("Татварын бүтээгдэхүүний код 3–7 оронтой тоо байна");
   }
 
   let barcodeType: string | null | undefined;
@@ -280,6 +283,7 @@ async function validateItemPosFields(
     barcode,
     vatMode: data.vatMode,
     cityTaxable: data.cityTaxable === undefined ? undefined : !!data.cityTaxable,
+    exciseStamped: data.exciseStamped === undefined ? undefined : !!data.exciseStamped,
     revenueAccountNumber,
     categoryCode,
     ebarimtClassificationCode,
@@ -358,6 +362,7 @@ async function createInventoryItemCore(
         barcode: pos.barcode ?? null,
         vatMode: pos.vatMode ?? "standard",
         cityTaxable: pos.cityTaxable ?? false,
+        exciseStamped: pos.exciseStamped ?? false,
         revenueAccountNumber: pos.revenueAccountNumber ?? null,
         categoryCode: pos.categoryCode ?? null,
         ebarimtClassificationCode: pos.ebarimtClassificationCode ?? null,
@@ -428,6 +433,7 @@ async function updateInventoryItemCore(
         ...(pos.barcode !== undefined ? { barcode: pos.barcode } : {}),
         ...(pos.vatMode !== undefined ? { vatMode: pos.vatMode } : {}),
         ...(pos.cityTaxable !== undefined ? { cityTaxable: pos.cityTaxable } : {}),
+        ...(pos.exciseStamped !== undefined ? { exciseStamped: pos.exciseStamped } : {}),
         ...(pos.revenueAccountNumber !== undefined
           ? { revenueAccountNumber: pos.revenueAccountNumber }
           : {}),

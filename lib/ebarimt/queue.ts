@@ -36,7 +36,9 @@ import { categoryClassificationMap, ebarimtReadiness, type EbarimtReadiness } fr
 import { fetchPosApiHealth } from "./client";
 import { lookupTaxpayerByTin } from "./lookup";
 import { isMerchantRegistered } from "./posapi-info";
-import { buildEbarimtReceipt, EbarimtError, stripReceiptSecrets, withCreditInvoice } from "./receipt";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
+import { remainingStockQr } from "@/lib/pos/stock-qr";
+import { buildEbarimtReceipt, EbarimtError, gpsLocationOf, stripReceiptSecrets, withCreditInvoice } from "./receipt";
 import { arapBillIdSuffix } from "./arap-receipt";
 import { buildInvoicePaymentReceipt, invoicePaymentBillIdSuffix, invoicePaymentCodeOf } from "./invoice-payment";
 import { loadArapInvoiceForEbarimt } from "./arap-load";
@@ -168,6 +170,8 @@ export function settingsInputOf(row: PosSettings): EbarimtSettingsInput {
     posNo: row.ebarimtPosNo,
     posApiUrl: row.ebarimtPosApiUrl,
     mode: row.ebarimtMode === "browser" ? "browser" : "server",
+    latitude: row.ebarimtLatitude,
+    longitude: row.ebarimtLongitude,
   };
 }
 
@@ -196,6 +200,7 @@ export async function loadSaleForEbarimt(
               categoryCode: true,
               ebarimtClassificationCode: true,
               ebarimtTaxProductCode: true,
+              exciseStamped: true,
             },
           },
         },
@@ -208,13 +213,16 @@ export async function loadSaleForEbarimt(
   const returns = await handle.query.posSales.findMany({
     where: and(eq(posSales.organizationId, orgId), eq(posSales.originalSaleId, saleId)),
     columns: { id: true },
-    with: { lines: { columns: { originalLineId: true, quantity: true } } },
+    with: { lines: { columns: { originalLineId: true, quantity: true, stockQr: true } } },
   });
   const returnedByLine = new Map<string, number>();
+  const returnedQrByLine = new Map<string, string[][]>();
   for (const ret of returns)
     for (const line of ret.lines)
-      if (line.originalLineId)
+      if (line.originalLineId) {
         returnedByLine.set(line.originalLineId, (returnedByLine.get(line.originalLineId) ?? 0) + Number(line.quantity));
+        returnedQrByLine.set(line.originalLineId, [...(returnedQrByLine.get(line.originalLineId) ?? []), line.stockQr ?? []]);
+      }
 
   // Ангилал олон түвшинтэй — өвөг рүү өгсөж өвлөхийн тулд байгууллагын БҮХ
   // ангиллыг (жижиг лавлах) ачаална (readiness.ts-тэй ИЖИЛ дүрэм).
@@ -254,6 +262,9 @@ export async function loadSaleForEbarimt(
         lineTotal: Math.round(Number(line.lineTotal) * share * 100) / 100,
         vatAmount: Math.round(Number(line.vatAmount) * share * 100) / 100,
         cityTaxAmount: Math.round(Number(line.cityTaxAmount) * share * 100) / 100,
+        // ОАТ-ын QR — буцаасан ширхэгийнхийг хасаад үлдсэн нь (засварын баримтад ч).
+        exciseStamped: !!line.item?.exciseStamped,
+        stockQr: remainingStockQr(line.stockQr ?? [], returnedQrByLine.get(line.id) ?? []),
       };
     }),
     payments: sale.payments.map((payment) => ({
@@ -685,9 +696,11 @@ export async function prepareSubmission(
   try {
     const sale = await db.query.posSales.findFirst({
       where: eq(posSales.id, saleId),
-      columns: { ebarimtId: true, ebarimtDate: true, ebarimtStatus: true },
+      columns: { ebarimtId: true, ebarimtDate: true, ebarimtStatus: true, date: true },
     });
     if (!sale) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Борлуулалт олдсонгүй");
+    // Өмнөх сарын B2B баримтыг сарын 1–7-нд reportMonth-тэй нөхөн үүсгэнэ (§8 F-10).
+    const backdate = { documentDate: sale.date, todayUb: ulaanbaatarToday() };
     const loaded = await loadSaleForEbarimt(submission.organizationId, saleId);
     if (!loaded) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Буцаалтын баримт өөрөө илгээгдэхгүй");
     // Буцаалт бүр loadSaleForEbarimt-д тооцогддог тул хожуу илгээгдэх баримт
@@ -702,7 +715,7 @@ export async function prepareSubmission(
       if (!hasRemaining) return settle("cancelled"); // илгээхээс өмнө бүгд буцаагдсан
       // «Зээлээр» хэсэгтэй бол НЭХЭМЖЛЭХ — нэхэмжлэхийн код/данс (дутуу бол [EBARIMT_SETTINGS]).
       const input = await withCreditInvoiceResolved(loaded, settingsRow);
-      request = buildEbarimtReceipt(input, settings, { edit: await editIndexOf(submission) });
+      request = buildEbarimtReceipt(input, settings, { edit: await editIndexOf(submission), backdate });
     } else if (!alreadySent) {
       // Эх нь ТЕГ-д очоогүй байхад буцаагдав — цуцлах/засах зүйл алга; хүлээгдэж
       // буй илгээлт (байвал) буцаалтыг тооцсон үлдсэн мөрөөр өөрөө явна.
@@ -747,7 +760,7 @@ async function prepareArapSubmission(
       throw new EbarimtError(EBARIMT_ERRORS.notSent, "АР нэхэмжлэхийн цуцлалт/засвар албан урсгал тодорхойгүй (docs/pos/05 Q5) — ТЕГ-т гараар");
     const doc = await db.query.arApDocuments.findFirst({
       where: and(eq(arApDocuments.id, submission.arapDocumentId), eq(arApDocuments.organizationId, submission.organizationId)),
-      columns: { ebarimtId: true, ebarimtStatus: true },
+      columns: { ebarimtId: true, ebarimtStatus: true, date: true },
     });
     if (!doc) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Нэхэмжлэх олдсонгүй");
     if (doc.ebarimtId && doc.ebarimtStatus === "sent") {
@@ -762,6 +775,7 @@ async function prepareArapSubmission(
     const input = await loadArapInvoiceForEbarimt(submission.organizationId, submission.arapDocumentId, settingsRow);
     const request = buildEbarimtReceipt(input, settings, {
       billIdSuffix: arapBillIdSuffix(submission.arapDocumentId, await editIndexOf({ ...submission, saleId: null })),
+      backdate: { documentDate: doc.date, todayUb: ulaanbaatarToday() },
     });
     await db
       .update(posEbarimtSubmissions)
@@ -853,6 +867,7 @@ async function prepareArapPaymentSubmission(
         amount: arApSettlements.amount,
         cashStatus: cashDocuments.status,
         externalRef: cashDocuments.externalRef,
+        cashDate: cashDocuments.date,
         accountType: cashAccounts.accountType,
       })
       .from(arApSettlements)
@@ -881,6 +896,8 @@ async function prepareArapPaymentSubmission(
       amount: Number(settlement.amount),
       paymentCode: invoicePaymentCodeOf({ accountType: settlement.accountType, externalRef: settlement.externalRef }),
       billIdSuffix: invoicePaymentBillIdSuffix(settlement.id),
+      location: gpsLocationOf(settingsInputOf(settingsRow)),
+      backdate: { documentDate: settlement.cashDate, todayUb: ulaanbaatarToday() },
     });
     await db
       .update(posEbarimtSubmissions)

@@ -184,6 +184,25 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
 - **Борлуулалт ХЭЗЭЭ Ч илгээлтээс болж зогсохгүй** — enqueue нь commit-ийн
   ДАРАА, async; амжилтгүй бол backoff (15с→1мин→5мин→30мин→2ц, max 20),
   3 дараалсан алдаанд `ebarimt_failed` аудит → `pos.ebarimt_failed` мэдэгдэл
+- **ОАТ-ын тэмдэг (`stockQR`, 2025-04-01-ээс заавал; 2026-10-02):** барааны карт
+  «ОАТ-ын тэмдэгтэй» (`inventory_items.exciseStamped` — ИЛ, баркодоор таамаглахгүй) →
+  касс бараа нэмэхэд QR цонх нээнэ (`components/pos/checkout/stock-qr-dialog.tsx`),
+  ширхэг бүрд нэг QR (тоо бүхэл, давхардалгүй) → `pos_sale_lines.stockQr` →
+  `items[].data.stockQR`. eBarimt олгох борлуулалтад (`stockQrRequired`: асаалттай,
+  НӨАТ-гүй биш, гар ДДТД биш) QR дутуу бол касс ТӨЛБӨРИЙГ хаана, `createPosSale`
+  `[STOCK_QR_REQUIRED]` шиднэ; payload `[EBARIMT_STOCK_QR]`. Хэсэгчилсэн буцаалт
+  үлдсэнээс СҮҮЛИЙН QR-уудыг буцаасанд тооцож (`takeReturnedStockQr`), засварын
+  баримт үлдсэн QR-ээр явна. Нэхэмжлэхийн төлөлтийн баримтад stockQR ДАВХАР явахгүй.
+  ЦЭВЭР `lib/pos/stock-qr.ts` (tests/pos-stock-qr.test.ts). AI `create_pos_sale`
+  `lines[].stockQr`
+- **Салбарын GPS байршил** (v3.2.48, ХСН №13): `pos_settings.ebarimtLatitude/Longitude`
+  (мөр, хоёулаа хоосон = илгээхгүй; браузерын байршлыг ИЛ зөвшөөрлөөр) → дэд баримт
+  бүрийн `data.location[{locationType:"GPS"}]` (`gpsLocationOf`, төлөлтийн баримтад ч).
+  LICENSE төрөл дэмжихгүй
+- **`reportMonth` — өмнөх сарын баримтыг нөхөх** (Release v3.1.82): `reportMonthFor`
+  (ЦЭВЭР) — зөвхөн B2B_RECEIPT/B2B_INVOICE, сарын 1–7-нд (УБ), өмнөх сарын огноотой,
+  `inactiveId` засвар биш → `reportMonth` = баримтын огноо. POS, АР нэхэмжлэх, төлөлтийн
+  баримт бүгд `prepareSubmission` (оролдлого бүрд дахин бодно) дотор автомат
 - **Код ЗОХИОХГҮЙ** (ханшийн дүрэмтэй ижил зарчим): барааны ангилалын код
   (7 орон, `inventoryItems.ebarimtClassificationCode`, хоосон бол
   `inventoryCategories`-аас өвлөнө), НӨАТ-гүй/0%-ийн татварын бүтээгдэхүүний
@@ -226,7 +245,7 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   иргэний РД-аар `getTinInfo` ХОРИОТОЙ (ХХМХ 4.1.11, ТЕГ 2026-05-11), регистрээр лавлах
   2026-06-15-аас хязгаарлагдана → кассын B2B-д **ТТД шууд** үндсэн зам (нэр `getInfo`-оос,
   `lookupTaxpayerByTin`; лавлах унасан ч төлбөр хаагдахгүй). ТТД 11–14 орон (хувь хүн 12–14),
-  татварын бүтээгдэхүүний код 3–5 орон (`getProductTaxCode` 5 оронтой ч буцаадаг); `getInfo`-ийн
+  татварын бүтээгдэхүүний код 3–7 орон (`getProductTaxCode` 5 оронтой ч буцаадаг); `getInfo`-ийн
   `cityPayer`/`freeProject` → мерчантын статус + кассын анхааруулга (НХАТ, VAT_FREE/304 автомат
   БИШ); PosAPI хувилбар сүүлийн хариуны `version`-оос, <3.0.12 улаан (`isPosApiVersionOutdated`)
 - **Мерчантын ТТД регистрээс** (2026-09-25): хэрэглэгч 11 оронтой ТТД-гээ

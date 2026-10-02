@@ -36,6 +36,8 @@ import {
   EBARIMT_ERRORS,
   EBARIMT_INVOICE_PAYMENT_KINDS,
   EBARIMT_PAYMENT_STATUS_PAID,
+  EBARIMT_REPORT_MONTH_LAST_DAY,
+  EBARIMT_REPORT_MONTH_TYPES,
   EBARIMT_RESPONSE_STATUS_SUCCESS,
   isKnownEbarimtPaymentCode,
   MERCHANT_TIN_RE,
@@ -46,6 +48,7 @@ import {
   type EbarimtTaxType,
 } from "./constants";
 import type {
+  EbarimtGpsLocation,
   EbarimtInvoiceBank,
   EbarimtItem,
   EbarimtPayment,
@@ -95,7 +98,37 @@ export function ebarimtSettingsProblems(settings: EbarimtSettingsInput): string[
   if (!DISTRICT_CODE_RE.test(settings.districtCode.trim())) problems.push("Дүүргийн код 4 оронтой байна");
   if (!settings.posNo.trim()) problems.push("Кассын дугаар (posNo) хоосон");
   if (!/^https?:\/\/\S+$/.test(settings.posApiUrl.trim())) problems.push("PosAPI URL http(s)://… хэлбэртэй байна");
+  const location = gpsLocationProblem(settings.latitude, settings.longitude);
+  if (location) problems.push(location);
   return problems;
+}
+
+const COORDINATE_RE = /^-?\d{1,3}(\.\d{1,8})?$/;
+
+/**
+ * Салбарын координатын шалгалт — хоёулаа хоосон (илгээхгүй) эсвэл хоёулаа хүчинтэй
+ * тоо (өргөрөг −90…90, уртраг −180…180). Байршлыг ЗОХИОХГҮЙ: хэрэглэгч оруулна
+ * (эсвэл браузерын байршлыг ИЛ зөвшөөрнө). null = асуудалгүй.
+ */
+export function gpsLocationProblem(latitudeRaw: string | null | undefined, longitudeRaw: string | null | undefined): string | null {
+  const latitude = latitudeRaw?.trim() ?? "";
+  const longitude = longitudeRaw?.trim() ?? "";
+  if (!latitude && !longitude) return null;
+  if (!latitude || !longitude) return "Салбарын байршил: өргөрөг ба уртраг хоёуланг бөглөнө (эсвэл хоёуланг хоосон)";
+  if (!COORDINATE_RE.test(latitude) || Math.abs(Number(latitude)) > 90) return "Салбарын өргөрөг −90…90 хоорондын тоо байна (жишээ 47.918873)";
+  if (!COORDINATE_RE.test(longitude) || Math.abs(Number(longitude)) > 180) return "Салбарын уртраг −180…180 хоорондын тоо байна (жишээ 106.917701)";
+  return null;
+}
+
+/**
+ * PosAPI `receipts[].data.location` (v3.2.48) — тохиргооны координатаас GPS
+ * төрлөөр. Тохируулаагүй / буруу бол null (буруу нь `ebarimtSettingsProblems`-д гарна).
+ */
+export function gpsLocationOf(settings: Pick<EbarimtSettingsInput, "latitude" | "longitude">): EbarimtGpsLocation | null {
+  const latitude = settings.latitude?.trim() ?? "";
+  const longitude = settings.longitude?.trim() ?? "";
+  if (!latitude || !longitude || gpsLocationProblem(latitude, longitude)) return null;
+  return { locationType: "GPS", latitude, longitude };
 }
 
 /**
@@ -134,13 +167,18 @@ function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtIte
   if ((taxType === "VAT_FREE" || taxType === "VAT_ZERO") && !TAX_PRODUCT_CODE_RE.test(taxProductCode))
     throw new EbarimtError(
       EBARIMT_ERRORS.taxProductCode,
-      `"${line.itemName}" НӨАТ-гүй/0% бараанд татварын бүтээгдэхүүний код (3–5 орон) байхгүй`
+      `"${line.itemName}" НӨАТ-гүй/0% бараанд татварын бүтээгдэхүүний код (3–7 орон) байхгүй`
     );
   const qty = round2(line.quantity);
   const totalAmount = round2(line.lineTotal);
   const totalVAT = taxType === "VAT_ABLE" ? round2(line.vatAmount) : 0;
+  // barCode спект ✔ — баркодгүй бол албан жишээ шиг `null` + `UNDEFINED` (§8 F-3),
+  // талбарыг орхихгүй.
+  const barCode = line.barcode?.trim() || null;
   const item: EbarimtItem = {
     name: line.itemName,
+    barCode,
+    barCodeType: barCode ? barcodeTypeOf(line.barcodeType) : "UNDEFINED",
     classificationCode: classification,
     measureUnit: line.unit || "ш",
     qty,
@@ -149,11 +187,16 @@ function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtIte
     totalCityTax: round2(line.cityTaxAmount ?? 0),
     totalAmount,
   };
-  if (line.barcode) {
-    item.barCode = line.barcode;
-    item.barCodeType = barcodeTypeOf(line.barcodeType);
-  }
   if (taxType === "VAT_FREE" || taxType === "VAT_ZERO") item.taxProductCode = taxProductCode;
+  // ОАТ-ын тэмдэг (2025-04-01-ээс заавал): үлдсэн ширхэг бүрд QR — дутуу бол payload
+  // зохиохгүй (ТЕГ-д тэмдэггүй борлуулалт явуулахгүй), шалтгаан ил.
+  const stockQr = line.stockQr ?? [];
+  if (line.exciseStamped && stockQr.length !== qty)
+    throw new EbarimtError(
+      EBARIMT_ERRORS.stockQr,
+      `"${line.itemName}" ОАТ-ын тэмдэгтэй — ${qty} ширхэгт ${stockQr.length} QR байна; тэмдгийн QR-ийг кассад уншуулаагүй бол ТЕГ-д гараар бүртгэнэ`
+    );
+  if (stockQr.length > 0) item.data = { stockQR: [...stockQr] };
   return item;
 }
 
@@ -306,6 +349,40 @@ export function billIdSuffixOf(documentNo: string, edit = 0): string {
   return edit > 0 ? `${base}${String(edit).padStart(2, "0")}` : base;
 }
 
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * `reportMonth` — өмнөх сарын баримтыг нөхөн үүсгэх (Release v3.1.82, 2025-06-12):
+ *  - зөвхөн `EBARIMT_REPORT_MONTH_TYPES` (B2B_RECEIPT, B2B_INVOICE);
+ *  - ЗӨВХӨН сар бүрийн 1–7-нд (УБ), ЗӨВХӨН ӨМНӨХ сарын баримтад;
+ *  - засвар (`inactiveId`) биш — эх баримт аль хэдийн тэр сард бүртгэлтэй.
+ * Утга = баримтын огноо ("yyyy-MM-dd" — спекийн формат, тэр сард харьяалагдана).
+ * Цонхны гадна null → ТЕГ өнөөдрийн огноогоор бүртгэнэ (B2C-г нөхөх боломжгүй).
+ * ТЕГ серверийн цагаар шалгадаг тул 7/8-ны шилжилтэд ТЕГ татгалзаж болно — тэр нь
+ * ердийн алдаа болж ил гарна. ЦЭВЭР (tests/ebarimt-receipt.test.ts).
+ */
+export function reportMonthFor(input: {
+  type: EbarimtReceiptType;
+  documentDate: string | null | undefined;
+  todayUb: string;
+  correction?: boolean;
+}): string | null {
+  if (input.correction || !EBARIMT_REPORT_MONTH_TYPES.includes(input.type)) return null;
+  const doc = ISO_DATE_RE.exec(input.documentDate?.trim() ?? "");
+  const today = ISO_DATE_RE.exec(input.todayUb.trim());
+  if (!doc || !today) return null;
+  if (Number(today[3]) > EBARIMT_REPORT_MONTH_LAST_DAY) return null;
+  const todayMonthIndex = Number(today[1]) * 12 + Number(today[2]) - 1;
+  const docMonthIndex = Number(doc[1]) * 12 + Number(doc[2]) - 1;
+  return docMonthIndex === todayMonthIndex - 1 ? input.documentDate!.trim() : null;
+}
+
+/** Нөхөн үүсгэлтийн контекст — баримтын огноо + УБ-ын өнөөдөр (`reportMonthFor`). */
+export interface EbarimtBackdate {
+  documentDate: string | null | undefined;
+  todayUb: string;
+}
+
 /**
  * Борлуулалт → PosAPI 3.0 хүсэлт. Шидвэл payload зохиогдохгүй.
  * `inactiveId` = засварлах (хэсэгчилсэн буцаалт) баримтын ДДТД — албан спек §5:
@@ -316,7 +393,7 @@ export function billIdSuffixOf(documentNo: string, edit = 0): string {
 export function buildEbarimtReceipt(
   sale: EbarimtSaleInput,
   settings: EbarimtSettingsInput,
-  options: { inactiveId?: string | null; edit?: number; billIdSuffix?: string } = {}
+  options: { inactiveId?: string | null; edit?: number; billIdSuffix?: string; backdate?: EbarimtBackdate } = {}
 ): EbarimtReceiptRequest {
   const problems = ebarimtSettingsProblems(settings);
   if (problems.length > 0) throw new EbarimtError(EBARIMT_ERRORS.settings, problems.join("; "));
@@ -333,12 +410,14 @@ export function buildEbarimtReceipt(
     groups.set(taxType, list);
   }
   const merchantTin = settings.merchantTin.trim();
+  const location = gpsLocationOf(settings);
   const receipts: EbarimtSubReceipt[] = [...groups.entries()].map(([taxType, items]) => ({
     taxType,
     merchantTin,
     totalAmount: round2(items.reduce((sum, item) => sum + item.totalAmount, 0)),
     totalVAT: round2(items.reduce((sum, item) => sum + item.totalVAT, 0)),
     totalCityTax: round2(items.reduce((sum, item) => sum + item.totalCityTax, 0)),
+    ...(location ? { data: { location: [location] } } : {}),
     items,
   }));
   const totalAmount = round2(receipts.reduce((sum, receipt) => sum + receipt.totalAmount, 0));
@@ -396,6 +475,10 @@ export function buildEbarimtReceipt(
   if (customerTin) request.customerTin = customerTin;
   else if (consumerNo) request.consumerNo = consumerNo;
   if (inactiveId) request.inactiveId = inactiveId;
+  if (options.backdate) {
+    const reportMonth = reportMonthFor({ type, ...options.backdate, correction: !!inactiveId });
+    if (reportMonth) request.reportMonth = reportMonth;
+  }
 
   const paid = round2(request.payments.reduce((sum, payment) => sum + payment.paidAmount, 0));
   if (Math.abs(paid - totalAmount) > 0.011)

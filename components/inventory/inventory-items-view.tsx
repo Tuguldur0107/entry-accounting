@@ -96,6 +96,7 @@ type ItemForm = {
   minSalesPrice: string;
   vatMode: ItemVatMode;
   cityTaxable: boolean;
+  exciseStamped: boolean;
   revenueAccountNumber: string;
   barcode: string;
   barcodeType: string;
@@ -117,6 +118,7 @@ const emptyItemForm: ItemForm = {
   minSalesPrice: "",
   vatMode: "standard",
   cityTaxable: false,
+  exciseStamped: false,
   revenueAccountNumber: "",
   barcode: "",
   barcodeType: "",
@@ -147,6 +149,7 @@ function formOf(item: InventoryItemView): ItemForm {
     minSalesPrice: item.minSalesPrice == null ? "" : String(item.minSalesPrice),
     vatMode: item.vatMode,
     cityTaxable: item.cityTaxable,
+    exciseStamped: item.exciseStamped,
     revenueAccountNumber: item.revenueAccountNumber ?? "",
     barcode: item.barcode ?? "",
     barcodeType: item.barcodeType ?? "",
@@ -333,6 +336,7 @@ export function InventoryItemsView({ items, categories, levels, isVatPayer = tru
       barcodeType: itemForm.barcode.trim() ? itemForm.barcodeType || null : null,
       vatMode: itemForm.vatMode,
       cityTaxable: itemForm.cityTaxable,
+      exciseStamped: itemForm.exciseStamped,
       categoryCode: itemForm.categoryCode || null,
       revenueAccountNumber: itemForm.revenueAccountNumber.trim() || null,
       ebarimtClassificationCode: itemForm.ebarimtClassificationCode.trim() || null,
@@ -638,6 +642,12 @@ export function InventoryItemsView({ items, categories, levels, isVatPayer = tru
                 hint="Нийслэлийн албан татвар — зочид буудал, хоол, согтууруулах ундаа, тамхи г.м. Хувь нь POS тохиргооноос (0 бол бодохгүй)"
                 checked={itemForm.cityTaxable}
                 onChange={(value) => setItemForm((c) => ({ ...c, cityTaxable: value }))}
+              />
+              <SwitchField
+                label="ОАТ-ын тэмдэгтэй"
+                hint="Онцгой албан татварын тэмдэгтэй бараа (архи, тамхи) — кассад ширхэг бүрийн тэмдгийн QR-ийг уншуулж eBarimt-д илгээнэ (2025-04-01-ээс заавал)"
+                checked={itemForm.exciseStamped}
+                onChange={(value) => setItemForm((c) => ({ ...c, exciseStamped: value }))}
               />
               <FormField label="Орлогын данс" hint="хоосон бол POS тохиргооны орлогын данс">
                 <Input

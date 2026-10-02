@@ -78,6 +78,7 @@ import { applyDiscounts, approvalAuditNote } from "@/lib/pos/discounts";
 import { computeSaleTotals, discountNetOf, ulaanbaatarNow } from "@/lib/pos/sale-math";
 import { NON_VAT_APPROVAL_REASON, planNonVatSale } from "@/lib/pos/non-vat";
 import { planPayments, planRefund } from "@/lib/pos/payments";
+import { cleanStockQrList, duplicateStockQrAcrossLines, remainingStockQr, stockQrProblem, stockQrRequired, takeReturnedStockQr } from "@/lib/pos/stock-qr";
 import { enqueueEbarimt, loadEbarimtReadiness } from "@/lib/ebarimt/queue";
 import { QPAY_ERRORS, QPAY_INTENT_STATUS_LABELS, QPAY_PROVIDER, type QpayIntentStatus } from "@/lib/qpay/constants";
 import { amountMatches as qpayAmountMatches } from "@/lib/qpay/intent";
@@ -86,7 +87,7 @@ import type { EbarimtSaleResult } from "@/lib/ebarimt/types";
 import { processPendingEbarimt, sendSubmissionNow } from "@/lib/ebarimt/worker";
 import { lookupTaxpayerByTin, lookupTinByRegNo } from "@/lib/ebarimt/lookup";
 import { ORG_REGISTER_RE } from "@/lib/pos/ebarimt-buyer";
-import { ebarimtSettingsProblems, initialSaleEbarimtStatus, normalizeBankAccountNo, normalizeIban } from "@/lib/ebarimt/receipt";
+import { ebarimtSettingsProblems, gpsLocationProblem, initialSaleEbarimtStatus, normalizeBankAccountNo, normalizeIban } from "@/lib/ebarimt/receipt";
 import { resolveInvoiceBank } from "@/lib/ebarimt/invoice-bank";
 import {
   CONSUMER_NO_RE,
@@ -321,6 +322,15 @@ export async function updatePosSettings(
       if (!["server", "browser"].includes(data.ebarimtMode)) throw new Error("eBarimt горим server эсвэл browser");
       patch.ebarimtMode = data.ebarimtMode;
     }
+    if (data.ebarimtLatitude != null || data.ebarimtLongitude != null) {
+      // Салбарын GPS байршил (§8 F-6) — хоёулаа хоосон эсвэл хоёулаа хүчинтэй; ЗОХИОХГҮЙ.
+      const latitude = (data.ebarimtLatitude ?? current.ebarimtLatitude).trim();
+      const longitude = (data.ebarimtLongitude ?? current.ebarimtLongitude).trim();
+      const problem = gpsLocationProblem(latitude, longitude);
+      if (problem) throw new Error(problem);
+      patch.ebarimtLatitude = latitude;
+      patch.ebarimtLongitude = longitude;
+    }
     // ── АР нэхэмжлэх → eBarimt (docs/pos/05 Шат 2) ──
     if (data.ebarimtArapPaymentCode != null) {
       const code = data.ebarimtArapPaymentCode.trim().toUpperCase();
@@ -382,6 +392,8 @@ export async function updatePosSettings(
           posNo: merged.ebarimtPosNo,
           posApiUrl: merged.ebarimtPosApiUrl,
           mode: merged.ebarimtMode === "browser" ? "browser" : "server",
+          latitude: merged.ebarimtLatitude,
+          longitude: merged.ebarimtLongitude,
         });
         if (problems.length > 0) throw new Error(`eBarimt идэвхжүүлэхээс өмнө: ${problems.join("; ")}`);
         // Кодын бэлэн байдал (docs/deployment/ebarimt.md §3 алхам 2–4): код
@@ -737,6 +749,11 @@ export interface SaleLineInput {
   unitPrice?: number | null;
   manualDiscountPercent?: number | null;
   manualDiscountAmount?: number | null;
+  /**
+   * ОАТ-ын тэмдгийн QR (ширхэг бүрд нэг) — `exciseStamped` бараанд eBarimt олгох
+   * борлуулалтад ЗААВАЛ (lib/pos/stock-qr.ts); бусад бараанд үл хэрэгснэ.
+   */
+  stockQr?: string[] | null;
 }
 
 export interface SaleQuoteInput {
@@ -838,6 +855,7 @@ async function buildQuote(input: SaleQuoteInput, ctx: QuoteContext) {
       unitPrice,
       vatMode: toItemVatMode(item.vatMode),
       cityTaxable: item.cityTaxable,
+      exciseStamped: item.exciseStamped,
       minSalesPrice: item.minSalesPrice === null ? null : Number(item.minSalesPrice),
       manualDiscountPercent: line.manualDiscountPercent ?? null,
       manualDiscountAmount: line.manualDiscountAmount ?? null,
@@ -1335,6 +1353,25 @@ async function createPosSaleCore(
     skip: !!input.skipEbarimt,
   });
   const autoEbarimt = ebarimtPlan.autoSend;
+  // ОАТ-ын тэмдгийн QR (2025-04-01-ээс заавал) — eBarimt олгох борлуулалтад тэмдэгтэй
+  // мөр бүрд ширхэг тутмын QR; дутуу бол батлахгүй (касс ч ижил дүрмээр хаана).
+  const requireStockQr = stockQrRequired({
+    ebarimtEnabled: settings.ebarimtEnabled,
+    nonVat: nonVatPlan.nonVat,
+    manualEbarimtId,
+  });
+  const stockQrByKey = new Map<string, string[]>();
+  for (const line of quote.cart) {
+    if (!line.exciseStamped) continue;
+    const raw = (input.lines[Number(line.key)]?.stockQr ?? []).map((code) => String(code));
+    if (requireStockQr) {
+      const problem = stockQrProblem({ name: line.itemName, quantity: line.quantity, exciseStamped: true, stockQr: raw });
+      if (problem) throw new Error(`[STOCK_QR_REQUIRED] ${problem}`);
+    }
+    stockQrByKey.set(line.key, cleanStockQrList(raw));
+  }
+  const duplicateQr = duplicateStockQrAcrossLines([...stockQrByKey.values()].map((stockQr) => ({ stockQr })));
+  if (duplicateQr) throw new Error(`[STOCK_QR_REQUIRED] ОАТ-ын тэмдгийн QR «${duplicateQr}» хоёр мөрөнд давхардсан`);
 
   const shift = await db.query.posShifts.findFirst({
     where: and(
@@ -1673,6 +1710,7 @@ async function createPosSaleCore(
           vatAmount: String(line.vatAmount),
           cityTaxAmount: String(line.cityTaxAmount),
           lineTotal: String(line.lineTotal),
+          stockQr: stockQrByKey.get(line.key) ?? [],
           arApLineId: arLineIds[index] ?? null,
           sortOrder: index,
         })
@@ -2171,13 +2209,16 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
   // Өмнөх буцаалтууд.
   const priorReturns = await db.query.posSales.findMany({
     where: and(eq(posSales.organizationId, orgId), eq(posSales.originalSaleId, original.id)),
-    with: { lines: { columns: { originalLineId: true, quantity: true } } },
+    with: { lines: { columns: { originalLineId: true, quantity: true, stockQr: true } } },
   });
   const returnedByLine = new Map<string, number>();
+  const returnedQrByLine = new Map<string, string[][]>();
   for (const ret of priorReturns)
     for (const line of ret.lines)
-      if (line.originalLineId)
+      if (line.originalLineId) {
         returnedByLine.set(line.originalLineId, (returnedByLine.get(line.originalLineId) ?? 0) + Number(line.quantity));
+        returnedQrByLine.set(line.originalLineId, [...(returnedQrByLine.get(line.originalLineId) ?? []), line.stockQr ?? []]);
+      }
 
   const planned: {
     original: (typeof original.lines)[number];
@@ -2188,6 +2229,8 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
     cityTaxAmount: number;
     discountAmount: number;
     lineGross: number;
+    /** Буцааж буй ширхэгийн ОАТ-ын QR — үлдсэнээс сүүлээс нь (lib/pos/stock-qr.ts). */
+    stockQr: string[];
   }[] = [];
   for (const request of input.lines) {
     const line = original.lines.find((entry) => entry.id === request.lineId);
@@ -2215,6 +2258,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
       cityTaxAmount: remainingOf(Number(line.cityTaxAmount)),
       discountAmount: remainingOf(Number(line.discountAmount)),
       lineGross: remainingOf(Number(line.lineGross)),
+      stockQr: takeReturnedStockQr(remainingStockQr(line.stockQr ?? [], returnedQrByLine.get(line.id) ?? []), quantity),
     });
   }
   if (planned.length === 0) throw new Error("Буцаах мөр сонгоно уу");
@@ -2442,6 +2486,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
           vatAmount: String(entry.vatAmount),
           cityTaxAmount: String(entry.cityTaxAmount),
           lineTotal: String(entry.lineTotal),
+          stockQr: entry.stockQr,
           originalLineId: entry.original.id,
           sortOrder: index,
         })

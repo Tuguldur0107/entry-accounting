@@ -3,7 +3,9 @@
 // POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт (TPI)» (docs/dev/ebarimt-tax-reconcile.md).
 // Байгууллагын өөрийн ITC нэвтрэлтээр ТЕГ-ээс нэхэмжлэх ба төлбөрийн баримтыг өдөр
 // бүр татаж, порталын «Үлдэгдэл»-ийг Entry-ийн авлагатай тулгана. ЗӨВХӨН унших.
-// Нууц үг / X-API-KEY write-only — хоосон бол хуучнаа хадгална. Админ+ л.
+// Нууц үг write-only — хоосон бол хуучнаа хадгална. Админ+ л. ITC-ийн X-API-KEY нь
+// Entry-ийн ОПЕРАТОРЫН түлхүүр (серверийн env `ITC_TPI_API_KEY`) — харилцагчид
+// харуулахгүй, оруулуулахгүй (product owner 2026-10-02).
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -39,7 +41,6 @@ export function EbarimtTpiSettings() {
   const [environment, setEnvironment] = useState<"production" | "staging">("production");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [isPending, startTransition] = useTransition();
 
@@ -51,7 +52,6 @@ export function EbarimtTpiSettings() {
       setEnabled(next.isEnabled);
     }
     setPassword("");
-    setApiKey("");
   }
 
   useEffect(() => {
@@ -69,7 +69,7 @@ export function EbarimtTpiSettings() {
 
   function save() {
     startTransition(async () => {
-      const { error, connection: saved } = await saveEbarimtTpiConnection({ environment, username, password, apiKey, isEnabled: enabled });
+      const { error, connection: saved } = await saveEbarimtTpiConnection({ environment, username, password, isEnabled: enabled });
       if (error || !saved) {
         feedback.error(error ?? "ТЕГ-ийн TPI холболт хадгалагдсангүй");
         return;
@@ -140,8 +140,7 @@ export function EbarimtTpiSettings() {
           ТЕГ-д юу ч бичихгүй.
         </p>
         <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-          Нэвтрэлт: байгууллагын eBarimt-д эрхтэй ITC хэрэглэгч. X-API-KEY-г ITC олгоно (posapi@itc.gov.mn); хоосон
-          бол серверийн тохиргоогоор.
+          Нэвтрэлт: байгууллагын eBarimt-д эрхтэй ITC хэрэглэгч. Холболтын түлхүүрийг Entry (оператор) хариуцна.
         </p>
       </div>
       {forbidden ? (
@@ -182,24 +181,17 @@ export function EbarimtTpiSettings() {
           <FormField label="Орчин">
             <FilterChips options={ENVIRONMENT_OPTIONS} value={environment} onChange={setEnvironment} />
           </FormField>
+          {connection && !connection.serverApiKey && !connection.hasApiKey && (
+            <div className="text-xs text-[var(--ea-warning-fg)]">
+              Entry-ийн операторын түлхүүр серверт тохируулагдаагүй байна — Entry багт хандана уу.
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <FormField label="ITC нэвтрэх нэр">
               <Input value={username} autoComplete="off" onChange={(e) => setUsername(e.target.value)} />
             </FormField>
             <FormField label="Нууц үг" hint={connection?.hasPassword ? "Хадгалагдсан — солих бол л бичнэ" : "Анх холбоход заавал"}>
               <Input type="password" value={password} autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} />
-            </FormField>
-            <FormField
-              label="X-API-KEY"
-              hint={
-                connection?.hasApiKey
-                  ? "Байгууллагын түлхүүр хадгалагдсан — солих бол л бичнэ"
-                  : connection?.serverApiKey
-                    ? "Хоосон — серверийн түлхүүрээр"
-                    : "Серверт ч тохируулаагүй — ITC-ээс авна"
-              }
-            >
-              <Input type="password" value={apiKey} autoComplete="off" onChange={(e) => setApiKey(e.target.value)} />
             </FormField>
           </div>
           <SwitchField label="Өдөр бүр автоматаар татах" checked={enabled} onChange={setEnabled} />

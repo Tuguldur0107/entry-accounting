@@ -161,9 +161,12 @@ QPay       pos_settings.qpay{Enabled,ApiUrl,ApiKeyEnc,WebhookSecretEnc,MerchantI
            expiresAt, saleId, lastCheckAt, lastError; unique INDEX (org,
            qpayInvoiceId) where not null)
 eBarimt    pos_settings.ebarimt{Enabled,MerchantTin,BranchNo,DistrictCode,PosNo,
-           PosApiUrl,Mode} (мерчантын тохиргоо — нууц БАЙХГҮЙ),
+           PosApiUrl,Mode,Latitude,Longitude} (мерчантын тохиргоо — нууц БАЙХГҮЙ;
+           Latitude/Longitude = салбарын GPS, receipts[].data.location),
            pos_payment_methods.ebarimtCode, inventory_items.ebarimt{Classification,
-           TaxProduct}Code, inventory_categories.ebarimtClassificationCode,
+           TaxProduct}Code, inventory_items.exciseStamped (ОАТ-ын тэмдэгтэй),
+           pos_sale_lines.stockQr (jsonb string[] — ОАТ-ын тэмдгийн QR, буцаалтын
+           мөрд буцаасан ширхэгийнх), inventory_categories.ebarimtClassificationCode,
            pos_sales.ebarimt{Id,Lottery,Status,QrData,Date,Type,ConsumerNo,CustomerTin,
            Total,Vat,CityTax,Correction} (Total/Vat/CityTax = ТЕГ-д БҮРТГЭЛТЭЙ дүн,
            markSent бичнэ; Correction = буцаалтын засвар pending|failed),

@@ -15,12 +15,14 @@ export type InventoryItemView = {
   vatMode: ItemVatMode;
   /** НХАТ (нийслэлийн албан татвар) ногдох бараа. */
   cityTaxable: boolean;
+  /** ОАТ-ын тэмдэгтэй бараа — кассад тэмдгийн QR уншуулна (eBarimt stockQR). */
+  exciseStamped: boolean;
   /** Барааны орлогын дансны override — null бол POS тохиргооны данс. */
   revenueAccountNumber: string | null;
   categoryCode: string | null;
   /** eBarimt: ТЕГ-ийн ангилалын код (7 орон) — хоосон бол бүлгийнх өвлөгдөнө. */
   ebarimtClassificationCode: string | null;
-  /** eBarimt: НӨАТ-гүй/0% барааны татварын бүтээгдэхүүний код (3–5 орон). */
+  /** eBarimt: НӨАТ-гүй/0% барааны татварын бүтээгдэхүүний код (3–7 орон). */
   ebarimtTaxProductCode: string | null;
   /** Баркодын төрөл — "GS1" | "ISBN" | "UNDEFINED"; null = UNDEFINED. */
   barcodeType: string | null;

@@ -242,6 +242,8 @@ export function toPosSettingsView(row: PosSettings): PosSettingsView {
     ebarimtPosNo: row.ebarimtPosNo,
     ebarimtPosApiUrl: row.ebarimtPosApiUrl,
     ebarimtMode: row.ebarimtMode === "browser" ? "browser" : "server",
+    ebarimtLatitude: row.ebarimtLatitude,
+    ebarimtLongitude: row.ebarimtLongitude,
     ebarimtArapEnabled: row.ebarimtArapEnabled,
     ebarimtArapPaymentCode: row.ebarimtArapPaymentCode,
     ebarimtArapBankAccountNo: row.ebarimtArapBankAccountNo,
@@ -756,6 +758,8 @@ export interface CheckoutItem {
   salesPrice: number | null;
   minSalesPrice: number | null;
   vatMode: "standard" | "exempt" | "zero";
+  /** ОАТ-ын тэмдэгтэй бараа — кассад QR уншуулна (lib/pos/stock-qr.ts). */
+  exciseStamped: boolean;
 }
 
 export interface CheckoutCustomer {
@@ -891,6 +895,7 @@ export async function loadCheckoutData(orgId: string, userId: string): Promise<C
       salesPrice: item.salesPrice === null ? null : Number(item.salesPrice),
       minSalesPrice: item.minSalesPrice === null ? null : Number(item.minSalesPrice),
       vatMode: toItemVatMode(item.vatMode),
+      exciseStamped: item.exciseStamped,
     })),
     warehouses: warehouseRows.map((warehouse) => ({
       id: warehouse.id,
