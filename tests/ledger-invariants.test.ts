@@ -46,6 +46,7 @@ test("төлөвлөгөө: цэвэр DB-д бүх хамгаалалт, анх
     constraint: true,
     balanceTriggers: true,
     protectTrigger: true,
+    postedNoteTrigger: true,
     warnings: [],
   });
 });
@@ -138,7 +139,7 @@ async function postedVoucher(lines: { debit: string; credit: string }[]) {
   });
 }
 
-test("DB: тавилт идемпотент — trigger 3, Дт xor Кт constraint", { skip: !DB_READY }, async () => {
+test("DB: тавилт идемпотент — trigger 4, Дт xor Кт constraint", { skip: !DB_READY }, async () => {
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
   try {
     const log: string[] = [];
@@ -151,7 +152,7 @@ test("DB: тавилт идемпотент — trigger 3, Дт xor Кт constra
       const result = await applyLedgerInvariants(sql, (line) => log.push(line));
       assert.equal(result.failures, 0, log.join("\n"));
       assert.equal(result.skipped, 0, log.join("\n"));
-      assert.deepEqual(result.status, { triggers: 3, expectedTriggers: 3, drXorCr: true });
+      assert.deepEqual(result.status, { triggers: 4, expectedTriggers: 4, drXorCr: true });
       if (run === 0) before = await triggerOids();
     }
     // Хоёр дахь удаад trigger-ийг ДАХИН үүсгэхгүй (апп ажиллаж байх зуур
@@ -159,7 +160,7 @@ test("DB: тавилт идемпотент — trigger 3, Дт xor Кт constra
     assert.deepEqual(await triggerOids(), before);
     assert.match(log.slice(-3).join("\n"), /батлагдсан мөрийн хамгаалалт: бий/);
     // /api/health → ledger
-    assert.deepEqual(await ledgerGuardStatus(), { ok: true, triggers: 3, expectedTriggers: 3, drXorCr: true });
+    assert.deepEqual(await ledgerGuardStatus(), { ok: true, triggers: 4, expectedTriggers: 4, drXorCr: true });
   } finally {
     await sql.end({ timeout: 5 });
   }
