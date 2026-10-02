@@ -12,10 +12,20 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq, lt } from "drizzle-orm";
+import { and, asc, eq, lt } from "drizzle-orm";
 
+import { resolveAiPostLimit } from "@/lib/ai/post-limit";
 import { db } from "@/lib/db";
-import { oauthClients, oauthCodes, oauthTokens } from "@/lib/db/schema";
+import {
+  memberships,
+  oauthClients,
+  oauthCodes,
+  oauthTokens,
+  organizationProfile,
+  organizations,
+  type MembershipRole,
+} from "@/lib/db/schema";
+import type { ConsentOrgOption } from "@/lib/oauth/consent-org";
 
 const CODE_TTL_MS = 10 * 60 * 1000; // 10 минут
 const ACCESS_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 хоног
@@ -82,6 +92,36 @@ export function clientRedirectUris(client: { redirectUris: string }): string[] {
   } catch {
     return [];
   }
+}
+
+// ── Consent-ийн байгууллагын сонголт ──────────────────────────────────────
+
+export interface ConsentOrg extends ConsentOrgOption {
+  role: MembershipRole;
+  /** Тэр байгууллагын AI шууд батлах хязгаар (§9) — consent-д ил харуулна. */
+  postLimitMnt: number;
+}
+
+/** Хэрэглэгчийн гишүүн байгууллагууд — consent хуудас + approve хоёул ЭНЭ эх. */
+export async function listConsentOrgs(userId: string): Promise<ConsentOrg[]> {
+  const rows = await db
+    .select({
+      id: organizations.id,
+      name: organizations.name,
+      role: memberships.role,
+      aiPostLimitMnt: organizationProfile.aiPostLimitMnt,
+    })
+    .from(memberships)
+    .innerJoin(organizations, eq(memberships.organizationId, organizations.id))
+    .leftJoin(organizationProfile, eq(organizationProfile.organizationId, organizations.id))
+    .where(eq(memberships.userId, userId))
+    .orderBy(asc(organizations.name));
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    role: row.role as MembershipRole,
+    postLimitMnt: resolveAiPostLimit(row.aiPostLimitMnt),
+  }));
 }
 
 // ── Authorization code ──────────────────────────────────────────────────────
