@@ -74,6 +74,7 @@ import {
   type InvoiceAccountHints,
 } from "@/lib/cash/bank-row-preview";
 import { StatementPreviewDialog } from "@/components/cash/statement-preview-dialog";
+import { matchCounterpartyByName } from "@/lib/cash/list-columns";
 import type { BankStatementPreview } from "@/lib/cash/statement-preview";
 import type { EntityKindOption } from "@/lib/arap/counterparty-kind";
 import {
@@ -477,18 +478,17 @@ export function BankStatementImport({
   // Саналын лавлах ирмэгц «Бүртгэл» нь нэхэмжлэх үүсгэх боловч харьцах тал
   // хоосон мөрүүдийг бөглөнө (сэргээсэн ноорог г.м.). Fetch-ийн callback-аас
   // дуудагддаг тул ref-ээр хамгийн сүүлийн сегментийн тохиргоог авна.
-  // Эхлээд харилцагчгүй мөрийг бүртгэлтэй харилцагчтай холбоно (харьцсан данс,
-  // ЯГ нэр) — нэхэмжлэх үүсгэх мөрд харилцагч ЗААВАЛ, дансны санал ч түүнээс.
-  const applyInvoiceHintsRef = useRef<(context: ImportContext) => void>(() => {});
+  const fillInvoiceHintsRef = useRef<
+    (rows: ParsedBankStatementRow[], hints: InvoiceAccountHints | undefined) => ParsedBankStatementRow[]
+  >((rows) => rows);
+  const applyInvoiceHintsRef = useRef<(hints: InvoiceAccountHints | undefined) => void>(() => {});
   useEffect(() => {
-    applyInvoiceHintsRef.current = (context) =>
-      setRows((current) =>
-        fillInvoiceCounterAccounts(
-          linkStatementCounterparties(current, context.counterparties),
-          context.invoiceAccountHints,
-          (main) => buildSegCode({ ...defaultSegments, 3: main }, activeSegIds, defaultSegments)
-        )
+    fillInvoiceHintsRef.current = (rows, hints) =>
+      fillInvoiceCounterAccounts(rows, hints, (main) =>
+        buildSegCode({ ...defaultSegments, 3: main }, activeSegIds, defaultSegments)
       );
+    applyInvoiceHintsRef.current = (hints) =>
+      setRows((current) => fillInvoiceHintsRef.current(current, hints));
   }, [activeSegIds, defaultSegments]);
 
 
@@ -815,8 +815,17 @@ export function BankStatementImport({
         if (invoice?.counterpartyId) patched.counterpartyId = invoice.counterpartyId;
       }
       if (suggestion.kind === "rule") {
-        if (suggestion.setCounterparty)
+        if (suggestion.setCounterparty) {
           patched.counterparty = suggestion.setCounterparty;
+          // Өмнөх (автомат) холбоос дүрмийн нэртэй зөрөхгүй — дүрмийн нэрээр
+          // ЯГ таарвал түүнийг, эс бөгөөс холбоосгүй (сервер нэрээр дахин тулгана).
+          const master = matchCounterpartyByName(
+            suggestion.setCounterparty,
+            matchContext?.counterparties ?? []
+          );
+          patched.counterpartyId = master?.id ?? null;
+          if (master) patched.counterparty = master.name;
+        }
         if (suggestion.setDescription)
           patched.description = suggestion.setDescription;
       }
@@ -917,7 +926,7 @@ export function BankStatementImport({
       .then((data: (ImportContext & { error?: string }) | null) => {
         if (!data || data.error) return;
         setMatchContext(data);
-        applyInvoiceHintsRef.current(data);
+        applyInvoiceHintsRef.current(data.invoiceAccountHints);
       })
       .catch(() => {});
   }, []);
@@ -1342,36 +1351,45 @@ export function BankStatementImport({
       .then((data: (ImportContext & { error?: string }) | null) => {
         if (!data || data.error) return;
         setMatchContext(data);
-        applyInvoiceHintsRef.current(data);
         // «Шууд бөглөх» дүрэм уншигдмагц хэрэгжинэ — хэрэглэгч
         // хадгалахаас өмнө хянаж засна (§9). Аль хэдийн бөглөгдсөн
         // (хэрэглэгчийн засварласан) талыг дарж бичихгүй.
         const autoRules = (data.rules ?? []).filter(
           (rule) => rule.mode === "auto"
         );
-        if (autoRules.length === 0) return;
         const hits = new Map(
-          result.rows.flatMap((row) => {
-            const rule = firstMatchingRule(row, autoRules);
-            return rule ? [[row.id, rule] as const] : [];
-          })
+          autoRules.length === 0
+            ? []
+            : result.rows.flatMap((row) => {
+                const rule = firstMatchingRule(row, autoRules);
+                return rule ? [[row.id, rule] as const] : [];
+              })
         );
-        if (hits.size === 0) return;
-        setRows((current) =>
-          current.map((row) => {
-            const rule = hits.get(row.id);
-            if (!rule) return row;
-            const counterField =
-              row.income > 0
-                ? ("creditAccountNumber" as const)
-                : ("debitAccountNumber" as const);
-            if (row[counterField] !== blankCode) return row;
-            const suggestion = toRuleSuggestion(rule);
-            const code = suggestionCode(suggestion);
-            if (!code) return row;
-            return patchRowWithSuggestion(row, suggestion, code);
-          })
-        );
+        // Дараалал: дүрэм → харилцагчийн холбоос (дүрмийн тавьсан нэрээр ч) →
+        // дансны санал (харилцагчаас хамаарна). Холбоос ЗӨВХӨН энд, хуулга
+        // ачаалах үед НЭГ удаа — хэрэглэгчийн цэвэрлэсэн холбоосыг дахин тавихгүй.
+        setRows((current) => {
+          const ruled =
+            hits.size === 0
+              ? current
+              : current.map((row) => {
+                  const rule = hits.get(row.id);
+                  if (!rule) return row;
+                  const counterField =
+                    row.income > 0
+                      ? ("creditAccountNumber" as const)
+                      : ("debitAccountNumber" as const);
+                  if (row[counterField] !== blankCode) return row;
+                  const suggestion = toRuleSuggestion(rule);
+                  const code = suggestionCode(suggestion);
+                  if (!code) return row;
+                  return patchRowWithSuggestion(row, suggestion, code);
+                });
+          return fillInvoiceHintsRef.current(
+            linkStatementCounterparties(ruled, data.counterparties),
+            data.invoiceAccountHints
+          );
+        });
       })
       .catch(() => {});
   }
@@ -1585,7 +1603,7 @@ export function BankStatementImport({
       .then((data: (ImportContext & { error?: string }) | null) => {
         if (!data || data.error) return;
         setMatchContext(data);
-        applyInvoiceHintsRef.current(data);
+        applyInvoiceHintsRef.current(data.invoiceAccountHints);
       })
       .catch(() => {});
     feedback.saved(
