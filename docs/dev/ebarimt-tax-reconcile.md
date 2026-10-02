@@ -249,5 +249,9 @@ loadEbarimtPurchaseChecks: ТЕГ-ийн баримт × өглөг (ap_bill, б
   тооцоонд ХЭРЭГЛЭХГҮЙ (зөвхөн харуулна).
 - UI: Өглөг → eBarimt → «Гаалийн мэдүүлэг» таб (`?view=customs`, топбарын период),
   Excel нь барааны мөр бүрээр, «Одоо татах» (`ap:write`, аудит).
+- MCP: `get_ebarimt_customs_declarations` (унших, `getEbarimtCustomsDeclarations` action — `ap:read`):
+  огнооны муж (анхдагч энэ сарын 1 → өнөөдөр) эсвэл `declarationNo` — дугаараар хайлт DB-д
+  шууд, огнооны цонхгүй; `includeItems` барааны мөр; нэгжийн үнийг «эх» гэж тэмдэглэнэ.
+  Түлхүүргүй / татагдаагүй / алдаатай төлөвийг ил хэлнэ.
 - Код: `lib/ebarimt/customs-sync.ts` (DB), `lib/ebarimt/customs.ts` (ЦЭВЭР),
   `components/ebarimt/ebarimt-customs-view.tsx`; тест `tests/ebarimt-customs.test.ts`.

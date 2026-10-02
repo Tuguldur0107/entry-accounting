@@ -143,11 +143,19 @@ export async function syncEbarimtCustomsDeclarations(orgId: string, options: { m
   }
 }
 
-/** Огнооны мужийн гаалийн мэдүүлэг (Өглөг → eBarimt → «Гаалийн мэдүүлэг»). */
+/**
+ * Гаалийн мэдүүлэг — огнооны мужаар (Өглөг → eBarimt → «Гаалийн мэдүүлэг») эсвэл
+ * дугаараар (AI). Дугаараар хайлт DB-д шууд, огнооны цонхгүй (§9a — хуучин мэдүүлэг
+ * «олдсонгүй» болохгүй).
+ */
 export async function loadEbarimtCustomsDeclarations(
   orgId: string,
-  range: { from: string; to: string }
+  range: { from: string; to: string } | { declarationNo: string }
 ): Promise<{ rows: EbarimtCustomsRow[]; summary: EbarimtCustomsSummary }> {
+  const filter =
+    "declarationNo" in range
+      ? eq(ebarimtCustomsDeclarations.declarationNo, range.declarationNo.trim())
+      : and(gte(ebarimtCustomsDeclarations.declarationDate, range.from), lte(ebarimtCustomsDeclarations.declarationDate, range.to));
   const rows = await db
     .select({
       declarationNo: ebarimtCustomsDeclarations.declarationNo,
@@ -162,11 +170,7 @@ export async function loadEbarimtCustomsDeclarations(
     })
     .from(ebarimtCustomsDeclarations)
     .where(
-      and(
-        eq(ebarimtCustomsDeclarations.organizationId, orgId),
-        gte(ebarimtCustomsDeclarations.declarationDate, range.from),
-        lte(ebarimtCustomsDeclarations.declarationDate, range.to)
-      )
+and(eq(ebarimtCustomsDeclarations.organizationId, orgId), filter)
     )
     .orderBy(sql`${ebarimtCustomsDeclarations.declarationDate} desc, ${ebarimtCustomsDeclarations.declarationNo}`);
   const mapped: EbarimtCustomsRow[] = rows.map((row) => ({

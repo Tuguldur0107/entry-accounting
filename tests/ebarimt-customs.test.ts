@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { customsGoodsLabel, summarizeCustomsDeclarations } from "../lib/ebarimt/customs";
+import { customsDeclarationLines, customsGoodsLabel, customsSummaryText, summarizeCustomsDeclarations } from "../lib/ebarimt/customs";
 import { customsDeclarationBody, customsHasMorePages, parseCustomsDeclarations } from "../lib/itc/tpi";
 
 test("Гаалийн мэдүүлгийн хүсэлт: YYYY-MM-DD, pageNumber 1-ээс, анхдагч 100", () => {
@@ -75,4 +75,34 @@ test("Гаалийн хураангуй ба барааны товч", () => {
   assert.equal(customsGoodsLabel([{ name: "A" }, { name: "B" }, { name: "C" }]), "A … (+2)");
   assert.equal(customsGoodsLabel([{ name: " A " }]), "A");
   assert.equal(customsGoodsLabel([]), "");
+});
+
+test("AI-ийн текст: хураангуй, мэдүүлгийн мөр, барааны мөр, хязгаар", () => {
+  const rows = [
+    {
+      declarationNo: "D1",
+      rawDate: "2026-09-24T09:15:58.000+0000",
+      date: "2026-09-24",
+      items: [
+        { name: "Тоног төхөөрөмж", unitPrice: 1200.5, duty: 5000, excise: 0, fee: 3000, vatBase: 1_058_000, vat: 105_800 },
+        { name: "Сэлбэг", unitPrice: null, duty: 0, excise: 0, fee: 0, vatBase: 0, vat: 0 },
+      ],
+      duty: 5000,
+      excise: 0,
+      fee: 3000,
+      vatBase: 1_058_000,
+      vat: 105_800,
+    },
+    { declarationNo: "D2", rawDate: "", date: "2026-09-25", items: [], duty: 0, excise: 0, fee: 0, vatBase: 0, vat: 0 },
+  ];
+  assert.match(customsSummaryText(summarizeCustomsDeclarations(rows)), /Мэдүүлэг 2 · барааны мөр 2 .* импортын НӨАТ 105,800$/);
+  const brief = customsDeclarationLines(rows, { limit: 1, includeItems: false });
+  assert.equal(brief.length, 2);
+  assert.match(brief[0], /^- D1 \(2026-09-24\): Тоног төхөөрөмж … \(\+1\) · гааль 5,000/);
+  assert.match(brief[1], /дахиад 1 мэдүүлэг/);
+  const full = customsDeclarationLines(rows, { limit: 10, includeItems: true });
+  assert.equal(full.length, 4);
+  assert.match(full[1], /нэгжийн үнэ \(эх\) 1,200\.5/);
+  assert.doesNotMatch(full[2], /нэгжийн үнэ/);
+  assert.equal(full[3], "- D2 (2026-09-25) · гааль 0 · ОАТ 0 · хураамж 0 · НӨАТ-ын суурь 0 · НӨАТ 0");
 });
