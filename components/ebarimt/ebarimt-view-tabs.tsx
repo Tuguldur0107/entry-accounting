@@ -1,6 +1,6 @@
 "use client";
 
-// Авлага → eBarimt хуудасны таб: баримтууд | ТЕГ-ийн тулгалт | ТЕГ-ийн бүх баримт.
+// Авлага → eBarimt · борлуулалт хуудасны таб: илгээсэн баримт | ТЕГ-ийн тулгалт | ТЕГ-ийн бүх борлуулалт.
 // URL `?view=tax` / `?view=sales` («Анхаарах»-ын холбоос шууд тулгалт руу орно);
 // бусад параметр хадгалагдана.
 
@@ -15,9 +15,9 @@ export function EbarimtViewTabs({ view, problems }: { view: EbarimtPageView; pro
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tabs = [
-    { value: "documents" as const, label: "eBarimt баримт" },
+    { value: "documents" as const, label: "Илгээсэн баримт" },
     { value: "tax" as const, label: problems > 0 ? `ТЕГ-ийн тулгалт · ${problems}` : "ТЕГ-ийн тулгалт" },
-    { value: "sales" as const, label: "ТЕГ-ийн бүх баримт" },
+    { value: "sales" as const, label: "ТЕГ-ийн бүх борлуулалт" },
   ];
   return (
     <PageTabs

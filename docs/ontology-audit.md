@@ -154,7 +154,7 @@ Ontology-ийн `relations` хэсэг эдгээрийг **ил, типтэй**
 | EbarimtSubmission | TS (`claimed` дутуу `ebarimt/types.ts:191`) | partial uq | ✅ | claim ✅ | — | ⚠️ `markSent/markFailed` predicate-гүй (queue.ts:564, 623) | — |
 | PayrollRun | тайлбар | uq | ✅ | төлөвийг **хэзээ ч уншдаггүй**, `voucherId`-ээр шалгадаг | ❌ GL-ээс буцаах боломжтой, буцаасны дараа гацна (§5 H6) | — | — |
 | AccountingPeriod | TS | uq | — | хаах ✅ exclusive lock (periods.ts:230) | дахин нээх ⚠️ exclusive lock-гүй (476) | — | — |
-| RecurringInvoice | TS | — | ✅ | — | — | ⚠️ ажиллуулагч хуучин төлвийг буцааж бичдэг (recurring-run.ts:231) | — |
+| RecurringInvoice | TS | — | ✅ | — | — | ✅ (L1) ~~ажиллуулагч хуучин төлвийг буцааж бичдэг~~ | — |
 
 ### 2.2 Ажиглалт
 
@@ -175,7 +175,7 @@ Ontology-ийн `relations` хэсэг эдгээрийг **ил, типтэй**
 |---|---|---|---|---|---|
 | R1 | Дт = Кт, хоосон биш, мөр нэг талтай | `assertBalanced` gl.ts:680, `validateVoucherLines` gl.ts:641 (хоёулаа private) | `createVoucher`-ээр дамжих бүх зам (GL, цалин, НӨАТ, татвар, AI) | **Журнал бичдэг 46 газраас 43 нь дууддаггүй** (pos 10, fa 7, cash 6, arap 5, ecl 4, procurement 4, costing 2, import-statement 2, opening-stock, qpay/refund, journal-import). Дараа нь хамгаалах ганц зүйл нь deploy-гүй trigger. | Хүлцлийн хэмжээ 5 газар: integrity.ts:37 (0.011), reports/balances.ts:31 (0.01), currency.ts:142, T:3829, trigger. journal-import.ts:59 шалгалтаа сул хуулбараар дахин бичсэн. |
 | R2 | Батлагдсан журналыг засахгүй, устгахгүй | `[USE_REVERSAL]` gl.ts:1444; trigger `ea_journal_lines_protect` (зөвхөн мөрд) | GL-ийн устгалт | **cash.ts:1639, arap.ts:2155** батлагдсан журналыг устгадаг. Журналын толгой хэсэгт DB хамгаалалт байхгүй. procurement.ts:1707 батлагдсан журналын `externalRef`-ийг null болгодог. | — |
-| R3 | Хаагдсан үед бичихгүй | `assertPeriodOpen` / `assertPeriodOpenInTx` (`lib/periods/guard.ts:57/78`) | ~60 газар (§ agent жагсаалт) | Зөвхөн tx-ийн гадна шалгадаг: cash устгалт (1523), arap устгалт (2058), cost-allocation (395), payroll (855). **Банкны хуулга импорт** журнал батлахдаа зөвхөн `assertPeriodsOpen`-ийг дууддаг, InTx шалгалтгүй (import-statement.ts:168). `reopenPeriod` exclusive lock-гүй. | — |
+| R3 | Хаагдсан үед бичихгүй | `assertPeriodOpen` / `assertPeriodOpenInTx` (`lib/periods/guard.ts:57/78`) | ~60 газар (§ agent жагсаалт) | Зөвхөн tx-ийн гадна шалгадаг: cash устгалт (1523), arap устгалт (2058), cost-allocation (395), payroll (855). **Банкны хуулга импорт** журнал батлахдаа зөвхөн `assertPeriodsOpen`-ийг дууддаг, InTx шалгалтгүй (import-statement.ts:168). ~~`reopenPeriod` exclusive lock-гүй~~ (✅ L1). | — |
 | R4 | Журналын дугаар `nextVoucherNo` | `lib/gl/voucher-no.ts:132` | 11 файлд 46 газар | ✅ **M1-ээр засагдсан (2026-10-02)**, `tests/voucher-numbers-coverage.test.ts` сахиулна. Анх: **12 insert дугааргүй:** pos.ts 1387, 1611, 1730, 1810, 2184, 2332, 2407, 2495, 2726, 2858; fa.ts 630, 1535 | POS/PO/GR-ийн баримтын дугаарыг `max+1` аргаар олгодог (pos.ts:166, procurement.ts:175/195) |
 | R5 | Буцаалт эх талдаа, сөрөг дүнтэй | `lib/gl/storno.ts:18/33` | 13 газар | ✅ M2-оор засагдсан (2026-10-02). Анх: **gl.ts:1248** `unpostVoucher` дүнгээ шууд хасах тэмдэгтэй болгодог бөгөөд **`debitFc/creditFc`, валют, ханшийг хаядаг**. `duplicateVoucher` (1537) мөн адил. | Шууд хасах тэмдэг тавих нь `stornoOf`-ийн давхар хэрэгжүүлэлт |
 | R6 | Хяналтын данс руу гар журнал бичих хамгаалалт | `checkControlAccountGuard` gl.ts:699 | Зөвхөн GL модуль (create 758, post 901, update 1326) | ✅ M6-аар касс + ҮХ хамгаалагдсан (2026-10-02). Анх: FA `capitalizeFrom` Кт 31000001 руу шууд бичдэг (fa.ts:218). Касс нэхэмжлэхгүй үед хяналтын дансыг эсрэг данс болгож болно. Бараа материалын хяналтын данс хамгаалалтын жагсаалтад ороогүй. | — |
@@ -273,12 +273,12 @@ Ontology-ийн `relations` хэсэг эдгээрийг **ил, типтэй**
   - ID-г `voucherId`, `documentId`, `document`, `sale`, `shift`, `assetCode` гэх мэт олон янзаар нэрлэдэг.
 
 **Тайлбар ба бодит зан төлөв зөрдөг:**
-- **Хязгаарын дүн:** 17 tool-ын тайлбарт «10 сая ₮» гэж хатуу бичсэн ч хязгаар байгууллагаар тохируулагддаг.
+- ✅ (L1) **Хязгаарын дүн:** 17 tool-ын тайлбарт «10 сая ₮» гэж хатуу бичсэн ч хязгаар байгууллагаар тохируулагддаг.
 - ✅ **Нээлт ба хаалт (M7-оор засагдсан 2026-10-02):** MCP instructions (`lib/mcp/server.ts:112`) болон `ONBOARDING_LIMITS` (`lib/onboarding/guide.ts:212`) «нээлт/хаалт үргэлж хүн баталгаажуулна» гэдэг. Бодит байдал:
   - `create_opening_stock` post горимд GL батлан бичдэг.
   - `close_period` post горимд хаадаг.
 - **Batch tool:** `create_gl_accounts_batch` байгаа дансыг «алгасна» гэдэг ч бодит байдалд алдаа гэж тоолдог.
-- **Байхгүй tool:** tool олдоогүй үед хариу нь `Алдаа:` угтваргүй тул MCP `isError:false` гэж буцаадаг (T:12822).
+- ✅ (L1) **Байхгүй tool:** tool олдоогүй үед хариу нь `Алдаа:` угтваргүй тул MCP `isError:false` гэж буцаадаг (T:12822).
 
 ---
 
@@ -308,7 +308,7 @@ Severity: **C** = өгөгдөл/дэвтэр эвдэрнэ, **H** = мөнгө
 | M6 | **M → засагдсан 2026-10-02** | ✅ Нэхэмжлэхгүй кассын баримт (батлах үед) ба ҮХ `capitalizeFrom` гар журналтай НЭГ `checkControlAccountGuard`-аар (warn — анхааруулга UI/AI-д, block — `[CONTROL_ACCOUNT]`); `tests/control-account-paths.test.ts` (засваргүй кодод 2 тест унасан). Анхны тодорхойлолт: Хяналтын данс руу FA `capitalizeFrom` эсвэл кассын эсрэг данс бичнэ | Дэд дэвтэр ↔ GL зөрнө | fa.ts:218, cash.ts:114-150 |
 | M7 | **M → засагдсан 2026-10-02** | ✅ Product owner: зан төлөв хэвээр, заавар бодит байдлыг хэлнэ — MCP instructions, `ONBOARDING_LIMITS`, onboarding.md R9/§5, UI hint, CLAUDE.md §9 («Шууд бичих» горимд нээлт хязгаар дотор батлагдана, сар хаах зөвхөн шууд горимд, цалингийн журнал ноорог үүснэ); `tests/ai-guidance-accuracy.test.ts` заавар ба зан төлөвийг зэрэг түгжинэ (засваргүй кодод унасан). Анхны тодорхойлолт: AI MCP instructions-д итгээд «нээлт үргэлж ноорог» гэж хэрэглэгчид хэлнэ | Буруу мэдээлэл өгнө | server.ts:112, guide.ts:212 |
 | M8 | **M → засагдсан 2026-10-02** | ✅ PO цуцлах/устгах, хүлээн авалт үүсгэх/батлах PO-г түгжиж, түгжээний дараа дахин шалгана (`tests/procurement-concurrency.test.ts` — засваргүй кодод унасан). Анхны тодорхойлолт: AI PO цуцлах ба хүлээн авалт батлахыг зэрэг дуудна | Цуцлагдсан PO-д батлагдсан хүлээн авалт үлдэнэ | procurement.ts:1291-1335 |
-| L1 | L | — | Нэршил зөрүүтэй, «10 сая» хатуу бичигдсэн, `isError` буруу, `reopenPeriod` lock-гүй, давтамжтай нэхэмжлэх хуучин төлөв буцааж бичдэг | §4.2, §2.1 |
+| L1 | **L → хэсэгчлэн засагдсан 2026-10-02** | ✅ байхгүй tool `Алдаа: [UNKNOWN_TOOL]` (isError), tool тайлбарт «default 10 сая ₮», `reopenPeriod` exclusive lock, давтамжтай нэхэмжлэх төлөв/тоолуурыг дарж бичихгүй (`tests/l1-cleanups.test.ts` — засваргүй кодод 4 тест унасан). Үлдсэн: tool/параметрийн нэршлийн зөрүү (§4.2 — P6 alias). Анхны тодорхойлолт: — | Нэршил зөрүүтэй, «10 сая» хатуу бичигдсэн, `isError` буруу, `reopenPeriod` lock-гүй, давтамжтай нэхэмжлэх хуучин төлөв буцааж бичдэг | §4.2, §2.1 |
 
 ---
 

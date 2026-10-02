@@ -1,29 +1,89 @@
-// eBarimt баримтууд `/tax/ebarimt` — ТЕГ-д илгээсэн (эсвэл илгээх гэж буй) бүх
-// баримт НЭГ дор: POS борлуулалт/буцаалт + АР нэхэмжлэх (docs/pos/05 Шат 2).
-// Авлагын модульд ижил жагсаалт `/receivables/ebarimt`; өглөгийнх (худалдан
-// авалтын баримт, ITC TPI) `/payables/ebarimt` — Монголын сүлжээний прокси
-// бэлэн болмогц (docs/deployment/mongolia-network-runbook.md).
+// Татвар → ТЕГ-ийн холболт `/tax/ebarimt` — ITC/ТЕГ-ийн TPI нэвтрэлт (байгууллагын
+// ITC хэрэглэгч) ба ТЕГ-ээс ТАТАХ гурван урсгалын төлөв: борлуулалт (getSalesTotalData),
+// худалдан авалт (getSaleListERP), гаалийн мэдүүлэг (tpiDeclaration). Жагсаалтууд өөрийн
+// модульд: Авлага → eBarimt · борлуулалт, Өглөг → eBarimt · худалдан авалт; баримт ОЛГОХ
+// тохиргоо (PosAPI, мерчант, нэхэмжлэх) Бараа → POS тохиргоо → eBarimt. 2026-10-02-оос
+// өмнө энэ хуудас илгээсэн баримтын жагсаалт байсан (Авлагынхтай давхардсан — цэгцлэв).
 
-import { EbarimtDocumentsView } from "@/components/ebarimt/ebarimt-documents-view";
+import Link from "next/link";
+
+import { EbarimtTpiSettings } from "@/components/pos/ebarimt-tpi-settings";
+import { TaxStatCard } from "@/components/tax/tax-info";
 import { requireModuleAction } from "@/lib/auth";
-import { loadEbarimtPageData } from "@/lib/ebarimt/list-page";
+import { loadTpiConnectionRow, toTpiConnectionView } from "@/lib/ebarimt/tax-sync";
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+const formatTime = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString("mn-MN", { timeZone: "Asia/Ulaanbaatar", dateStyle: "short", timeStyle: "short" }) : "—";
 
-export default async function EbarimtDocumentsPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function TaxEbarimtConnectionPage() {
   const { orgId } = await requireModuleAction("tax", "read");
-  const data = await loadEbarimtPageData(orgId, await searchParams);
+  const row = await loadTpiConnectionRow(orgId);
+  const connection = row ? toTpiConnectionView(row) : null;
+
+  const streams = connection
+    ? [
+        {
+          label: "Борлуулалт (ТЕГ-ийн бүх баримт)",
+          href: "/receivables/ebarimt?view=sales",
+          from: connection.syncFrom,
+          through: connection.syncedThrough,
+          okAt: connection.lastSyncOkAt,
+          error: connection.lastSyncError,
+          hint: "Авлага → eBarimt · борлуулалт — нэхэмжлэхийн тулгалт, бүх борлуулалт",
+        },
+        {
+          label: "Худалдан авалт (нийлүүлэгчийн баримт)",
+          href: "/payables/ebarimt",
+          from: connection.purchasesSyncFrom,
+          through: connection.purchasesSyncedThrough,
+          okAt: connection.lastPurchaseSyncOkAt,
+          error: connection.lastPurchaseSyncError,
+          hint: "Өглөг → eBarimt · худалдан авалт — өглөгтэй ДДТД-аар тулгана",
+        },
+        {
+          label: "Гаалийн мэдүүлэг",
+          href: "/payables/ebarimt?view=customs",
+          from: connection.customsSyncFrom,
+          through: connection.customsSyncedThrough,
+          okAt: connection.lastCustomsSyncOkAt,
+          error: connection.customsApiKey ? connection.lastCustomsSyncError : "Гаалийн түлхүүр Entry-д тохируулагдаагүй — Entry багт хандана уу",
+          hint: "Өглөг → eBarimt · худалдан авалт → Гаалийн мэдүүлэг",
+        },
+      ]
+    : [];
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3">
+    <section className="flex min-h-0 flex-1 flex-col gap-4">
       <div>
-        <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">eBarimt баримтууд</h1>
+        <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">ТЕГ-ийн холболт (eBarimt TPI)</h1>
         <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-          ТЕГ-д илгээсэн борлуулалтын баримт, нэхэмжлэх — POS ба авлагын модулиас. Давхар даралт → эх баримтын панель
-          (дахин илгээх тэндээс).
+          Байгууллагын ITC нэвтрэлтээр ТЕГ-ээс борлуулалт, худалдан авалт, гаалийн мэдүүлгийг өдөр бүр татна — зөвхөн унших, ТЕГ-д юу ч
+          бичихгүй. Баримт олгох тохиргоо (PosAPI, мерчант, нэхэмжлэх){" "}
+          <Link href="/inventory/pos-settings?section=ebarimt" className="underline">
+            Бараа → POS тохиргоо → eBarimt
+          </Link>
+          -д.
         </p>
       </div>
-      <EbarimtDocumentsView {...data} />
+      {streams.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {streams.map((stream) => (
+            <Link key={stream.href} href={stream.href} className="block">
+              <TaxStatCard
+                label={stream.label}
+                value={stream.through ?? "—"}
+                hint={
+                  stream.error
+                    ? `Алдаатай: ${stream.error.slice(0, 140)}`
+                    : `${stream.from ?? "—"} → ${stream.through ?? "—"} · сүүлд ${formatTime(stream.okAt)} · ${stream.hint}`
+                }
+                tone={stream.error ? "danger" : undefined}
+              />
+            </Link>
+          ))}
+        </div>
+      )}
+      <EbarimtTpiSettings />
     </section>
   );
 }

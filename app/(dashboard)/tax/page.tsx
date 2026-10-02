@@ -33,11 +33,11 @@ const TAX_CARDS: {
   },
   {
     href: "/tax/ebarimt",
-    icon: "document",
-    title: "eBarimt баримт",
-    rate: "ДДТД",
+    icon: "settings",
+    title: "ТЕГ-ийн холболт",
+    rate: "TPI",
     description:
-      "ТЕГ-д илгээсэн POS баримт, авлагын нэхэмжлэх — төлөв, алдаа, НӨАТ нэг дор.",
+      "ITC нэвтрэлт — ТЕГ-ээс борлуулалт, худалдан авалт, гаалийн мэдүүлэг өдөр бүр татагдана; жагсаалт нь Авлага / Өглөг → eBarimt.",
   },
   {
     href: "/tax/pit",

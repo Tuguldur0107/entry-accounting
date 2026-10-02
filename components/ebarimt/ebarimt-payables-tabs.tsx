@@ -14,7 +14,7 @@ export function EbarimtPayablesTabs({ view }: { view: EbarimtPayablesView }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tabs = [
-    { value: "purchases" as const, label: "Худалдан авалтын eBarimt" },
+    { value: "purchases" as const, label: "ТЕГ-ийн худалдан авалт" },
     { value: "customs" as const, label: "Гаалийн мэдүүлэг" },
   ];
   return (
