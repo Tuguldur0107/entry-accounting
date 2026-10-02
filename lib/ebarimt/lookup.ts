@@ -56,13 +56,37 @@ export function describeLookupFailure(error: unknown): string {
   return "ТЕГ-ийн лавлахад холбогдож чадсангүй (сүлжээ) — хэсэг хугацааны дараа дахин оролдоно уу";
 }
 
+/** Info сервисийн key-ийн header (developer портал: `X-API-KEY`). */
+export const EBARIMT_INFO_API_KEY_HEADER = "X-API-KEY";
+
+/**
+ * ТЕГ-ийн Info сервисийн key — 2026-09-24-нөөс ХСН-д автоматаар олгогдож
+ * Оператор-ИБаримтын Админ цэсэд харагдана; «key шаардлагатай Info сервисүүдийг
+ * үүгээр дуудна» (docs/integrations/01 §8 F-1). env `EBARIMT_INFO_API_KEY`
+ * тохируулсан үед л, ЗӨВХӨН лавлахын суурь хаяг (`publicApiBase()` — env-ээр л
+ * солигдоно, хэрэглэгч оруулдаггүй) руу явах хүсэлтэд нэмнэ. Браузерт env байхгүй
+ * тул нууц client bundle-д хэзээ ч орохгүй; утгыг логлохгүй — ЦЭВЭР
+ * (tests/ebarimt-lookup.test.ts).
+ */
+export function infoApiKeyHeadersFor(url: string, base: string, key: string | undefined): Record<string, string> {
+  const value = key?.trim();
+  if (!value || !url.startsWith(`${base}/`)) return {};
+  return { [EBARIMT_INFO_API_KEY_HEADER]: value };
+}
+
+function infoApiKeyHeaders(url: string): Record<string, string> {
+  const key = typeof process !== "undefined" ? process.env?.EBARIMT_INFO_API_KEY : undefined;
+  return infoApiKeyHeadersFor(url, publicApiBase(), key);
+}
+
 async function getJsonOnce(url: string): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
   try {
     // Монголын прокси (EBARIMT_PUBLIC_API_BASE) WAF-ын ард бол нууц header — allowlist-ийн
     // хост руу л; албан api.ebarimt.mn руу ХЭЗЭЭ Ч илгээхгүй (жагсаалтад оруулахгүй).
-    const response = await fetch(url, { headers: gatewayHeaders(url), signal: controller.signal, cache: "no-store" });
+    const headers = { ...infoApiKeyHeaders(url), ...gatewayHeaders(url) };
+    const response = await fetch(url, { headers, signal: controller.signal, cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
   } finally {

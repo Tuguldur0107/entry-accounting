@@ -134,13 +134,18 @@ function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtIte
   if ((taxType === "VAT_FREE" || taxType === "VAT_ZERO") && !TAX_PRODUCT_CODE_RE.test(taxProductCode))
     throw new EbarimtError(
       EBARIMT_ERRORS.taxProductCode,
-      `"${line.itemName}" НӨАТ-гүй/0% бараанд татварын бүтээгдэхүүний код (3–5 орон) байхгүй`
+      `"${line.itemName}" НӨАТ-гүй/0% бараанд татварын бүтээгдэхүүний код (3–7 орон) байхгүй`
     );
   const qty = round2(line.quantity);
   const totalAmount = round2(line.lineTotal);
   const totalVAT = taxType === "VAT_ABLE" ? round2(line.vatAmount) : 0;
+  // barCode спект ✔ — баркодгүй бол албан жишээ шиг `null` + `UNDEFINED` (§8 F-3),
+  // талбарыг орхихгүй.
+  const barCode = line.barcode?.trim() || null;
   const item: EbarimtItem = {
     name: line.itemName,
+    barCode,
+    barCodeType: barCode ? barcodeTypeOf(line.barcodeType) : "UNDEFINED",
     classificationCode: classification,
     measureUnit: line.unit || "ш",
     qty,
@@ -149,10 +154,6 @@ function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtIte
     totalCityTax: round2(line.cityTaxAmount ?? 0),
     totalAmount,
   };
-  if (line.barcode) {
-    item.barCode = line.barcode;
-    item.barCodeType = barcodeTypeOf(line.barcodeType);
-  }
   if (taxType === "VAT_FREE" || taxType === "VAT_ZERO") item.taxProductCode = taxProductCode;
   return item;
 }

@@ -10,7 +10,11 @@ import type { EbarimtBarcodeType, EbarimtPaymentStatus, EbarimtReceiptType, Ebar
 
 export interface EbarimtItem {
   name: string;
-  barCode?: string;
+  /**
+   * Спект ✔ (заавал): баркодгүй бараанд албан жишээ шиг `null` + `UNDEFINED`
+   * (docs/integrations/01 §8 F-3). Optional нь хуучин хадгалсан payload-д л.
+   */
+  barCode?: string | null;
   barCodeType?: EbarimtBarcodeType;
   classificationCode: string;
   taxProductCode?: string;

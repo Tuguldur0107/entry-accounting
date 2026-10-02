@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { describeLookupFailure, lookupTinByRegNo, parseTaxpayerInfoResponse, parseTinInfoResponse, publicApiBase } from "../lib/ebarimt/lookup";
+import { describeLookupFailure, EBARIMT_INFO_API_KEY_HEADER, infoApiKeyHeadersFor, lookupTinByRegNo, parseTaxpayerInfoResponse, parseTinInfoResponse, publicApiBase } from "../lib/ebarimt/lookup";
 import { EBARIMT_PUBLIC_API_BASE } from "../lib/ebarimt/constants";
 
 test("ENT-034: ТЕГ-ийн лавлахын алдаа монгол тайлбартай", () => {
@@ -55,4 +55,14 @@ test("P1-2: иргэний РД-аар ТТД лавлахгүй — сүлжэ�
   await assert.rejects(() => lookupTinByRegNo("АА12345678"), /\[EBARIMT_SETTINGS\].*Иргэний регистр/);
   await assert.rejects(() => lookupTinByRegNo("ab12345678"), /Иргэний регистр/);
   await assert.rejects(() => lookupTinByRegNo(""), /хоосон/);
+});
+
+test("§8 F-1: Info key зөвхөн лавлахын суурь хаяг руу, тохируулаагүй бол header-гүй", () => {
+  const base = EBARIMT_PUBLIC_API_BASE;
+  assert.deepEqual(infoApiKeyHeadersFor(`${base}/getInfo?tin=1`, base, " k3y "), { [EBARIMT_INFO_API_KEY_HEADER]: "k3y" });
+  assert.deepEqual(infoApiKeyHeadersFor(`${base}/getInfo?tin=1`, base, undefined), {});
+  assert.deepEqual(infoApiKeyHeadersFor(`${base}/getInfo?tin=1`, base, "   "), {});
+  // Өөр хост / суурь хаягийн угтвартай төстэй хост руу нууц ЯВАХГҮЙ.
+  assert.deepEqual(infoApiKeyHeadersFor("https://evil.example/getInfo", base, "k3y"), {});
+  assert.deepEqual(infoApiKeyHeadersFor(`${base}.evil.example/getInfo`, base, "k3y"), {});
 });

@@ -311,6 +311,12 @@ PosService 3.0.12 багцаар Ubuntu 20.04 VM дээр §4.1-ийг ажил�
 
 ### 8.1 Шинэ (2026-08-20-ны хуулбарт байгаагүй / өөрчлөгдсөн)
 
+> **Төлөв 2026-10-02:** F-1 (`EBARIMT_INFO_API_KEY` env → `X-API-KEY` зөвхөн лавлахын суурь
+> хаяг руу, `infoApiKeyHeadersFor` тесттэй), F-2 (`TAX_PRODUCT_CODE_RE` 3–7, UI/AI/импортын
+> текст), F-3 (баркодгүй мөрөнд `"barCode": null, "barCodeType": "UNDEFINED"` — албан
+> жишээний хэлбэр, staging #16-аар батална) кодонд оров. F-4 (`receipts[].data`) staging #17
+> хүлээнэ. F-5/F-6/F-10, §8.2-ын 4 зүйл — product owner-ийн шийдвэр/схем шаардах feature.
+
 | # | Портал | Entry одоо | Ач холбогдол / санал |
 |---|---|---|---|
 | F-1 | **Release 2026-09-24:** Info сервисийн key-г ХСН-д автоматаар олгоно — Оператор-ИБаримтын **Админ** цэсэд харагдана; «key шаардлагатай Info сервисүүдийг үүгээр дуудна» | `lookup.ts` (`getInfo`/`getTinInfo`/`getBranchInfo`) key-гүй; `X-API-KEY` зөвхөн TPI-д (`ITC_TPI_API_KEY`) | Аль Info сервис key шаардахыг жагсаагаагүй (портал дээр зөвхөн `cityTax/location`-д header бий). Production-д `getInfo` 401/403 эхэлбэл энэ шалтгаан — тусдаа `EBARIMT_INFO_API_KEY` env (нууц, лог/аудитад гарахгүй) бэлтгэх; операторын Админ цэснээс key-г авч хадгалах |

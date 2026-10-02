@@ -115,7 +115,7 @@ export type InventoryItemPosFields = {
   cityTaxable?: boolean;
   revenueAccountNumber?: string | null;
   categoryCode?: string | null;
-  /** eBarimt ангилалын код (7 орон) / татварын бүтээгдэхүүний код (3–5 орон). */
+  /** eBarimt ангилалын код (7 орон) / татварын бүтээгдэхүүний код (3–7 орон). */
   ebarimtClassificationCode?: string | null;
   ebarimtTaxProductCode?: string | null;
   /** Баркодын төрөл — "GS1" | "ISBN" | "UNDEFINED" (PosAPI barCodeType). */
@@ -253,7 +253,7 @@ async function validateItemPosFields(
   if (data.ebarimtTaxProductCode !== undefined) {
     ebarimtTaxProductCode = cleanText(data.ebarimtTaxProductCode);
     if (ebarimtTaxProductCode && !TAX_PRODUCT_CODE_RE.test(ebarimtTaxProductCode))
-      throw new Error("Татварын бүтээгдэхүүний код 3–5 оронтой тоо байна");
+      throw new Error("Татварын бүтээгдэхүүний код 3–7 оронтой тоо байна");
   }
 
   let barcodeType: string | null | undefined;

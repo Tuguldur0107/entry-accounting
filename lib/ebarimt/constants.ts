@@ -146,10 +146,11 @@ export const EBARIMT_PUBLIC_API_BASE = "https://api.ebarimt.mn/api/info/check";
 export const MERCHANT_TIN_RE = /^\d{11,14}$/;
 export const CLASSIFICATION_CODE_RE = /^\d{7}$/;
 /**
- * Татварын бүтээгдэхүүний код — албан жагсаалт 3 орон (305–446, 501–507) боловч
- * `getProductTaxCode` лавлах 5 оронтой код (43401) ч буцаадаг тул 3–5 (P2-2).
+ * Татварын бүтээгдэхүүний код — албан жагсаалт 3 орон (305–446, 501–507); developer
+ * портал (2026-10-01) «3 болон 7 оронтой» (жишээ `0000414`), `getProductTaxCode` 5
+ * оронтой (43401) ч буцаадаг тул 3–7 (P2-2, docs/integrations/01 §8 F-2).
  */
-export const TAX_PRODUCT_CODE_RE = /^\d{3,5}$/;
+export const TAX_PRODUCT_CODE_RE = /^\d{3,7}$/;
 export const DISTRICT_CODE_RE = /^\d{4}$/;
 export const CONSUMER_NO_RE = /^\d{8}$/;
 export const REGISTER_NO_RE = /^[А-ЯӨҮа-яөүA-Za-z]{2}\d{8}$/;

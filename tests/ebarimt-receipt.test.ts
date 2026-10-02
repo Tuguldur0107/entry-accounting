@@ -353,3 +353,39 @@ test("НХАТ: totalCityTax мөр → дэд баримт → root нийлб�
   assert.equal(request.totalVAT, 1_300);
   assert.equal(request.totalAmount, 14_500);
 });
+
+test("§8 F-2/F-3: 7 оронтой taxProductCode хүлээн авна; баркодгүй мөр barCode null + UNDEFINED", () => {
+  const request = buildEbarimtReceipt(
+    sale({
+      lines: [
+        line({ itemName: "Байцаа", quantity: 1, lineTotal: 1_000, vatMode: "exempt", vatAmount: 0, taxProductCode: "0000414" }),
+        line({ itemName: "Талх", quantity: 1, lineTotal: 1_100, barcode: "19059010880001", barcodeType: "GS1" }),
+      ],
+      total: 2_100,
+      payments: [{ kind: "cash", methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 2_100, reference: null }],
+    }),
+    settings
+  );
+  const free = request.receipts.find((receipt) => receipt.taxType === "VAT_FREE")!;
+  assert.equal(free.items[0].taxProductCode, "0000414");
+  // Баркодгүй мөрөнд талбар ОРХИГДОХГҮЙ — wire JSON-д ил null.
+  assert.equal(free.items[0].barCode, null);
+  assert.equal(free.items[0].barCodeType, "UNDEFINED");
+  assert.match(JSON.stringify(free.items[0]), /"barCode":null,"barCodeType":"UNDEFINED"/);
+  const able = request.receipts.find((receipt) => receipt.taxType === "VAT_ABLE")!;
+  assert.equal(able.items[0].barCode, "19059010880001");
+  assert.equal(able.items[0].barCodeType, "GS1");
+  // 8 оронтой код хэвээр татгалзана.
+  assert.throws(
+    () =>
+      buildEbarimtReceipt(
+        sale({
+          lines: [line({ itemName: "Байцаа", quantity: 1, lineTotal: 1_000, vatMode: "exempt", vatAmount: 0, taxProductCode: "00004140" })],
+          total: 1_000,
+          payments: [{ kind: "cash", methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 1_000, reference: null }],
+        }),
+        settings
+      ),
+    /3–7 орон/
+  );
+});
