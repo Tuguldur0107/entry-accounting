@@ -4974,6 +4974,83 @@ export const ebarimtTaxPurchases = pgTable(
   ]
 );
 
+// ─── eTax (Цахим татварын систем, etax.mta.mn) — docs/dev/etax.md ───────────
+
+/**
+ * Байгууллага бүрийн eTax (ITC Keycloak) нэвтрэлт — ТЕГ-д тайлан илгээх холболтын
+ * тохиргоо. Нууц (`passwordEnc`) `encryptSecret`-ээр, утга нь client/лог/аудит/тестэд
+ * ХЭЗЭЭ Ч гарахгүй. Албан API-ийн спек ирэх хүртэл ЗӨВХӨН нэвтрэлт шалгахад хэрэглэнэ.
+ */
+export const etaxConnections = pgTable(
+  "etax_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Сүүлд хадгалсан хэрэглэгч. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** "staging" | "production" — хост кодод (lib/itc/constants.ts, lib/itc/etax/constants.ts). */
+    environment: text("environment").notNull().default("production"),
+    username: text("username").notNull(),
+    passwordEnc: text("password_enc").notNull(),
+    isEnabled: boolean("is_enabled").notNull().default(true),
+    lastCheckAt: timestamp("last_check_at"),
+    lastCheckOkAt: timestamp("last_check_ok_at"),
+    /** Сүүлийн шалгалтын алдаа (нууц утгагүй); амжилттай бол null. */
+    lastCheckError: text("last_check_error"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("etax_connections_org_ux").on(table.organizationId)]
+);
+
+/**
+ * eTax-д тушаах татварын тайлангийн илгээлт — ноорог-first (CLAUDE.md §9). `snapshot` нь
+ * Entry-ийн бодолтын хуулбар (`buildVatSnapshot`), `validation` нь сүүлийн шалгалт.
+ * Төлөв зөвхөн `ETAX_TRANSITIONS`-ийн ирмэгээр, бичилт бүр уншсан төлөвтөө нөхцөлтэй (C4).
+ * Нэг маягт × тайлант үед ЗЭРЭГ нэг л амьд (draft/ready/submitted/accepted) илгээлт.
+ */
+export const etaxSubmissions = pgTable(
+  "etax_submissions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Үүсгэсэн хэрэглэгч. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Маягтын түлхүүр — "vat" (lib/itc/etax/constants.ts ETAX_FORMS). */
+    form: text("form").notNull(),
+    /** ТЕГ-ийн маягтын код (ж: ТТ-03А) — snapshot-ын үеийнх. */
+    formCode: text("form_code").notNull(),
+    periodCode: text("period_code").notNull(), // YYYY-MM
+    /** draft | ready | submitted | accepted | rejected | cancelled */
+    status: text("status").notNull().default("draft"),
+    environment: text("environment").notNull().default("production"),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    validation: jsonb("validation").$type<{ errors: string[]; warnings: string[]; checkedOn: string }>(),
+    /** ТЕГ-ийн хүлээн авсан / бүртгэлийн дугаар — «Тушаасан» төлөвт ЗААВАЛ. */
+    taxReference: text("tax_reference"),
+    submittedAt: timestamp("submitted_at"),
+    submittedByUserId: text("submitted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** ТЕГ-ийн хариу / буцаасан шалтгаан / хүчингүй болгосон тайлбар. */
+    resultNote: text("result_note"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("etax_submissions_org_form_period_active_ux")
+      .on(table.organizationId, table.form, table.periodCode)
+      .where(sql`${table.status} in ('draft', 'ready', 'submitted', 'accepted')`),
+    index("etax_submissions_org_period_ix").on(table.organizationId, table.periodCode),
+  ]
+);
+
 /**
  * QPay төлбөрийн INTENT (docs/pos/04-qpay-integration-plan.md §3.3) — борлуулалт
  * төлбөр батлагдтал ҮҮСДЭГГҮЙ тул QPay нэхэмжлэх, QR, сагсны snapshot энд түр
@@ -5447,3 +5524,5 @@ export type AiSuggestionLog = typeof aiSuggestionLog.$inferSelect;
 export type AiSuggestionOutcome = typeof aiSuggestionOutcome.$inferSelect;
 export type KnowledgeArticle = typeof knowledgeArticles.$inferSelect;
 export type KnowledgeRead = typeof knowledgeReads.$inferSelect;
+export type EtaxConnection = typeof etaxConnections.$inferSelect;
+export type EtaxSubmission = typeof etaxSubmissions.$inferSelect;

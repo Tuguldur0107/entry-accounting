@@ -235,6 +235,7 @@ export const MODULES: Module[] = [
     items: [
       { label: "Татварын самбар", href: "/tax", icon: "dashboard" },
       { label: "НӨАТ", href: "/tax/vat", icon: "report" },
+      { label: "eTax тайлан", href: "/tax/etax", icon: "send" },
       { label: "eBarimt баримт", href: "/tax/ebarimt", icon: "document" },
       { label: "ХХОАТ (цалин)", href: "/tax/pit", icon: "user" },
       { label: "НДШ", href: "/tax/ndsh", icon: "shield" },

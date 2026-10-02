@@ -29,7 +29,7 @@
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 | Landing-ийн чат (entry.mn) — нийтийн өрөө + зочин ↔ Entry баг хувийн яриа, Telegram-аар хариулах, модерац, «AI туслах» (борлуулалтын өмнөх мэдээлэл, §9f) | ✅ backend (widget `entry-landing`-д) | SSE realtime |
 | Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1–2 (агуулга хувийн `entry-knowledge` repo-д) | dedicated харилцагчид лицензээр sync |
-| Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ eBarimt TPI-ээр нэхэмжлэхийн үлдэгдлийн автомат тулгалт (`docs/dev/ebarimt-tax-reconcile.md`, staging баталгаажуулалт хүлээгдэж буй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
+| Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | ✅ eTax суурь (`/tax/etax`, `lib/itc/etax/` — НӨАТ ТТ-03А snapshot, шалгалт, төлөвийн машин, ITC нэвтрэлт; тушаалт гараар, `docs/dev/etax.md`); 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ eBarimt TPI-ээр нэхэмжлэхийн үлдэгдлийн автомат тулгалт (`docs/dev/ebarimt-tax-reconcile.md`, staging баталгаажуулалт хүлээгдэж буй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
 
 ## Файлын бүтэц
 
@@ -490,6 +490,21 @@ Exclusive: Авлага = Нийт, Орлого = Нийт/1.1, НӨАТ өгл
 - Дансууд `vat_settings`-ээс — кодод хатуу дугаар байхгүй
 - Тооцооны журнал ЗААВАЛ ноорог, сард нэг, огноо = тайлант үеийн сүүлийн өдөр
 - Тайлан + төлбөр дараа сарын **10-нд**, хоцорвол 0.1%/хоног
+
+### 6a. eTax (Цахим татварын систем) — СУУРЬ ХЭРЭГЖСЭН, тушаалт гараар
+
+Дэлгэрэнгүй: `docs/dev/etax.md`. Код: `lib/itc/etax/`, `lib/actions/etax.ts`, `/tax/etax`.
+
+- **Тайлан ЗОХИОХГҮЙ** — snapshot нь `computeVatReturn`-ийн дүнг л хуулна, шалгалт зөвхөн
+  уялдаа; алдангийн хувь кодод байхгүй
+- **Ноорог-first:** draft → ready (хүн хянасан) → submitted (ТЕГ-ийн дугаар ЗААВАЛ) →
+  accepted | rejected (шалтгаан ЗААВАЛ); draft → submitted шууд ХОРИОТОЙ; төлөв ЗӨВХӨН
+  `ETAX_TRANSITIONS`-ээр, бичилт уншсан төлөвтөө нөхцөлтэй (C4); submitted/accepted/rejected
+  `tax:post`, бусад `tax:write`, тохиргоо admin+
+- **ТЕГ рүү юу ч илгээхгүй** албан API спек («ETAX API documentation v1.1», Монголын IP)
+  ирэх хүртэл; eTax вэбийн дотоод `/backapi/*` замыг ХЭРЭГЛЭХГҮЙ; зөвхөн ITC Keycloak
+  нэвтрэлт шалгана (`ETAX_CLIENT_ID`, default `etax-gui`)
+- Нууц үг `encryptSecret`, утга хаана ч гарахгүй; нэг маягт × сард нэг л амьд илгээлт
 
 ### 7. Цалин (Payroll) — Gross → Net — ХЭРЭГЖСЭН
 
