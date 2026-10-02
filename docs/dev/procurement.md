@@ -113,6 +113,11 @@ lib/costing/posting-helpers.ts  costing.ts-ээс ЗӨӨСӨН нийтлэг т
 - **Нээлттэй PO-той сар хаалт** `costing_account_settings.open_po_close_mode`:
   `block` (default) | `warn` — хэсэгчлэн хүлээн авсан PO-той сарыг анхааруулгатай
   хаана (SIM2-023). Ноорог GR-ийг `delete_goods_receipt`; PO цуцлахад ноорог GR устна
+- **Зэрэгцээ үйлдэл (2026-10-02, ontology-audit M8):** PO цуцлах/устгах, хүлээн авалт
+  үүсгэх/батлах бүгд PO мөрийг `lockPurchaseOrder` (FOR UPDATE)-оор түгжиж, түгжээний
+  ДАРАА төлөв ба үйл ажиллагааг (`assertNoProcurementActivity(…, tx)`) дахин шалгана;
+  ноорог GR-ийн устгалт 0 мөр бол `[STATE_CHANGED]` — цуцлагдсан PO-д батлагдсан хүлээн
+  авалт ХЭЗЭЭ Ч үлдэхгүй. Тест `tests/procurement-concurrency.test.ts`
 - **Сар хаалт:** хүлээн авалттай нээлттэй PO байвал `closePeriod` код
   `open-purchase-orders`-оор татгалзана; ноорог хүлээн авалт бусад ноорогтой
   адил хаалтыг хориглоно (OD-011)

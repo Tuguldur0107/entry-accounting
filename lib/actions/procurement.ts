@@ -12,6 +12,7 @@
 // транзакцийн ДОТОР ПЕРВЫЙ. Дансны дугаар кодод хатуу бичигдэхгүй —
 // loadCostingAccountSettings / itemAccountsFor-оос.
 
+import { stateChangedError } from "@/lib/state-guard";
 import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, asc, eq, inArray, isNotNull, like, ne, notInArray, sql } from "drizzle-orm";
@@ -1243,9 +1244,10 @@ async function assertNoProcurementActivity(
   orgId: string,
   purchaseOrderId: string,
   documentNo: string,
-  options: { ignoreDraftReceipts?: boolean } = {}
+  options: { ignoreDraftReceipts?: boolean } = {},
+  executor: DbTx | typeof db = db
 ) {
-  const receipt = await db.query.goodsReceipts.findFirst({
+  const receipt = await executor.query.goodsReceipts.findFirst({
     where: and(
       eq(goodsReceipts.organizationId, orgId),
       eq(goodsReceipts.purchaseOrderId, purchaseOrderId),
@@ -1261,7 +1263,7 @@ async function assertNoProcurementActivity(
         ? `${documentNo}: ${receipt.documentNo} ноорог хүлээн авалттай — эхлээд ноорогийг устгана уу (Хангамж → Хүлээн авалт, эсвэл delete_goods_receipt)`
         : `${documentNo}: ${receipt.documentNo} хүлээн авалттай тул үйлдэл хийх боломжгүй — эхлээд хүлээн авалтыг буцаана уу`
     );
-  const invoice = await db.query.arApDocuments.findFirst({
+  const invoice = await executor.query.arApDocuments.findFirst({
     where: and(
       eq(arApDocuments.organizationId, orgId),
       eq(arApDocuments.purchaseOrderId, purchaseOrderId),
@@ -1302,6 +1304,12 @@ async function cancelPurchaseOrderCore(input: {
   });
 
   await db.transaction(async (tx) => {
+    // M8: захиалгыг ЭХЛЭЭД түгжинэ — хүлээн авалтын батлалт (confirmGoodsReceipt)
+    // мөн PO-г түгждэг тул энэ хоёр дараалж, түгжээний ДАРАА шалгалтууд дахин
+    // явна. Эс бөгөөс зэрэгцээ батлагдсан хүлээн авалт цуцлагдсан PO-д үлддэг.
+    const locked = await lockPurchaseOrder(tx, orgId, order.id);
+    if (locked.status !== order.status) throw stateChangedError("Захиалга");
+    await assertNoProcurementActivity(orgId, order.id, order.documentNo, { ignoreDraftReceipts: true }, tx);
     for (const draft of draftReceipts) {
       await tx
         .delete(documentAttachments)
@@ -1312,7 +1320,7 @@ async function cancelPurchaseOrderCore(input: {
             eq(documentAttachments.entityId, draft.id)
           )
         );
-      await tx
+      const [removed] = await tx
         .delete(goodsReceipts)
         .where(
           and(
@@ -1320,8 +1328,21 @@ async function cancelPurchaseOrderCore(input: {
             eq(goodsReceipts.organizationId, orgId),
             eq(goodsReceipts.status, "draft")
           )
-        );
+        )
+        .returning({ id: goodsReceipts.id });
+      if (!removed) throw stateChangedError("Хүлээн авалт");
     }
+    // Түгжээний хооронд ШИНЭ ноорог хүлээн авалт нэмэгдсэн бол (уншсан
+    // жагсаалтад байхгүй) PO-гүй үлдэхгүйн тулд мөн тулгана.
+    const lateDraft = await tx.query.goodsReceipts.findFirst({
+      where: and(
+        eq(goodsReceipts.organizationId, orgId),
+        eq(goodsReceipts.purchaseOrderId, order.id),
+        eq(goodsReceipts.status, "draft")
+      ),
+      columns: { id: true },
+    });
+    if (lateDraft) throw stateChangedError("Захиалга (шинэ хүлээн авалт нэмэгдсэн)");
     const [claimed] = await tx
       .update(purchaseOrders)
       .set({ status: "cancelled" })
@@ -1372,6 +1393,10 @@ async function deletePurchaseOrderCore(input: { id: string }): Promise<void> {
   await assertNoProcurementActivity(orgId, order.id, order.documentNo);
 
   await db.transaction(async (tx) => {
+    // M8: PO-г түгжээд үйл ажиллагаагүйг транзакц дотор дахин шалгана.
+    const locked = await lockPurchaseOrder(tx, orgId, order.id);
+    if (locked.status !== "draft") throw stateChangedError("Захиалга");
+    await assertNoProcurementActivity(orgId, order.id, order.documentNo, {}, tx);
     // Хавсралт нь polymorphic (FK-гүй) тул модуль өөрөө цэвэрлэнэ (§7).
     await tx
       .delete(documentAttachments)
@@ -1880,6 +1905,10 @@ async function createGoodsReceiptCore(data: {
       async (documentNo) =>
         await db.transaction(async (tx) => {
           await assertPeriodOpenInTx(tx, orgId, data.date);
+          // M8: зэрэгцээ цуцлалт/хаалттай дараалж, PO нээлттэй хэвээр эсэхийг дахин шалгана.
+          const lockedOrder = await lockPurchaseOrder(tx, orgId, order.id);
+          if (lockedOrder.status !== "open")
+            throw new Error("[PO_NOT_OPEN] Захиалга нээлттэй биш (зэрэгцээ цуцлагдсан/хаагдсан)");
           const [receipt] = await tx
             .insert(goodsReceipts)
             .values({
