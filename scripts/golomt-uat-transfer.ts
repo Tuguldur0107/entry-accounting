@@ -15,8 +15,8 @@
 //   (16 тэмдэгт), HMAC-SHA1, 30 сек, 6 орон (RFC 6238 — Google Authenticator-тай ижил)
 // - Илгээхээс өмнө хүсэлтийн биеийг харуулж «ИЛГЭЭ» гэж бичихийг шаардана;
 //   хариу тодорхойгүй бол ДАХИН ИЛГЭЭХГҮЙ (D6) — хуулгаар шалгана
-// - Хүсэлтийн талбарын нэр (fromAccount, toAccount, amount …) SPEC-ээс
-//   баталгаажаагүй — банк талбарын алдаа буцаавал SPEC-ийн нэрээр засна
+// - Хүсэлтийн талбарын нэр (fromAccount, toAccount …) SPEC-ээс баталгаажаагүй —
+//   банк талбарын алдаа буцаавал SPEC-ийн нэрээр засна (amount = { value, currency })
 
 import { createHmac } from "node:crypto";
 import { createInterface } from "node:readline";
@@ -142,8 +142,9 @@ async function main() {
     toAccount,
     toAccountName,
     ...(toBank ? { toBank } : {}),
-    amount,
-    currency: "MNT",
+    // OBI-д дүн нь ОБЪЕКТ { value, currency } (SPEC 8.18 / 9.29; 2026-10-02 UAT:
+    // тоогоор илгээхэд 500 «CorpGatewayPartTranRequest.getAmount() is null»).
+    amount: { value: amount, currency: "MNT" },
     remarks,
     type: typeInput,
     refCode,
