@@ -226,6 +226,11 @@ export async function testGolomtConnection(): Promise<
       accounts.push(check);
     }
     const firstError = accounts.find((item) => item.error);
+    // Production-д шалгалтыг логоор батлах (Railway): орчин, тоо л — дансны
+    // дугаар, нэр, үлдэгдэл, нууц ОРОХГҮЙ. Алдааг клиент өөрөө `[golomt]`-оор бичнэ.
+    console.info(
+      `[golomt] холболт шалгав (${row.environment}): нэвтрэх ✓, Голомтын данс ${accounts.length}, амжилттай ${accounts.filter((item) => item.ok).length}`
+    );
     await recordGolomtCheck(
       row.id,
       firstError ? `${firstError.cashAccountName}: ${firstError.error}` : null
@@ -412,7 +417,8 @@ export async function dismissGolomtPull(pullId: string): Promise<ActionResult<{ 
 /**
  * Данс эзэмшигч шалгах (ACCCHK) — харилцагч/ажилтны дансыг шилжүүлэг, нэхэмжлэхэд
  * ашиглахаас өмнө нэрийг нь банкнаас баталгаажуулна. ЗӨВХӨН Голомтын данс:
- * банк хоорондын шалгалт UAT-д ажиллаагүй (docs/dev/bank-api.md §3).
+ * банк хоорондын шалгалтыг банк нээсэн гэсэн ч UAT-д ажиллаагүй — дахин
+ * туршилт `scripts/golomt-accchk-probe.ts` (docs/dev/bank-api.md §3).
  */
 export async function checkGolomtAccountHolder(input: {
   bankName?: string | null;
@@ -430,7 +436,7 @@ export async function checkGolomtAccountHolder(input: {
     if (!accountId) throw new Error("Дансны дугаар буруу байна (6–20 оронтой тоо)");
     if (!isGolomtBank(input.bankName, input.bankCode))
       throw new Error(
-        "Одоогоор зөвхөн Голомт банкны дансны эзэмшигчийг шалгана — бусад банкны шалгалтыг Голомт банк нээгээгүй байна"
+        "Одоогоор зөвхөн Голомт банкны дансны эзэмшигчийг шалгана — бусад банкны дансны шалгалтыг туршиж байна"
       );
     const row = await loadGolomtConnectionRow(orgId);
     if (!row) throw new Error("Голомтын API холболт тохируулаагүй байна");
