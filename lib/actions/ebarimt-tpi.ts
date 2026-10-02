@@ -190,7 +190,7 @@ export async function getEbarimtTaxChecks(): Promise<
 
 // ── Гаалийн мэдүүлэг (tpiDeclaration) — docs/dev/ebarimt-tax-reconcile.md §10 ──────
 
-/** Гаалийн мэдүүлгийг одоо татах (≤ 16 × 7 хоног, үлдсэнийг хуваарьт татлага). */
+/** Гаалийн мэдүүлгийг одоо татах (≤ 16 × 31 хоног, үлдсэнийг хуваарьт татлага). */
 export async function syncEbarimtCustomsNow(): Promise<ActionResult<CustomsSyncResult>> {
   try {
     const { orgId, userId } = await requireModuleAction("ap", "write");

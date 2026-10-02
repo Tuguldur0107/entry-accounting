@@ -302,19 +302,30 @@ export function purchasesBackfillNeeded(current: string | null, desired: string)
   return !!current && desired < current;
 }
 
-/** Татах мужууд: өмнөх явцын сүүлийн 3 өдрөөс (эсвэл эхлэлээс) өнөөдөр хүртэл, 31 хоногоор. */
+/**
+ * Гаалийн мэдүүлгийн (tpiDeclaration) муж — тэр сервис ХУУДАСЛАЛТТАЙ, албан жишээ нь
+ * олон жилийн муж тул 31 хоног (худалдан авалтын 7-гийн оронд); нэг татлагад ≤ 16 муж.
+ */
+export const EBARIMT_CUSTOMS_CHUNK_DAYS = 31;
+
+/**
+ * Татах мужууд: өмнөх явцын сүүлийн 3 өдрөөс (эсвэл эхлэлээс) өнөөдөр хүртэл,
+ * `chunkDays` хоногоор (анхдагч худалдан авалтын 7).
+ */
 export function purchaseSyncRanges(input: {
   syncFrom: string;
   syncedThrough: string | null;
   todayUb: string;
   maxChunks?: number;
+  chunkDays?: number;
 }): { startDate: string; endDate: string }[] {
   const resume = input.syncedThrough ? shiftDays(input.syncedThrough, -EBARIMT_TAX_RESYNC_DAYS) : input.syncFrom;
   let start = resume < input.syncFrom ? input.syncFrom : resume;
   const ranges: { startDate: string; endDate: string }[] = [];
   const max = input.maxChunks ?? EBARIMT_PURCHASE_MAX_CHUNKS;
+  const chunk = Math.max(1, Math.trunc(input.chunkDays ?? EBARIMT_PURCHASE_CHUNK_DAYS));
   while (start <= input.todayUb && ranges.length < max) {
-    const end = shiftDays(start, EBARIMT_PURCHASE_CHUNK_DAYS - 1);
+    const end = shiftDays(start, chunk - 1);
     const endDate = end > input.todayUb ? input.todayUb : end;
     ranges.push({ startDate: start, endDate });
     start = shiftDays(endDate, 1);

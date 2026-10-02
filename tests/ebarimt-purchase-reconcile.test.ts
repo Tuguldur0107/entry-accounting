@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   defaultPurchasesSyncFrom,
   normalizePurchaseDdtd,
+  EBARIMT_CUSTOMS_CHUNK_DAYS,
   purchaseSyncRanges,
   purchasesBackfillNeeded,
   purchasesSyncStart,
@@ -103,6 +104,11 @@ test("татах муж: 2 сарын өмнөх сарын 1-ээс, 7 хоно
     { startDate: "2026-09-28", endDate: "2026-10-02" },
   ]);
   assert.equal(purchaseSyncRanges({ syncFrom: "2025-01-01", syncedThrough: null, todayUb: "2026-10-02" }).length, 16);
+  // Гаалийн мэдүүлэг: 31 хоногийн муж (хуудаслалттай сервис), ≤ 16 муж — 400 хоног нэг тикэд.
+  const customs = purchaseSyncRanges({ syncFrom: "2025-09-01", syncedThrough: null, todayUb: "2026-10-02", chunkDays: EBARIMT_CUSTOMS_CHUNK_DAYS });
+  assert.deepEqual(customs[0], { startDate: "2025-09-01", endDate: "2025-10-01" });
+  assert.deepEqual(customs.at(-1)?.endDate, "2026-10-02");
+  assert.equal(customs.length, 13);
 });
 
 test("БҮХ худалдан авалт: эхлэл = хамгийн эртний өглөг (≤ 400 хоног), хуучин холболтыг ухрааж нөхнө", () => {

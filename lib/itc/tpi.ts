@@ -387,6 +387,8 @@ export interface CustomsParseResult {
   skipped: number;
   /** Spring хуудаслалтын `totalPages` ирвэл (албан схемд байхгүй) — үгүй бол null. */
   totalPages: number | null;
+  /** Spring хуудаслалтын `last` (сүүлчийн хуудас эсэх) ирвэл — үгүй бол null. */
+  last: boolean | null;
 }
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -439,11 +441,29 @@ export function parseCustomsDeclarations(json: unknown): CustomsParseResult {
     });
   }
   const totalPages = num(data.totalPages);
-  return { rows, skipped, totalPages: totalPages === null ? null : Math.trunc(totalPages) };
+  return {
+    rows,
+    skipped,
+    totalPages: totalPages === null ? null : Math.trunc(totalPages),
+    last: typeof data.last === "boolean" ? data.last : null,
+  };
 }
 
-/** Дараагийн хуудас бий эсэх — `totalPages` ирвэл түүгээр, эс бөгөөс дүүрэн хуудсаар. */
-export function customsHasMorePages(pageNumber: number, rowsInPage: number, totalPages: number | null, size = CUSTOMS_PAGE_SIZE): boolean {
+/**
+ * Дараагийн хуудас бий эсэх. Spring-ийн `last` ирвэл түүгээр; `totalPages` ирвэл түүгээр;
+ * эс бөгөөс ЯГ дүүрэн хуудас (`rowsInPage === size`) л үргэлжилнэ — `size`-ээс ИХ мөр
+ * = сервер хуудаслалтыг үл тоож бүгдийг өгсөн (дахин асуувал ижил хуудас давтагдаж 200
+ * хуудас хүртэл эргэх байсан). Албан схемд `content[]`-оос өөр талбар байхгүй тул
+ * бодит хариуг staging-д батална.
+ */
+export function customsHasMorePages(
+  pageNumber: number,
+  rowsInPage: number,
+  totalPages: number | null,
+  size = CUSTOMS_PAGE_SIZE,
+  last: boolean | null = null
+): boolean {
+  if (last !== null) return !last;
   if (totalPages !== null) return pageNumber < totalPages;
-  return rowsInPage >= size;
+  return rowsInPage === size;
 }

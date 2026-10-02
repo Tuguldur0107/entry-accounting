@@ -4903,7 +4903,7 @@ export const ebarimtTaxReceipts = pgTable(
 
 /**
  * Хуулийн этгээдийн ГААЛИЙН МЭДҮҮЛЭГ (`tpiDeclaration`) — импортын татвар, НӨАТ
- * (оролтын НӨАТ-ын эх). Мэдүүлгийн дугаараар upsert; барааны мөрүүд ирсэн хэвээр
+ * (оролтын НӨАТ-ын эх). (Дугаар, эх огноо)-оор upsert; барааны мөрүүд ирсэн хэвээр
  * `items` jsonb-д, дүн нь мөрүүдийн нийлбэр. ЗӨВХӨН унших — GL-д бичихгүй.
  */
 export const ebarimtCustomsDeclarations = pgTable(
@@ -4930,7 +4930,10 @@ export const ebarimtCustomsDeclarations = pgTable(
     syncedAt: timestamp("synced_at").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("ebarimt_customs_declarations_org_no_ux").on(table.organizationId, table.declarationNo),
+    // Дугаар + эх огноо: албан жишээнд дугаар далдлагдсан («14215******I25514») ирдэг тул
+    // дугаар дангаараа өөр мэдүүлгүүдийг нэг мөрд нийлүүлж болзошгүй; ижил мэдүүлгийн
+    // дахин татлага ижил (дугаар, огноо)-той тул upsert идемпотент хэвээр.
+    uniqueIndex("ebarimt_customs_declarations_org_no_date_ux").on(table.organizationId, table.declarationNo, table.rawDate),
     index("ebarimt_customs_declarations_org_date_ix").on(table.organizationId, table.declarationDate),
   ]
 );
