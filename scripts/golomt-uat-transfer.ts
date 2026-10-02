@@ -15,8 +15,9 @@
 //   (16 тэмдэгт), HMAC-SHA1, 30 сек, 6 орон (RFC 6238 — Google Authenticator-тай ижил)
 // - Илгээхээс өмнө хүсэлтийн биеийг харуулж «ИЛГЭЭ» гэж бичихийг шаардана;
 //   хариу тодорхойгүй бол ДАХИН ИЛГЭЭХГҮЙ (D6) — хуулгаар шалгана
-// - Хүсэлтийн талбарын нэр (fromAccount, toAccount …) SPEC-ээс баталгаажаагүй —
-//   банк талбарын алдаа буцаавал SPEC-ийн нэрээр засна (amount = { value, currency })
+// - Хүсэлтийн бүтэц SPEC 8.3-аар: initiator {} (илгээгч) + receives [{}] (хүлээн
+//   авагчид), тал бүрд acctName, acctNo, particulars, amount { value, currency },
+//   bank (Голомт = "15", Лавлах төрөл BANK)
 
 import { createHmac } from "node:crypto";
 import { createInterface } from "node:readline";
@@ -26,6 +27,8 @@ const UAT_BASE = "https://openapi-uat.golomtbank.com/api";
 const TRANSFER_PATH = "/v1/transaction/cgw/transfer";
 /** UAT-д ч жижиг дүн (₮). */
 const MAX_AMOUNT = 10_000;
+/** SPEC 8.3: «Голомт банк (15)», Лавлах төрөл BANK. */
+const GOLOMT_BANK_CODE = "15";
 
 type Json = Record<string, unknown>;
 
@@ -123,9 +126,10 @@ async function main() {
   };
   const registerNumber = await ask("Байгууллагын регистр: ");
   const fromAccount = await ask("Илгээх (өөрийн, банкинд зөвшөөрөгдсөн) данс: ");
+  const fromAccountName = await ask("Илгээгчийн дансны нэр (банкинд бүртгэлтэйгээр): ");
   const toAccount = await ask("Хүлээн авах данс: ");
   const toAccountName = await ask("Хүлээн авагчийн нэр: ");
-  const toBank = await ask("Хүлээн авагчийн банкны код (Голомт бол хоосон): ");
+  const toBank = (await ask(`Хүлээн авагчийн банкны код (Голомт = ${GOLOMT_BANK_CODE}): `)) || GOLOMT_BANK_CODE;
   const amount = Number((await ask(`Дүн (₮, ≤ ${MAX_AMOUNT}): `)).replace(/[\s,]/g, ""));
   if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_AMOUNT)
     throw new Error(`Дүн 0-ээс их, ${MAX_AMOUNT}₮-өөс ихгүй байна`);
@@ -136,18 +140,15 @@ async function main() {
   // refCode — давтагдашгүй (D6). Хариу тодорхойгүй бол ЭНЭ кодоор хуулгаас хайна.
   // Банк ЗӨВХӨН ^[a-zA-Z0-9_]*$ зөвшөөрнө (2026-10-02 UAT: зураас «-» → 400).
   const refCode = `EUAT${Date.now()}`;
+  // SPEC 8.3: тал бүр (initiator / receives[]) өөрийн данс, утга, дүнтэй.
+  const money = { value: amount, currency: "MNT" };
   const payload: Json = {
     registerNumber,
-    fromAccount,
-    toAccount,
-    toAccountName,
-    ...(toBank ? { toBank } : {}),
-    // OBI-д дүн нь ОБЪЕКТ { value, currency } (SPEC 8.18 / 9.29; 2026-10-02 UAT:
-    // тоогоор илгээхэд 500 «CorpGatewayPartTranRequest.getAmount() is null»).
-    amount: { value: amount, currency: "MNT" },
     remarks,
     type: typeInput,
     refCode,
+    initiator: { acctName: fromAccountName, acctNo: fromAccount, particulars: remarks, amount: money, bank: GOLOMT_BANK_CODE },
+    receives: [{ acctName: toAccountName, acctNo: toAccount, particulars: remarks, amount: money, bank: toBank }],
   };
   const body = JSON.stringify(payload);
 
@@ -211,11 +212,22 @@ async function main() {
   const text = readBody(await response.text(), keys);
   console.log(`\nHTTP ${response.status}`);
   console.log(text.slice(0, 2000));
-  console.log(
-    response.ok
-      ? `\nrefCode: ${refCode} — UAT хуулгад гарсан эсэхийг шалгана уу.`
-      : "\nАмжилтгүй. «Access code not matched» бол X-Golomt-Key ба компьютерийн цагийг (±30 сек) шалгана; талбарын алдаа бол SPEC-ийн нэрээр засна."
-  );
+  if (!response.ok) {
+    console.log(
+      "\nАмжилтгүй. «Access code not matched» бол X-Golomt-Key ба компьютерийн цагийг (±30 сек) шалгана; талбарын алдаа бол SPEC-ийн нэрээр засна."
+    );
+    return;
+  }
+  // SPEC 8.3 хариу: successCount / failedCount / part[].status — HTTP 200 ч хэсэгчлэн
+  // амжилтгүй байж болно.
+  let result: { successCount?: number; failedCount?: number } = {};
+  try {
+    result = JSON.parse(text);
+  } catch {
+    // шифрлэгдээгүй / JSON биш хариу — дээр хэвлэгдсэн
+  }
+  const verdict = result.failedCount ? "⚠ АМЖИЛТГҮЙ хэсэг бий (failedCount > 0)" : result.successCount ? "✓ Амжилттай" : "Хариуг дээрээс шалгана уу";
+  console.log(`\n${verdict}. refCode: ${refCode} — UAT хуулгад гарсан эсэхийг шалгана уу.`);
 }
 
 main().catch((caught) => {
