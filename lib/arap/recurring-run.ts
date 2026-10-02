@@ -9,7 +9,7 @@
 // нөхцөлтэй (`where nextRunDate = хуучин`) урагшлуулна. ШИДЭХГҮЙ: алдаа нь
 // `lastError` + аудит `recurring_failed` (→ мэдэгдэл).
 
-import { and, eq, inArray, lte } from "drizzle-orm";
+import { and, eq, inArray, lte, sql } from "drizzle-orm";
 
 import { createArApDocument } from "@/lib/actions/arap";
 import { sendInvoiceEmail } from "@/lib/actions/invoice-send";
@@ -220,7 +220,11 @@ async function recordFailure(template: Template, actor: string, system: boolean,
   });
 }
 
-/** Амжилттай occurrence-ийн дараа загварыг урагшлуулна (нөхцөлтэй — давхар урагшлахгүй). */
+/**
+ * Амжилттай occurrence-ийн дараа загварыг урагшлуулна (нөхцөлтэй — давхар урагшлахгүй).
+ * Төлөв, тоолуурыг УНШСАН утгаар дарж бичихгүй (ontology-audit L1): нэхэмжлэх
+ * үүсэх зуур хэрэглэгч «Түр зогсоох» дарсан бол тэр нь «active» болж буцахгүй.
+ */
 async function advance(template: Template, occurrence: string, documentId: string, note?: string) {
   const next = nextOccurrence(occurrence, template.dayOfMonth, template.intervalMonths);
   const ended = !!template.endDate && next > template.endDate;
@@ -228,8 +232,8 @@ async function advance(template: Template, occurrence: string, documentId: strin
     .update(arRecurringInvoices)
     .set({
       nextRunDate: next,
-      status: ended ? "ended" : template.status,
-      runCount: template.runCount + 1,
+      ...(ended ? { status: "ended" } : {}),
+      runCount: sql`${arRecurringInvoices.runCount} + 1`,
       lastRunAt: new Date(),
       lastDocumentId: documentId,
       lastError: note ?? null,
@@ -290,7 +294,10 @@ export async function runRecurringInvoices(
         if (template.status !== "active") break;
       }
       if (template.endDate && template.nextRunDate > template.endDate && template.status === "active")
-        await db.update(arRecurringInvoices).set({ status: "ended", updatedAt: new Date() }).where(eq(arRecurringInvoices.id, template.id));
+        await db
+          .update(arRecurringInvoices)
+          .set({ status: "ended", updatedAt: new Date() })
+          .where(and(eq(arRecurringInvoices.id, template.id), eq(arRecurringInvoices.status, "active")));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       result.failed += 1;
