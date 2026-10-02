@@ -1,21 +1,23 @@
-// eTax («Цахим татварын систем») — НӨАТ-ын тайланг ТЕГ-д тушаахад бэлтгэх, илгээлтийн
-// түүх, холболтын тохиргоо (docs/dev/etax.md). Албан API спек ирэх хүртэл тушаалт нь
-// etax.mta.mn-ээс гараар, Entry-д ТЕГ-ийн дугаараар бүртгэнэ. Огноо = топбарын период
-// (URL `period` дарна — системийн стандарт).
+// eTax («Цахим татварын систем») — НӨАТ / ХАОАТ / ААНОАТ тайланг ТЕГ-д бэлтгэх, API-аар
+// хадгалах/илгээх, илгээлтийн түүх, холболтын тохиргоо (docs/dev/etax.md). Маягт `form`
+// параметр (vat | pit | cit, хуудас доторх таб = НЭГ хуудасны зүсэлт); огноо = топбарын
+// период (URL `period` дарна — системийн стандарт), улирлынх сараас гарна.
 
 import { EtaxView } from "@/components/tax/etax-view";
 import { moduleAccess, requireModuleAction } from "@/lib/auth";
 import { loadEtaxPageData } from "@/lib/itc/etax/store";
+import { isEtaxFormKey } from "@/lib/itc/etax/constants";
 import { PERMISSION_RANK } from "@/lib/permissions";
 import { isPeriodCode } from "@/lib/periods/period";
 import { getPeriodSelection } from "@/lib/periods/selection";
 
-type SearchParams = Promise<{ period?: string }>;
+type SearchParams = Promise<{ period?: string; form?: string }>;
 
 export default async function EtaxPage({ searchParams }: { searchParams: SearchParams }) {
-  const [{ period }, active, selection] = await Promise.all([searchParams, requireModuleAction("tax", "read"), getPeriodSelection()]);
+  const [{ period, form }, active, selection] = await Promise.all([searchParams, requireModuleAction("tax", "read"), getPeriodSelection()]);
   const periodCode = period && isPeriodCode(period) ? period : selection.periodCode;
-  const [data, access] = await Promise.all([loadEtaxPageData(active.orgId, periodCode), moduleAccess(["tax"])]);
+  const formKey = isEtaxFormKey(form) ? form : "vat";
+  const [data, access] = await Promise.all([loadEtaxPageData(active.orgId, periodCode, formKey), moduleAccess(["tax"])]);
   const isAdmin = active.role === "owner" || active.role === "admin";
   const taxLevel = PERMISSION_RANK[access.levels.tax ?? "none"];
   const canWrite = taxLevel >= PERMISSION_RANK.write;

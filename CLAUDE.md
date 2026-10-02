@@ -29,7 +29,7 @@
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 | Landing-ийн чат (entry.mn) — нийтийн өрөө + зочин ↔ Entry баг хувийн яриа, Telegram-аар хариулах, модерац, «AI туслах» (борлуулалтын өмнөх мэдээлэл, §9f) | ✅ backend (widget `entry-landing`-д) | SSE realtime |
 | Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1–2 (агуулга хувийн `entry-knowledge` repo-д) | dedicated харилцагчид лицензээр sync |
-| Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | ✅ eTax албан API (`/tax/etax`, `lib/itc/etax/` — НӨАТ snapshot, маягтын нүдний холболт, ТЕГ-д хадгалах/илгээх/төлөв; `docs/dev/etax.md`, спек `docs/integrations/etax/`); 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ eBarimt TPI-ээр нэхэмжлэхийн үлдэгдлийн автомат тулгалт (`docs/dev/ebarimt-tax-reconcile.md`, staging баталгаажуулалт хүлээгдэж буй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
+| Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | ✅ eTax албан API (`/tax/etax`, `lib/itc/etax/` — НӨАТ/ХАОАТ/ААНОАТ snapshot, маягтын нүдний + мэдээний холболт, ТЕГ-д хадгалах/илгээх/төлөв; `docs/dev/etax.md`, спек `docs/integrations/etax/`); 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ eBarimt TPI-ээр нэхэмжлэхийн үлдэгдлийн автомат тулгалт (`docs/dev/ebarimt-tax-reconcile.md`, staging баталгаажуулалт хүлээгдэж буй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
 
 ## Файлын бүтэц
 
@@ -491,7 +491,7 @@ Exclusive: Авлага = Нийт, Орлого = Нийт/1.1, НӨАТ өгл
 - Тооцооны журнал ЗААВАЛ ноорог, сард нэг, огноо = тайлант үеийн сүүлийн өдөр
 - Тайлан + төлбөр дараа сарын **10-нд**, хоцорвол 0.1%/хоног
 
-### 6a. eTax (Цахим татварын систем) — АЛБАН API ХЭРЭГЖСЭН (staging баталгаажуулалт хүлээгдэж буй)
+### 6a. eTax (Цахим татварын систем) — НӨАТ, ХАОАТ, ААНОАТ — АЛБАН API ХЭРЭГЖСЭН (staging баталгаажуулалт хүлээгдэж буй)
 
 Дэлгэрэнгүй: `docs/dev/etax.md`; спек `docs/integrations/etax/00-etax-api-spec.md`. Код:
 `lib/itc/etax/`, `lib/actions/etax.ts`, `/tax/etax`.
@@ -509,7 +509,11 @@ Exclusive: Авлага = Нийт, Орлого = Нийт/1.1, НӨАТ өгл
   `etax-api-staging` / бодит `ETAX_CLIENT_ID`; ТЕГ-ийн хариу (`code ≠ 0`) мессежээр ил
 - Нууц үг `encryptSecret`, утга хаана ч гарахгүй; нэг маягт × сард нэг л амьд илгээлт
 - **Хавсралт мэдээ** (sheet, §7): эх ба багана админ холбоно (таахгүй), мөр Entry-ийн АР/АП
-  баримтаас л (буцаалт сөрөг), ЗӨВХӨН `saved` төлөвт `deleteAllSheetData → saveSheetData`
+  баримт эсвэл цалингийн мөрөөс л (буцаалт сөрөг), ЗӨВХӨН `saved` төлөвт `deleteAllSheetData → saveSheetData`
+- **Олон маягт** (§8): `ETAX_FORMS` — vat ТТ-03А (сар), pit ТТ-11 (сар, цалингийн мөрөөс, ногдох орлого
+  calc.ts-ийн ижил томьёо), cit ТТ-02 (улирал, ӨССӨН ДҮНГЭЭР, GL 5/6/7/8 + ҮХ-ийн дансны/татварын
+  элэгдэл); ААНОАТ-ын ТАТВАРЫН ДҮН, хувь, тохируулга Entry-д БОДОГДОХГҮЙ — ТЕГ-ийн маягтад; тайлант
+  үеийн код `periodCodeFor` (YYYY-MM / YYYY-Qn / YYYY)
 
 ### 7. Цалин (Payroll) — Gross → Net — ХЭРЭГЖСЭН
 

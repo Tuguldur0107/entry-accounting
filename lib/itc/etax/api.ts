@@ -6,18 +6,21 @@
 
 import {
   ETAX_ERRORS,
+  ETAX_FIELD_LABELS,
+  ETAX_FORMS,
   ETAX_SHEET_FIELDS,
   ETAX_SHEET_GRANULARITIES,
   ETAX_SHEET_SOURCES,
   ETAX_TAX_STATUS,
-  ETAX_VAT_FIELDS,
+  type EtaxFormKey,
   type EtaxSheetField,
   type EtaxSheetGranularity,
   type EtaxSheetSource,
   type EtaxSubmissionStatus,
-  type EtaxVatField,
 } from "./constants";
-import { EtaxError, type EtaxVatSnapshot } from "./submission";
+import { EtaxError, etaxPeriodOf, type EtaxSnapshot } from "./submission";
+
+export { etaxPeriodOf, periodCodeFor, periodRangeOf, deadlineOf, periodLabelOf } from "./submission";
 
 type Json = Record<string, unknown>;
 
@@ -157,38 +160,36 @@ export function parseReportList(json: unknown): EtaxReportListRow[] {
   }));
 }
 
-/** `YYYY-MM` → ТЕГ-ийн year/period (сарын тайланд period = сар). */
-export function etaxPeriodOf(periodCode: string): { year: number; period: number } {
-  const match = /^(\d{4})-(\d{2})$/.exec(periodCode);
-  if (!match) throw new EtaxError(ETAX_ERRORS.validation, "Тайлант үеийн код буруу (YYYY-MM)");
-  return { year: Number(match[1]), period: Number(match[2]) };
-}
-
 /**
  * Жагсаалтаас тайлант үеийн мөр. `taxTypeId`/`formNo` өгсөн бол тэр (холболтоос);
- * үгүй бол нэрэнд «НӨАТ» эсвэл «нэмэгдсэн өртг» орсон мөр — олон/үгүй бол ШИДНЭ.
+ * үгүй бол маягтын нэрийн загвар (`ETAX_FORMS[form].namePattern`) — олон/үгүй бол ШИДНЭ.
+ * Тайлант үе: сар → period = сар; улирал → period = улирал; жил → period = 1.
  */
-export function findVatReportRow(
+export function findReportRow(
   rows: EtaxReportListRow[],
+  form: EtaxFormKey,
   periodCode: string,
   prefer: { taxTypeId?: number | null; formNo?: number | null } = {}
 ): EtaxReportListRow {
   const { year, period } = etaxPeriodOf(periodCode);
   const inPeriod = rows.filter((r) => r.periodYear === year && r.period === period);
   let candidates = inPeriod;
+  const label = ETAX_FORMS[form].shortLabel;
   if (prefer.taxTypeId != null) candidates = candidates.filter((r) => r.taxTypeId === prefer.taxTypeId);
   else if (prefer.formNo != null) candidates = candidates.filter((r) => r.formNo === prefer.formNo);
-  else candidates = candidates.filter((r) => /НӨАТ|нэмэгдсэн\s+өртг/iu.test(`${r.taxTypeName} ${r.taxReportCode}`));
+  else candidates = candidates.filter((r) => ETAX_FORMS[form].namePattern.test(`${r.taxTypeName} ${r.taxReportCode}`));
   if (candidates.length === 1) return candidates[0];
   if (candidates.length === 0)
     throw new EtaxError(
       ETAX_ERRORS.api,
-      `ТЕГ-ийн тушаах жагсаалтад ${periodCode}-ын НӨАТ-ын тайлан алга (${inPeriod.length} мөр: ${inPeriod.map((r) => r.taxTypeName).join(", ") || "хоосон"})`
+      `ТЕГ-ийн тушаах жагсаалтад ${periodCode}-ын ${label}-ын тайлан алга (${inPeriod.length} мөр: ${inPeriod.map((r) => r.taxTypeName).join(", ") || "хоосон"})`
     );
-  throw new EtaxError(
-    ETAX_ERRORS.validation,
-    `ТЕГ-ийн жагсаалтад ${periodCode}-д ${candidates.length} НӨАТ-ын мөр — маягтын холболтод татварын төрлөө сонгоно уу`
-  );
+  throw new EtaxError(ETAX_ERRORS.validation, `ТЕГ-ийн жагсаалтад ${periodCode}-д ${candidates.length} ${label}-ын мөр — маягтын холболтод татварын төрлөө сонгоно уу`);
+}
+
+/** @deprecated — `findReportRow(rows, "vat", …)`. */
+export function findVatReportRow(rows: EtaxReportListRow[], periodCode: string, prefer: { taxTypeId?: number | null; formNo?: number | null } = {}): EtaxReportListRow {
+  return findReportRow(rows, "vat", periodCode, prefer);
 }
 
 // ── §3.4 Түүх ───────────────────────────────────────────────────────────────
@@ -347,25 +348,26 @@ export function describeCell(cell: EtaxFormCell): string {
 
 // ── Холболт: Entry талбар → маягтын нүд ─────────────────────────────────────
 
-export type EtaxCellMapping = Partial<Record<EtaxVatField, string | null>>;
+/** Entry талбар → маягтын нүдний `tagKey` (маягт бүрийн `ETAX_FORMS[form].fields`). */
+export type EtaxCellMapping = Partial<Record<string, string | null>>;
 
-export function normalizeCellMapping(raw: unknown): EtaxCellMapping {
+export function normalizeCellMapping(raw: unknown, form: EtaxFormKey = "vat"): EtaxCellMapping {
   const source = obj(raw);
   const out: EtaxCellMapping = {};
-  for (const field of ETAX_VAT_FIELDS) {
+  for (const field of ETAX_FORMS[form].fields) {
     const key = text(source[field]);
     out[field] = key || null;
   }
   return out;
 }
 
-/** Холболтын бүрдэл: төлөх ба гаралт/оролт ЗААВАЛ; бусад нь сонголт. Алдааг жагсаана. */
-export function mappingProblems(mapping: EtaxCellMapping, cells: EtaxFormCell[] | null): string[] {
+/** Холболтын бүрдэл: маягтын ЗААВАЛ талбарууд; давхардал; загварт байхгүй нүд. Алдааг жагсаана. */
+export function mappingProblems(mapping: EtaxCellMapping, cells: EtaxFormCell[] | null, form: EtaxFormKey = "vat"): string[] {
   const problems: string[] = [];
-  const required: EtaxVatField[] = ["outputVat", "inputVat", "payableVat"];
-  for (const field of required) if (!mapping[field]) problems.push(`«${field}» нүдтэй холбогдоогүй`);
-  const used = new Map<string, EtaxVatField>();
-  for (const field of ETAX_VAT_FIELDS) {
+  const meta = ETAX_FORMS[form];
+  for (const field of meta.requiredFields) if (!mapping[field]) problems.push(`«${ETAX_FIELD_LABELS[field] ?? field}» нүдтэй холбогдоогүй`);
+  const used = new Map<string, string>();
+  for (const field of meta.fields) {
     const key = mapping[field];
     if (!key) continue;
     const prev = used.get(key);
@@ -393,16 +395,16 @@ export interface EtaxReportDataDetail {
  * snapshot-ын дүнг холбосон нүдэнд буулгана (§3.9 `reportDataDetail`). Холбогдоогүй
  * талбар алгасагдана; холбосон нүд загварт байхгүй / хасах утга авдаггүй нүдэнд сөрөг → ШИДНЭ.
  */
-export function buildReportDataDetail(snapshot: EtaxVatSnapshot, mapping: EtaxCellMapping, cells: EtaxFormCell[]): EtaxReportDataDetail[] {
-  const problems = mappingProblems(mapping, cells);
+export function buildReportDataDetail(snapshot: EtaxSnapshot, mapping: EtaxCellMapping, cells: EtaxFormCell[]): EtaxReportDataDetail[] {
+  const problems = mappingProblems(mapping, cells, snapshot.form);
   if (problems.length) throw new EtaxError(ETAX_ERRORS.validation, `Маягтын холболт дутуу: ${problems.join("; ")}`);
   const detail: EtaxReportDataDetail[] = [];
-  for (const field of ETAX_VAT_FIELDS) {
+  for (const field of ETAX_FORMS[snapshot.form].fields) {
     const key = mapping[field];
     if (!key) continue;
     const cell = cells.find((c) => c.key === key)!;
-    const amount = snapshot.amounts[field];
-    if (amount < 0 && !cell.allowMinus) throw new EtaxError(ETAX_ERRORS.validation, `${key} нүд хасах утга авахгүй (${field})`);
+    const amount = snapshot.amounts[field] ?? 0;
+    if (amount < 0 && !cell.allowMinus) throw new EtaxError(ETAX_ERRORS.validation, `${key} нүд хасах утга авахгүй (${ETAX_FIELD_LABELS[field] ?? field})`);
     detail.push({ tagId: cell.tagId, type: 0, tagKey: cell.key, value: cellValueOf(amount) });
   }
   return detail;

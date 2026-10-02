@@ -83,7 +83,7 @@ test("parseReportList — код ≠ 0 шиднэ; findVatReportRow үе + НӨ�
   const dup = parseReportList({ code: 0, reportList: [listRow, { ...listRow, id: "79", formNo: 1200 }] });
   assert.throws(() => findVatReportRow(dup, "2026-09"), /2 НӨАТ-ын мөр/);
   assert.equal(findVatReportRow(dup, "2026-09", { formNo: 1200 }).id, "79");
-  assert.deepEqual(etaxPeriodOf("2026-09"), { year: 2026, period: 9 });
+  assert.deepEqual(etaxPeriodOf("2026-09"), { year: 2026, period: 9, kind: "month" });
   assert.throws(() => etaxPeriodOf("2026-9"), /YYYY-MM/);
 });
 
@@ -151,7 +151,7 @@ test("холболт — бүрдэл, давхардал, загварт бай
   const mapping = normalizeCellMapping({ outputVat: "TG101", inputVat: "TG102", payableVat: "TG104", carriedInVat: "", junk: "x" });
   assert.deepEqual(mapping, { outputVat: "TG101", inputVat: "TG102", carriedInVat: null, payableVat: "TG104", refundableVat: null });
   assert.deepEqual(mappingProblems(mapping, cells), []);
-  assert.ok(mappingProblems({ outputVat: "TG101" }, cells).some((p) => p.includes("payableVat")));
+  assert.ok(mappingProblems({ outputVat: "TG101" }, cells).some((p) => p.includes("Төлөх НӨАТ")));
   assert.ok(mappingProblems({ outputVat: "TG101", inputVat: "TG101", payableVat: "TG104" }, cells).some((p) => p.includes("хоёулаа")));
   assert.ok(mappingProblems({ outputVat: "TG999", inputVat: "TG102", payableVat: "TG104" }, cells).some((p) => p.includes("TG999")));
 

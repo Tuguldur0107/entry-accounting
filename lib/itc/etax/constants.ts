@@ -72,26 +72,127 @@ export const ETAX_TAX_STATUS_LABELS: Readonly<Record<number, string>> = {
 /** Сүлжээний timeout (мс). */
 export const ETAX_TIMEOUT_MS = 60_000;
 
-/** Татварын тайлангийн маягт — Entry-д одоо бэлтгэдэг нь зөвхөн НӨАТ (сарын). */
-export type EtaxFormKey = "vat";
+/** Татварын тайлангийн маягтууд — НӨАТ (сар), ХАОАТ суутгал (сар), ААНОАТ (улирал, өссөн дүнгээр). */
+export type EtaxFormKey = "vat" | "pit" | "cit";
+export const ETAX_FORM_KEYS: readonly EtaxFormKey[] = ["vat", "pit", "cit"];
+
+/** Тайлант үеийн төрөл: сар `YYYY-MM`, улирал `YYYY-Qn`, жил `YYYY`. */
+export type EtaxPeriodKind = "month" | "quarter" | "year";
 
 export interface EtaxFormMeta {
   key: EtaxFormKey;
-  /** ТЕГ-ийн маягтын код (вэбд ажиглагдсан хуудасны код `TT-03A_*`). */
+  /** ТЕГ-ийн маягтын код (ТТ-03А НӨАТ; ТТ-11 ХАОАТ суутгагч; ТТ-02 ААНОАТ — спекийн жишээ `reportNoStr "TT-02"`). */
   code: string;
   label: string;
-  periodKind: "month";
+  shortLabel: string;
+  periodKind: EtaxPeriodKind;
+  /** Өссөн дүнгээр (жилийн эхнээс тайлант үеийн эцэс хүртэл) — ААНОАТ. */
+  cumulative: boolean;
   /** Entry-ийн эх хуудас (бодолт). */
   sourceHref: string;
+  /** Маягтын нүдэнд буулгах Entry-ийн талбарууд (нэг удаагийн холболт). */
+  fields: readonly string[];
+  /** Холболтод ЗААВАЛ талбарууд. */
+  requiredFields: readonly string[];
+  /** Хуудасны дүнгийн картууд (≤ 4). */
+  cardFields: readonly string[];
+  /** ТЕГ-ийн тушаах жагсаалтаас татварын төрлийг нэрээр таних (холболт сонгоогүй үед). */
+  namePattern: RegExp;
 }
 
+export const ETAX_VAT_FIELDS = ["outputVat", "inputVat", "carriedInVat", "payableVat", "refundableVat"] as const;
+export type EtaxVatField = (typeof ETAX_VAT_FIELDS)[number];
+export const ETAX_PIT_FIELDS = ["employeeCount", "earnings", "employeeSi", "taxableIncome", "pitCredit", "pit", "netSalary"] as const;
+export const ETAX_CIT_FIELDS = [
+  "revenue",
+  "cogs",
+  "operatingExpenses",
+  "financeExpenses",
+  "totalExpenses",
+  "profitBeforeTax",
+  "bookDepreciation",
+  "taxDepreciation",
+  "depreciationAdjustedProfit",
+] as const;
+
 export const ETAX_FORMS: Readonly<Record<EtaxFormKey, EtaxFormMeta>> = {
-  vat: { key: "vat", code: "ТТ-03А", label: "НӨАТ-ын тайлан", periodKind: "month", sourceHref: "/tax/vat" },
+  vat: {
+    key: "vat",
+    code: "ТТ-03А",
+    label: "НӨАТ-ын тайлан",
+    shortLabel: "НӨАТ",
+    periodKind: "month",
+    cumulative: false,
+    sourceHref: "/tax/vat",
+    fields: ETAX_VAT_FIELDS,
+    requiredFields: ["outputVat", "inputVat", "payableVat"],
+    cardFields: ["outputVat", "inputVat", "payableVat", "refundableVat"],
+    namePattern: /НӨАТ|нэмэгдсэн\s+өртг/iu,
+  },
+  pit: {
+    key: "pit",
+    code: "ТТ-11",
+    label: "ХАОАТ суутгагчийн тайлан (цалин)",
+    shortLabel: "ХАОАТ",
+    periodKind: "month",
+    cumulative: false,
+    sourceHref: "/tax/pit",
+    fields: ETAX_PIT_FIELDS,
+    requiredFields: ["earnings", "pit"],
+    cardFields: ["employeeCount", "earnings", "taxableIncome", "pit"],
+    namePattern: /ХХОАТ|ХАОАТ|цалин|хөдөлмөрийн\s+хөлс|суутгасан/iu,
+  },
+  cit: {
+    key: "cit",
+    code: "ТТ-02",
+    label: "ААНОАТ-ын тайлан (өссөн дүнгээр)",
+    shortLabel: "ААНОАТ",
+    periodKind: "quarter",
+    cumulative: true,
+    sourceHref: "/tax/cit",
+    fields: ETAX_CIT_FIELDS,
+    requiredFields: ["revenue", "profitBeforeTax"],
+    cardFields: ["revenue", "totalExpenses", "profitBeforeTax", "depreciationAdjustedProfit"],
+    namePattern: /ААНОАТ|аж\s+ахуйн\s+нэгж|орлогын\s+албан\s+татвар/iu,
+  },
 };
 
 export function isEtaxFormKey(value: unknown): value is EtaxFormKey {
-  return value === "vat";
+  return value === "vat" || value === "pit" || value === "cit";
 }
+
+/** Талбарын шошго — бүх маягтын нэг толь. */
+export const ETAX_FIELD_LABELS: Readonly<Record<string, string>> = {
+  outputVat: "Гаралтын НӨАТ (борлуулалт)",
+  inputVat: "Оролтын НӨАТ (худалдан авалт)",
+  carriedInVat: "Өмнөх үеэс шилжсэн кредит",
+  payableVat: "Төлөх НӨАТ",
+  refundableVat: "Дараа үед шилжүүлэх НӨАТ",
+  employeeCount: "Ажилтны тоо",
+  earnings: "Нийт олголт (цалин, нэмэгдэл)",
+  employeeSi: "НДШ (ажилтан)",
+  taxableIncome: "Татвар ногдох орлого",
+  pitCredit: "Татварын хөнгөлөлт",
+  pit: "Суутгасан ХАОАТ",
+  netSalary: "Гарт олгох цалин",
+  revenue: "Орлого (5-р бүлэг)",
+  cogs: "Борлуулсан бүтээгдэхүүний өртөг (6)",
+  operatingExpenses: "Үйл ажиллагааны зардал (7)",
+  financeExpenses: "Санхүүгийн зардал (8)",
+  totalExpenses: "Нийт зардал",
+  profitBeforeTax: "Татвар төлөхийн өмнөх ашиг (дансны)",
+  bookDepreciation: "Дансны элэгдэл (IAS 16)",
+  taxDepreciation: "Татварын элэгдэл (мэмо)",
+  depreciationAdjustedProfit: "Элэгдлийн зөрүүгээр тохируулсан ашиг",
+};
+/** @deprecated — `ETAX_FIELD_LABELS`. */
+export const ETAX_VAT_FIELD_LABELS: Readonly<Record<EtaxVatField, string>> = {
+  outputVat: ETAX_FIELD_LABELS.outputVat,
+  inputVat: ETAX_FIELD_LABELS.inputVat,
+  carriedInVat: ETAX_FIELD_LABELS.carriedInVat,
+  payableVat: ETAX_FIELD_LABELS.payableVat,
+  refundableVat: ETAX_FIELD_LABELS.refundableVat,
+};
 
 /**
  * Илгээлтийн төлөв — ноорог-first (CLAUDE.md §9): тайлан ТЕГ-д хүний гарын үсэг /
@@ -133,23 +234,13 @@ export const ETAX_ERRORS = {
   auth: "ETAX_AUTH",
 } as const;
 
-/** Маягтын нүдэнд буулгах Entry-ийн НӨАТ-ын талбарууд (нэг удаагийн холболт — docs/dev/etax.md §4). */
-export const ETAX_VAT_FIELDS = ["outputVat", "inputVat", "carriedInVat", "payableVat", "refundableVat"] as const;
-export type EtaxVatField = (typeof ETAX_VAT_FIELDS)[number];
-export const ETAX_VAT_FIELD_LABELS: Readonly<Record<EtaxVatField, string>> = {
-  outputVat: "Гаралтын НӨАТ (борлуулалт)",
-  inputVat: "Оролтын НӨАТ (худалдан авалт)",
-  carriedInVat: "Өмнөх үеэс шилжсэн кредит",
-  payableVat: "Төлөх НӨАТ",
-  refundableVat: "Дараа үед шилжүүлэх НӨАТ",
-};
-
 /** Хавсралт мэдээний ЭХ — Entry-ийн аль задаргаа мэдээг бөглөх вэ (docs/dev/etax.md §7). */
-export const ETAX_SHEET_SOURCES = ["sales", "purchases"] as const;
+export const ETAX_SHEET_SOURCES = ["sales", "purchases", "payroll"] as const;
 export type EtaxSheetSource = (typeof ETAX_SHEET_SOURCES)[number];
 export const ETAX_SHEET_SOURCE_LABELS: Readonly<Record<EtaxSheetSource, string>> = {
   sales: "Борлуулалтын задаргаа (авлагын нэхэмжлэх, POS)",
   purchases: "Худалдан авалтын задаргаа (өглөгийн нэхэмжлэх)",
+  payroll: "Цалингийн задаргаа (ажилтан бүрээр — ХАОАТ)",
 };
 
 /** Мэдээний мөрийн нэгтгэл: харилцагчаар нийлбэр эсвэл баримт бүрээр. */
@@ -183,8 +274,8 @@ export const ETAX_SHEET_FIELD_LABELS: Readonly<Record<EtaxSheetField, string>> =
   documentNo: "Баримтын дугаар",
   date: "Огноо",
   ddtd: "eBarimt ДДТД",
-  netAmount: "Дүн (НӨАТ-гүй)",
-  vatAmount: "НӨАТ",
-  totalAmount: "Нийт дүн",
+  netAmount: "Дүн (НӨАТ-гүй) / татвар ногдох орлого",
+  vatAmount: "НӨАТ / суутгасан татвар",
+  totalAmount: "Нийт дүн / нийт олголт",
   documentCount: "Баримтын тоо",
 };

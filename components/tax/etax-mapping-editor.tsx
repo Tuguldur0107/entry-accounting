@@ -13,18 +13,29 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { fetchEtaxFormTemplate, getEtaxReportChoices, saveEtaxFormMapping } from "@/lib/actions/etax";
 import { fmtDateTimeUb } from "@/lib/format/datetime";
 import { describeCell } from "@/lib/itc/etax/api";
-import { ETAX_VAT_FIELDS, ETAX_VAT_FIELD_LABELS, type EtaxVatField } from "@/lib/itc/etax/constants";
+import { ETAX_FIELD_LABELS, ETAX_FORMS, type EtaxFormKey } from "@/lib/itc/etax/constants";
 import type { EtaxMappingView, EtaxReportChoice } from "@/lib/itc/etax/types";
 import { feedback } from "@/lib/ui/feedback";
 
 const selectClass =
   "h-8 w-full rounded-md border border-[var(--ea-border-strong)] bg-[var(--ea-surface)] px-2 text-xs text-[var(--ea-text-1)]";
 
-export function EtaxMappingEditor({ mapping, periodCode, enabled }: { mapping: EtaxMappingView | null; periodCode: string; enabled: boolean }) {
+export function EtaxMappingEditor({
+  form,
+  mapping,
+  periodCode,
+  enabled,
+}: {
+  form: EtaxFormKey;
+  mapping: EtaxMappingView | null;
+  periodCode: string;
+  enabled: boolean;
+}) {
   const router = useRouter();
+  const meta = ETAX_FORMS[form];
   const [choices, setChoices] = useState<EtaxReportChoice[] | null>(null);
   const [choiceKey, setChoiceKey] = useState<string>(mapping ? `${mapping.taxTypeId}:${mapping.formNo}` : "");
-  const [cells, setCells] = useState<Partial<Record<EtaxVatField, string | null>>>(mapping?.cells ?? {});
+  const [cells, setCells] = useState<Partial<Record<string, string | null>>>(mapping?.cells ?? {});
   const [isPending, startTransition] = useTransition();
 
   // Эцэг нь `key`-ээр дахин mount хийнэ (холболт/загвар шинэчлэгдэхэд) — effect-ээр state тавихгүй.
@@ -43,8 +54,8 @@ export function EtaxMappingEditor({ mapping, periodCode, enabled }: { mapping: E
       }
       setChoices(loaded);
       if (!choiceKey) {
-        const vat = loaded.find((c) => /НӨАТ|нэмэгдсэн/iu.test(`${c.taxTypeName} ${c.taxReportCode}`));
-        if (vat) setChoiceKey(`${vat.taxTypeId}:${vat.formNo}`);
+        const guess = loaded.find((c) => meta.namePattern.test(`${c.taxTypeName} ${c.taxReportCode}`));
+        if (guess) setChoiceKey(`${guess.taxTypeId}:${guess.formNo}`);
       }
       feedback.saved(`ТЕГ-ийн тушаах жагсаалт: ${loaded.length} төрөл`);
     });
@@ -58,7 +69,7 @@ export function EtaxMappingEditor({ mapping, periodCode, enabled }: { mapping: E
       return;
     }
     startTransition(async () => {
-      const { error, mapping: loaded } = await fetchEtaxFormTemplate({ taxTypeId, formNo, taxTypeName: choice?.taxTypeName ?? null, periodCode });
+      const { error, mapping: loaded } = await fetchEtaxFormTemplate({ form, taxTypeId, formNo, taxTypeName: choice?.taxTypeName ?? null, periodCode });
       if (error || !loaded) feedback.error(error ?? "Загвар татагдсангүй");
       else feedback.saved(`Маягтын загвар ${loaded.reportCode ?? loaded.formNo} — ${loaded.templateCells.length} нүд`);
       router.refresh();
@@ -67,7 +78,7 @@ export function EtaxMappingEditor({ mapping, periodCode, enabled }: { mapping: E
 
   function save() {
     startTransition(async () => {
-      const { error, mapping: saved } = await saveEtaxFormMapping({ cells: cells as Record<string, string | null> });
+      const { error, mapping: saved } = await saveEtaxFormMapping({ form, cells: cells as Record<string, string | null> });
       if (error || !saved) feedback.error(error ?? "Холболт хадгалагдсангүй");
       else feedback.saved(saved.problems.length ? `Хадгалагдлаа — дутуу: ${saved.problems.join("; ")}` : "Маягтын холболт бүрэн");
       router.refresh();
@@ -78,10 +89,10 @@ export function EtaxMappingEditor({ mapping, periodCode, enabled }: { mapping: E
     <div className="space-y-3 rounded-lg border p-4" style={{ borderColor: "var(--ea-border)", background: "var(--ea-surface)" }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">Маягтын нүдний холболт</h2>
+          <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">Маягтын нүдний холболт — {meta.shortLabel} ({meta.code})</h2>
           <p className="text-xs text-[var(--ea-text-3)]">
-            ТЕГ-ийн маягт динамик тул Entry-ийн НӨАТ-ын талбар бүрийг маягтын аль нүдэнд бичихийг нэг удаа заана. Томьёотой нүдийг
-            ТЕГ өөрөө бодно — сонгохгүй.
+            ТЕГ-ийн маягт динамик тул Entry-ийн талбар бүрийг маягтын аль нүдэнд бичихийг нэг удаа заана. Томьёотой нүдийг ТЕГ
+            өөрөө бодно — сонгохгүй.
           </p>
         </div>
         {mapping ? (
@@ -136,8 +147,8 @@ export function EtaxMappingEditor({ mapping, periodCode, enabled }: { mapping: E
                 {fmtDateTimeUb(mapping.templateFetchedAt) ?? "—"} · {templateCells.length} нүд
               </div>
               <div className="grid gap-2 md:grid-cols-2">
-                {ETAX_VAT_FIELDS.map((field) => (
-                  <FormField key={field} label={ETAX_VAT_FIELD_LABELS[field]} htmlFor={`etax-cell-${field}`}>
+                {meta.fields.map((field) => (
+                  <FormField key={field} label={ETAX_FIELD_LABELS[field] ?? field} htmlFor={`etax-cell-${field}`}>
                     <select
                       id={`etax-cell-${field}`}
                       className={selectClass}

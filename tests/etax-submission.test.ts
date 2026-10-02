@@ -40,7 +40,7 @@ const summary: VatReturnSummary = {
 const settings = { outputVatAccountNumber: "31410000", inputVatAccountNumber: "13620000", vatRatePercent: 10 };
 const taxpayer = { name: "Хос Хас Технологи ХХК", registerNo: "6543210", vatPayerNo: null };
 
-function snapshot(overrides: Partial<EtaxVatSnapshot["amounts"]> = {}, extra: Partial<EtaxVatSnapshot> = {}): EtaxVatSnapshot {
+function snapshot(overrides: Record<string, number> = {}, extra: Partial<EtaxVatSnapshot> = {}): EtaxVatSnapshot {
   const base = buildVatSnapshot({ summary, settings, taxpayer, computedAt: new Date("2026-10-02T03:00:00Z") });
   return { ...base, ...extra, amounts: { ...base.amounts, ...overrides } };
 }
@@ -77,7 +77,7 @@ test("validateVatSnapshot — толгой дутуу, регистр буруу
   const badReg = validateVatSnapshot(snapshot({}, { taxpayer: { ...taxpayer, registerNo: "AB12" } }), "2026-10-05");
   assert.ok(badReg.errors.some((e) => e.includes("7 оронтой")));
   const negative = validateVatSnapshot(snapshot({ inputVat: -1 }), "2026-10-05");
-  assert.ok(negative.errors.some((e) => e.includes("Оролтын НӨАТ сөрөг")));
+  assert.ok(negative.errors.some((e) => e.includes("Оролтын НӨАТ") && e.includes("сөрөг")));
 });
 
 test("validateVatSnapshot — төлөх/шилжүүлэх уялдаа зөрвөл алдаа (дүн дахин бодогдохгүй)", () => {
@@ -152,5 +152,6 @@ test("constants — төлөв бүр монгол шошготой, амьд т
   assert.equal(ETAX_ACTIVE_STATUSES.includes("accepted"), true);
   assert.equal(ETAX_ACTIVE_STATUSES.includes("saved"), true);
   assert.equal(isEtaxFormKey("vat"), true);
-  assert.equal(isEtaxFormKey("cit"), false);
+  assert.equal(isEtaxFormKey("cit"), true);
+  assert.equal(isEtaxFormKey("wht"), false);
 });

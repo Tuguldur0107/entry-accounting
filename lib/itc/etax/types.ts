@@ -2,8 +2,8 @@
 
 import type { ItcEnvironment } from "../constants";
 import type { EtaxFormCell, EtaxSheetMapping, EtaxSheetTemplate } from "./api";
-import type { EtaxFormKey, EtaxSubmissionStatus, EtaxVatField } from "./constants";
-import type { EtaxValidation, EtaxVatSnapshot } from "./submission";
+import type { EtaxFormKey, EtaxSubmissionStatus } from "./constants";
+import type { EtaxSnapshot, EtaxValidation } from "./submission";
 
 export interface EtaxConnectionView {
   environment: ItcEnvironment;
@@ -33,7 +33,7 @@ export interface EtaxMappingView {
   taxTypeName: string | null;
   reportCode: string | null;
   templateVersion: number | null;
-  cells: Partial<Record<EtaxVatField, string | null>>;
+  cells: Partial<Record<string, string | null>>;
   /** Сүүлд татсан загварын нүднүүд (сонголтод). */
   templateCells: EtaxFormCell[];
   templateFetchedAt: string | null;
@@ -65,7 +65,7 @@ export interface EtaxSubmissionView {
   periodCode: string;
   status: EtaxSubmissionStatus;
   environment: ItcEnvironment;
-  snapshot: EtaxVatSnapshot;
+  snapshot: EtaxSnapshot;
   validation: EtaxValidation | null;
   taxReference: string | null;
   /** eTax API reportNo (ТЕГ-д хадгалсанаас хойш). */
@@ -83,7 +83,11 @@ export interface EtaxSubmissionView {
 }
 
 export interface EtaxPageData {
+  form: EtaxFormKey;
+  /** Топбарын сар (YYYY-MM) — маягтын тайлант үе үүнээс (`periodCodeFor`). */
+  monthCode: string;
   periodCode: string;
+  periodLabel: string;
   connection: EtaxConnectionView | null;
   /** Энэ тайлант үеийн амьд илгээлт (draft/ready/submitted/accepted) — байхгүй бол null. */
   current: EtaxSubmissionView | null;
@@ -93,7 +97,7 @@ export interface EtaxPageData {
   history: EtaxSubmissionView[];
   isVatPayer: boolean;
   /** Одоогийн бодолтын товч — ноорог байхгүй үед ч харуулна. */
-  live: { outputVat: number; inputVat: number; carriedInVat: number; payableVat: number; refundableVat: number; deadline: string };
+  live: { amounts: Record<string, number>; deadline: string };
   /** Маягтын нүдний холболт — null бол тохируулаагүй (API-аар хадгалах боломжгүй). */
   mapping: EtaxMappingView | null;
 }

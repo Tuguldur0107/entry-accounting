@@ -21,6 +21,7 @@ import {
   ETAX_SHEET_GRANULARITY_LABELS,
   ETAX_SHEET_SOURCES,
   ETAX_SHEET_SOURCE_LABELS,
+  type EtaxFormKey,
   type EtaxSheetField,
 } from "@/lib/itc/etax/constants";
 import type { EtaxMappingView } from "@/lib/itc/etax/types";
@@ -29,7 +30,7 @@ import { feedback } from "@/lib/ui/feedback";
 const selectClass =
   "h-8 w-full rounded-md border border-[var(--ea-border-strong)] bg-[var(--ea-surface)] px-2 text-xs text-[var(--ea-text-1)]";
 
-export function EtaxSheetEditor({ mapping, savedSubmissionId }: { mapping: EtaxMappingView | null; savedSubmissionId: string | null }) {
+export function EtaxSheetEditor({ form, mapping, savedSubmissionId }: { form: EtaxFormKey; mapping: EtaxMappingView | null; savedSubmissionId: string | null }) {
   const router = useRouter();
   const [sheets, setSheets] = useState<EtaxSheetMapping[]>(mapping?.sheets ?? []);
   const [isPending, startTransition] = useTransition();
@@ -54,7 +55,7 @@ export function EtaxSheetEditor({ mapping, savedSubmissionId }: { mapping: EtaxM
 
   function save() {
     startTransition(async () => {
-      const { error, mapping: saved } = await saveEtaxSheetMappingsAction({ sheets });
+      const { error, mapping: saved } = await saveEtaxSheetMappingsAction({ form, sheets });
       if (error || !saved) feedback.error(error ?? "Мэдээний холболт хадгалагдсангүй");
       else feedback.saved(saved.sheetProblems.length ? `Хадгалагдлаа — дутуу: ${saved.sheetProblems.join("; ")}` : "Мэдээний холболт бүрэн");
       router.refresh();

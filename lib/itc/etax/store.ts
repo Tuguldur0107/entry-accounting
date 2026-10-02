@@ -8,6 +8,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { getVatReturnData } from "@/lib/actions/vat";
+import { loadCitTotals, loadPitTotals } from "./form-sources";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { db } from "@/lib/db";
 import { etaxConnections, etaxFormMappings, etaxSubmissions, organizationProfile } from "@/lib/db/schema";
@@ -31,6 +32,8 @@ import { etaxClientId, etaxNeKey, type EtaxAuth } from "./client";
 import {
   ETAX_ACTIVE_STATUSES,
   ETAX_ERRORS,
+  ETAX_FORMS,
+  type EtaxFormKey,
   ETAX_STATUS_LABELS,
   ETAX_WEB_BASE,
   isEtaxFormKey,
@@ -39,14 +42,18 @@ import {
 import {
   EtaxError,
   assertTransition,
+  buildCitSnapshot,
+  buildPitSnapshot,
   buildVatSnapshot,
   normalizeTaxReference,
+  periodCodeFor,
+  periodLabelOf,
   requiresTaxReference,
   snapshotAmountsDiffer,
-  validateVatSnapshot,
+  validateSnapshot,
+  type EtaxSnapshot,
   type EtaxTaxpayer,
   type EtaxValidation,
-  type EtaxVatSnapshot,
 } from "./submission";
 import type { EtaxConnectionView, EtaxMappingView, EtaxPageData, EtaxSubmissionView } from "./types";
 
@@ -56,7 +63,7 @@ type SubmissionRow = typeof etaxSubmissions.$inferSelect;
 const ACTIVE = [...ETAX_ACTIVE_STATUSES];
 
 /** jsonb баганад бичихэд — схем `Record<string, unknown>` (interface-д index signature байхгүй). */
-const asJson = (snapshot: EtaxVatSnapshot): Record<string, unknown> => snapshot as unknown as Record<string, unknown>;
+const asJson = (snapshot: EtaxSnapshot): Record<string, unknown> => snapshot as unknown as Record<string, unknown>;
 
 export async function loadEtaxConnectionRow(orgId: string): Promise<ConnectionRow | null> {
   return (await db.query.etaxConnections.findFirst({ where: eq(etaxConnections.organizationId, orgId) })) ?? null;
@@ -119,7 +126,7 @@ export async function requireEtaxSession(orgId: string): Promise<{ row: Connecti
 
 type MappingRow = typeof etaxFormMappings.$inferSelect;
 
-export async function loadEtaxMappingRow(orgId: string, form = "vat"): Promise<MappingRow | null> {
+export async function loadEtaxMappingRow(orgId: string, form: EtaxFormKey = "vat"): Promise<MappingRow | null> {
   return (await db.query.etaxFormMappings.findFirst({ where: and(eq(etaxFormMappings.organizationId, orgId), eq(etaxFormMappings.form, form)) })) ?? null;
 }
 
@@ -133,10 +140,11 @@ export function sheetMappingsOf(row: Pick<MappingRow, "sheets" | "sheetTemplates
 
 export function toEtaxMappingView(row: MappingRow): EtaxMappingView {
   const templateCells = (row.templateCells ?? []) as unknown as EtaxFormCell[];
-  const cells = normalizeCellMapping(row.cells);
+  const form: EtaxFormKey = isEtaxFormKey(row.form) ? row.form : "vat";
+  const cells = normalizeCellMapping(row.cells, form);
   const { templates, mappings } = sheetMappingsOf(row);
   return {
-    form: isEtaxFormKey(row.form) ? row.form : "vat",
+    form,
     formNo: row.formNo,
     taxTypeId: row.taxTypeId,
     taxTypeName: row.taxTypeName,
@@ -145,7 +153,7 @@ export function toEtaxMappingView(row: MappingRow): EtaxMappingView {
     cells,
     templateCells,
     templateFetchedAt: row.templateFetchedAt?.toISOString() ?? null,
-    problems: mappingProblems(cells, templateCells.length ? templateCells : null),
+    problems: mappingProblems(cells, templateCells.length ? templateCells : null, form),
     sheetTemplates: templates,
     sheets: mappings,
     sheetTemplatesFetchedAt: row.sheetTemplatesFetchedAt?.toISOString() ?? null,
@@ -203,7 +211,7 @@ export function toEtaxSubmissionView(row: SubmissionRow): EtaxSubmissionView {
     periodCode: row.periodCode,
     status: statusOf(row.status),
     environment: environmentOf(row),
-    snapshot: row.snapshot as unknown as EtaxVatSnapshot,
+    snapshot: row.snapshot as unknown as EtaxSnapshot,
     validation: (row.validation as EtaxValidation | null) ?? null,
     taxReference: row.taxReference,
     reportNo: row.reportNo,
@@ -219,12 +227,12 @@ export function toEtaxSubmissionView(row: SubmissionRow): EtaxSubmissionView {
   };
 }
 
-async function loadActiveVatSubmission(orgId: string, periodCode: string): Promise<SubmissionRow | null> {
+async function loadActiveSubmission(orgId: string, form: EtaxFormKey, periodCode: string): Promise<SubmissionRow | null> {
   return (
     (await db.query.etaxSubmissions.findFirst({
       where: and(
         eq(etaxSubmissions.organizationId, orgId),
-        eq(etaxSubmissions.form, "vat"),
+        eq(etaxSubmissions.form, form),
         eq(etaxSubmissions.periodCode, periodCode),
         inArray(etaxSubmissions.status, ACTIVE)
       ),
@@ -240,9 +248,12 @@ export async function loadEtaxSubmission(orgId: string, id: string): Promise<Sub
   );
 }
 
-/** Одоогийн бодолтоос snapshot — хуудас ба бэлтгэл НЭГ эх. */
-async function currentVatSnapshot(orgId: string, periodCode: string, now: Date): Promise<{ snapshot: EtaxVatSnapshot; isVatPayer: boolean }> {
-  const [data, taxpayer] = await Promise.all([getVatReturnData(periodCode), loadEtaxTaxpayer(orgId)]);
+/** Одоогийн бодолтоос snapshot — хуудас ба бэлтгэл НЭГ эх; маягтаар салбарлана. */
+async function currentSnapshot(orgId: string, form: EtaxFormKey, periodCode: string, now: Date): Promise<{ snapshot: EtaxSnapshot; isVatPayer: boolean }> {
+  const taxpayer = await loadEtaxTaxpayer(orgId);
+  if (form === "pit") return { snapshot: buildPitSnapshot({ totals: await loadPitTotals(orgId, periodCode), taxpayer, computedAt: now }), isVatPayer: true };
+  if (form === "cit") return { snapshot: buildCitSnapshot({ totals: await loadCitTotals(orgId, periodCode), taxpayer, computedAt: now }), isVatPayer: true };
+  const data = await getVatReturnData(periodCode);
   return {
     snapshot: buildVatSnapshot({
       summary: data.summary,
@@ -255,30 +266,34 @@ async function currentVatSnapshot(orgId: string, periodCode: string, now: Date):
   };
 }
 
-/** `/tax/etax` хуудасны өгөгдөл. */
-export async function loadEtaxPageData(orgId: string, periodCode: string): Promise<EtaxPageData> {
-  if (!isPeriodCode(periodCode)) throw new EtaxError(ETAX_ERRORS.validation, "Тайлант үеийн код буруу");
+/** `/tax/etax` хуудасны өгөгдөл — топбарын сар + маягт. */
+export async function loadEtaxPageData(orgId: string, monthCode: string, form: EtaxFormKey = "vat"): Promise<EtaxPageData> {
+  if (!isPeriodCode(monthCode)) throw new EtaxError(ETAX_ERRORS.validation, "Тайлант үеийн код буруу");
+  const periodCode = periodCodeFor(form, monthCode);
   const now = new Date();
   const [connection, active, history, live, mapping] = await Promise.all([
     loadEtaxConnectionRow(orgId),
-    loadActiveVatSubmission(orgId, periodCode),
+    loadActiveSubmission(orgId, form, periodCode),
     db.query.etaxSubmissions.findMany({
       where: eq(etaxSubmissions.organizationId, orgId),
       orderBy: [desc(etaxSubmissions.updatedAt)],
       limit: 50,
     }),
-    currentVatSnapshot(orgId, periodCode, now),
-    loadEtaxMappingRow(orgId),
+    currentSnapshot(orgId, form, periodCode, now),
+    loadEtaxMappingRow(orgId, form),
   ]);
   const current = active ? toEtaxSubmissionView(active) : null;
   return {
+    form,
+    monthCode,
     periodCode,
+    periodLabel: periodLabelOf(periodCode),
     connection: connection ? toEtaxConnectionView(connection) : null,
     current,
     stale: current ? snapshotAmountsDiffer(current.snapshot, live.snapshot) : false,
     history: history.map(toEtaxSubmissionView),
     isVatPayer: live.isVatPayer,
-    live: { ...live.snapshot.amounts, deadline: live.snapshot.deadline },
+    live: { amounts: live.snapshot.amounts, deadline: live.snapshot.deadline },
     mapping: mapping ? toEtaxMappingView(mapping) : null,
   };
 }
@@ -288,31 +303,31 @@ export async function loadEtaxPageData(orgId: string, periodCode: string): Promi
  * илгээлт байвал татгалзана (буцаасан бол шинээр үүснэ). «Бэлэн» ноорог дүн нь
  * зөрвөл НООРОГ руу буцна (хүн дахин хянана).
  */
-export async function prepareVatSubmission(
+export async function prepareSubmission(
   orgId: string,
   userId: string,
+  form: EtaxFormKey,
   periodCode: string
 ): Promise<{ submission: EtaxSubmissionView; created: boolean; revertedToDraft: boolean }> {
-  if (!isPeriodCode(periodCode)) throw new EtaxError(ETAX_ERRORS.validation, "Тайлант үеийн код буруу");
   const now = new Date();
   const today = ulaanbaatarToday(now);
   const [{ snapshot }, connection, existing] = await Promise.all([
-    currentVatSnapshot(orgId, periodCode, now),
+    currentSnapshot(orgId, form, periodCode, now),
     loadEtaxConnectionRow(orgId),
-    loadActiveVatSubmission(orgId, periodCode),
+    loadActiveSubmission(orgId, form, periodCode),
   ]);
-  const validation = validateVatSnapshot(snapshot, today);
+  const validation = validateSnapshot(snapshot, today);
   const environment = connection ? environmentOf(connection) : "production";
 
   if (existing && (existing.status === "submitted" || existing.status === "accepted"))
     throw new EtaxError(
       ETAX_ERRORS.state,
-      `${periodCode} сарын НӨАТ-ын тайлан аль хэдийн «${ETAX_STATUS_LABELS[statusOf(existing.status)]}» — дахин бэлтгэхгүй (ТЕГ буцаасан бол «Буцаасан» гэж бүртгэнэ)`
+      `${periodCode} — ${ETAX_FORMS[form].label} аль хэдийн «${ETAX_STATUS_LABELS[statusOf(existing.status)]}» — дахин бэлтгэхгүй (ТЕГ буцаасан бол «Буцаасан» гэж бүртгэнэ)`
     );
 
   if (existing) {
     const revertedToDraft =
-      (existing.status === "ready" || existing.status === "saved") && snapshotAmountsDiffer(existing.snapshot as unknown as EtaxVatSnapshot, snapshot);
+      (existing.status === "ready" || existing.status === "saved") && snapshotAmountsDiffer(existing.snapshot as unknown as EtaxSnapshot, snapshot);
     const [updated] = await db
       .update(etaxSubmissions)
       .set({
@@ -334,7 +349,7 @@ export async function prepareVatSubmission(
     .values({
       organizationId: orgId,
       userId,
-      form: "vat",
+      form,
       formCode: snapshot.formCode,
       periodCode,
       status: "draft",
@@ -365,7 +380,7 @@ export async function transitionEtaxSubmission(
   const patch: Partial<SubmissionRow> = { status: input.to, updatedAt: now };
 
   if (input.to === "ready") {
-    const validation = validateVatSnapshot(row.snapshot as unknown as EtaxVatSnapshot, ulaanbaatarToday(now));
+    const validation = validateSnapshot(row.snapshot as unknown as EtaxSnapshot, ulaanbaatarToday(now));
     patch.validation = validation;
     if (validation.errors.length)
       throw new EtaxError(ETAX_ERRORS.validation, `Шалгалт алдаатай — ${validation.errors.join("; ")}`);
@@ -391,4 +406,9 @@ export async function transitionEtaxSubmission(
     .returning();
   if (!updated) throw stateChangedError("eTax илгээлт");
   return { submission: toEtaxSubmissionView(updated), from };
+}
+
+/** @deprecated — `prepareSubmission(orgId, userId, "vat", periodCode)`. */
+export function prepareVatSubmission(orgId: string, userId: string, periodCode: string) {
+  return prepareSubmission(orgId, userId, "vat", periodCode);
 }
