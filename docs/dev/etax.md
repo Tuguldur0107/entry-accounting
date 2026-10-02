@@ -1,4 +1,4 @@
-# eTax («Цахим татварын систем», etax.mta.mn) модуль
+# eTax («Цахим татварын систем», etax.mta.mn) модуль — НӨАТ, ХАОАТ, ААНОАТ
 
 > `CLAUDE.md` §6a-гийн дэлгэрэнгүй. Энэ хэсгийн кодыг хөндөхийн ӨМНӨ бүтнээр нь уншина.
 > Хатуу дүрмийн хураангуй `CLAUDE.md`-д — хоёуланг ЗЭРЭГ шинэчилнэ. Албан эх, нэвтрэлт,
@@ -124,7 +124,8 @@ lib/itc/etax/store.ts       DB: холболт, etaxSessionOf/requireEtaxSession
 lib/itc/etax/tax-flow.ts    DB + API: syncEtaxOrg, loadEtaxReportChoices, fetchEtaxTemplate, saveEtaxMapping,
                             saveSubmissionToTax, submitSubmissionToTax, refreshTaxStatus,
                             fetchEtaxSheetTemplates, saveEtaxSheetMappings, saveSheetsToTax (§7)
-lib/itc/etax/sheet-source.ts  DB: loadVatSheetRows — АР/АП баримтаас задаргаа (харилцагчаар / баримтаар)
+lib/itc/etax/sheet-source.ts  DB: loadSheetRows — АР/АП баримтаас задаргаа (харилцагчаар / баримтаар), цалин (ажилтнаар)
+lib/itc/etax/form-sources.ts  DB: loadPitTotals (цалин), loadCitTotals (GL 5/6/7/8 жилийн эхнээс + элэгдэл) — §8
 lib/actions/etax.ts         Server Actions (ActionResult): холболт (admin), syncEtaxOrganization,
                             getEtaxReportChoices, fetchEtaxFormTemplate, saveEtaxFormMapping (admin),
                             prepareEtaxVatReturn, saveEtaxSubmissionToTax, refreshEtaxSubmissionStatus
@@ -148,12 +149,13 @@ lib/status.ts               ETAX_STATUS_TONES
 5. Шинэ тайланд `reportNo = 0`-оор `saveFormData` хүлээн авах эсэх; `isDisable` = «утга авна» утга
 6. Хавсралт мэдээ: `getSheetDetail` хариуны хэлбэр (хавтгай массив уу — parser хоёуланг уншина),
    `type`/`isTotal` утга, ТЕГ нийт мөр (`isTotal 1`) шаардах эсэх, мөрийн дээд хэмжээ (хуудаслалт)
+7. ХАОАТ (ТТ-11) сар уу, улирал уу; ААНОАТ улирлын тайлан өссөн дүнгээр гэдэг таамаглал (`cumulative`);
+   маягтын кодууд ТТ-11 / ТТ-02 ТЕГ-ийн жагсаалтын `taxReportCode`-той таарах эсэх
 
 ## 6. Дараагийн алхам
 
-1. ХАОАТ (`payroll_runs`), ААНОАТ маягтууд — ижил snapshot/holbolt загвараар (`form` түлхүүр нэмнэ)
-2. `attention.ts`: хуулийн хугацаа ойртсон тушаагаагүй тайлан (`getLateList`) → «Анхаарах»
-3. MCP tool: `get_etax_submissions` (унших), `prepare_etax_vat_return` (ноорог); илгээх tool НЭМЭХГҮЙ
+1. `attention.ts`: хуулийн хугацаа ойртсон тушаагаагүй тайлан (`getLateList`) → «Анхаарах»
+2. MCP tool: `get_etax_submissions` (унших), `prepare_etax_vat_return` (ноорог); илгээх tool НЭМЭХГҮЙ
    (`[HUMAN_REQUIRED]` — татварын тайлан = хүний баталгаажуулалт)
 
 ## 7. Хавсралт мэдээ (sheet, спек §3.11–§3.15)
@@ -175,3 +177,28 @@ lib/status.ts               ETAX_STATUS_TONES
   гэж таамаглав (staging §5.6)
 - Мэдээний загвар татах нь reportNo шаарддаг тул UI-д «Мэдээний загвар татах» зөвхөн ТЕГ-д
   хадгалсан илгээлттэй үед идэвхтэй
+
+## 8. Олон маягт — ХАОАТ (ТТ-11) ба ААНОАТ (ТТ-02)
+
+`ETAX_FORMS` (constants.ts) маягт бүрийн код, тайлант үеийн төрөл, өссөн дүн, талбар, заавал талбар,
+картын талбар, ТЕГ-ийн жагсаалтаас нэрээр таних загварыг нэг дор. Хуудас `/tax/etax?form=vat|pit|cit`
+(хуудас доторх таб = нэг хуудасны зүсэлт); нүдний холболт, мэдээний холболт, илгээлт маягт бүрд
+тусдаа (`etax_form_mappings` org × form, `etax_submissions.form`).
+
+| Маягт | Код | Тайлант үе | Эх өгөгдөл (`form-sources.ts`) | Талбарууд |
+|---|---|---|---|---|
+| `vat` | ТТ-03А | сар | `getVatReturnData` | гаралт, оролт, шилжсэн кредит, төлөх, шилжүүлэх |
+| `pit` | ТТ-11 | сар | `payroll_runs` + `payroll_run_lines` (хадгалсан earnings/employeeSi/pit/netSalary; татвар ногдох орлого = max(0, олголт − НДШ − сарын татваргүй босго) — calc.ts-ийн ИЖИЛ томьёо; хөнгөлөлт `pitCreditOf`) | ажилтны тоо, олголт, НДШ, татвар ногдох орлого, хөнгөлөлт, суутгасан ХАОАТ, гарт олгох |
+| `cit` | ТТ-02 | улирал, **өссөн дүнгээр** (жилийн эхнээс) | `loadBalanceRowsFast` GL 5/6/7/8 бүлэг + `fa_depreciation_entries` (дансны = posted `amount`, татварын мэмо `taxAmount`, reversed орохгүй) | орлого, өртөг, ҮА зардал, санхүүгийн зардал, нийт зардал, дансны ашиг, дансны/татварын элэгдэл, элэгдлийн зөрүүгээр тохируулсан ашиг |
+
+- **Тайлант үеийн код:** сар `YYYY-MM`, улирал `YYYY-Qn`, жил `YYYY` (`periodCodeFor`, `etaxPeriodOf` →
+  ТЕГ-ийн year/period: сар 1–12, улирал 1–4, жил 1 — спек §4.1 `period`); хугацаа `deadlineOf`
+  (сарынх дараа сарын 10, улирлынх дараа сарын 20, жилийнх дараа оны 2-р сарын 10 — `lib/tax/calendar.ts`)
+- **ААНОАТ-ын татварын дүн БОДОГДОХГҮЙ** — хувь (10%/25%), чөлөөлөлт, хязгаарлагдах зардал, алдагдал
+  шилжүүлэх нь ТЕГ-ийн маягтын томьёо/нүдэнд; Entry зөвхөн дансны дүн + элэгдлийн зөрүү (IAS 12 түр
+  зөрүүний нэг тохируулга) өгнө — шалгалт анхааруулгаар ил
+- **ХАОАТ:** цалингийн журнал батлагдаагүй / үүсгээгүй бол анхааруулга; суутгасан > ногдох орлого бол
+  алдаа; хавсралт мэдээний эх `payroll` (ажилтан бүрээр: РД, овог нэр, олголт, ногдох орлого, суутгасан)
+- ААНОАТ-д хавсралт мэдээ `sales`/`purchases` улирлын (жилийн эхнээс) мужаар; `payroll` сарын маягтад л
+- ХАОАТ-ын улирлын давтамж ТЕГ-д байвал `periodKind` constants-д солино (жагсаалтын `periodName`-аас
+  staging-д батална — §5)

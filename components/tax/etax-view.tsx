@@ -7,6 +7,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -20,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { LinkButton } from "@/components/ui/link-button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
-  prepareEtaxVatReturn,
+  prepareEtaxReturn,
   refreshEtaxSubmissionStatus,
   saveEtaxSheetsToTax,
   saveEtaxSubmissionToTax,
@@ -30,10 +31,9 @@ import {
 import { fmtDateTimeUb } from "@/lib/format/datetime";
 import { fmtMnt } from "@/lib/grid/formatters";
 import { col } from "@/lib/grid/columnTypes";
-import { ETAX_FORMS, ETAX_STATUS_LABELS, type EtaxSubmissionStatus } from "@/lib/itc/etax/constants";
+import { ETAX_FIELD_LABELS, ETAX_FORMS, ETAX_FORM_KEYS, ETAX_STATUS_LABELS, type EtaxSubmissionStatus } from "@/lib/itc/etax/constants";
 import { canTransition } from "@/lib/itc/etax/submission";
 import type { EtaxPageData, EtaxSubmissionView } from "@/lib/itc/etax/types";
-import { fmtPeriodLabelMn } from "@/lib/periods/period";
 import { ETAX_STATUS_TONES } from "@/lib/status";
 import { feedback } from "@/lib/ui/feedback";
 
@@ -53,12 +53,12 @@ export function EtaxView({
   const [taxReference, setTaxReference] = useState(data.current?.taxReference ?? "");
   const [note, setNote] = useState("");
   const { current, live, periodCode } = data;
-  const amounts = current?.snapshot.amounts ?? live;
-  const form = ETAX_FORMS.vat;
+  const amounts = current?.snapshot.amounts ?? live.amounts;
+  const form = ETAX_FORMS[data.form];
 
   function prepare() {
     startTransition(async () => {
-      const { error, created, revertedToDraft, submission } = await prepareEtaxVatReturn(periodCode);
+      const { error, created, revertedToDraft, submission } = await prepareEtaxReturn({ form: data.form, periodCode });
       if (error || !submission) {
         feedback.error(error ?? "Бэлтгэж чадсангүй");
         return;
@@ -88,7 +88,7 @@ export function EtaxView({
   const columns = useMemo<ColDef<EtaxSubmissionView>[]>(
     () => [
       { headerName: "Тайлант үе", field: "periodCode", width: 110, cellClass: "font-mono text-xs" },
-      { headerName: "Маягт", field: "formCode", width: 100, cellClass: "text-xs" },
+      { headerName: "Маягт", field: "formCode", width: 100, cellClass: "text-xs", valueGetter: (p) => (p.data ? `${p.data.formCode} ${ETAX_FORMS[p.data.form].shortLabel}` : "") },
       {
         headerName: "Төлөв",
         field: "status",
@@ -103,8 +103,14 @@ export function EtaxView({
             </span>
           ) : null,
       },
-      col<EtaxSubmissionView>({ eaType: "readonly-money", headerName: "Төлөх НӨАТ", colId: "payable", width: 130, valueGetter: (p) => p.data?.snapshot.amounts.payableVat ?? 0 }),
-      col<EtaxSubmissionView>({ eaType: "readonly-money", headerName: "Шилжүүлэх", colId: "refundable", width: 120, valueGetter: (p) => p.data?.snapshot.amounts.refundableVat ?? 0 }),
+      col<EtaxSubmissionView>({
+        eaType: "readonly-money",
+        headerName: "Гол дүн",
+        colId: "mainAmount",
+        width: 140,
+        // Маягтын сүүлийн карт талбар: НӨАТ төлөх, ХАОАТ суутгасан, ААНОАТ тохируулсан ашиг
+        valueGetter: (p) => (p.data ? p.data.snapshot.amounts[ETAX_FORMS[p.data.form].cardFields[ETAX_FORMS[p.data.form].cardFields.length - 1]] ?? 0 : 0),
+      }),
       { headerName: "ТЕГ №", field: "taxReference", width: 140, cellClass: "font-mono text-xs" },
       { headerName: "Тушаасан", colId: "submittedAt", width: 140, valueGetter: (p) => fmtDateTimeUb(p.data?.submittedAt) ?? "", cellClass: "text-xs" },
       { headerName: "Шинэчилсэн", colId: "updatedAt", width: 140, valueGetter: (p) => fmtDateTimeUb(p.data?.updatedAt) ?? "", cellClass: "text-xs" },
@@ -180,21 +186,48 @@ export function EtaxView({
   return (
     <>
       <TaxPageHeader
-        title={`eTax — ${form.label} ${fmtPeriodLabelMn(periodCode)}`}
-        subtitle="Entry-ийн бодолтыг ТЕГ-ийн маягтад бэлтгэж, хянаж, тушаалтыг бүртгэнэ. Дүн энд өөрчлөгдөхгүй — засвар нь журналд."
+        title={`eTax — ${form.label} · ${data.periodLabel}`}
+        subtitle="Entry-ийн бодолтыг ТЕГ-ийн маягтад бэлтгэж, хянаж, API-аар хадгалж илгээнэ. Дүн энд өөрчлөгдөхгүй — засвар нь журнал / цалин / ҮХ-д."
       />
 
-      {!data.isVatPayer ? (
+      <div className="flex flex-wrap gap-1.5">
+        {ETAX_FORM_KEYS.map((key) => (
+          <Link
+            key={key}
+            href={`/tax/etax?form=${key}&period=${data.monthCode}`}
+            className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs ${
+              key === data.form
+                ? "border-[var(--ea-border-strong)] bg-[var(--ea-selected-bg)] font-medium text-[var(--ea-text-1)]"
+                : "border-[var(--ea-border)] text-[var(--ea-text-2)]"
+            }`}
+          >
+            {ETAX_FORMS[key].shortLabel} · {ETAX_FORMS[key].code}
+          </Link>
+        ))}
+      </div>
+
+      {data.form === "vat" && !data.isVatPayer ? (
         <p className="rounded-md border px-3 py-2 text-xs" style={{ borderColor: "var(--ea-border)", color: "var(--ea-text-3)" }}>
           Байгууллага НӨАТ төлөгч биш гэж тохируулагдсан — тайлан бэлтгэх шаардлагагүй байж болно (Тохиргоо → НӨАТ).
         </p>
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <TaxStatCard label="Гаралтын НӨАТ" value={fmtMnt(amounts.outputVat)} mono />
-        <TaxStatCard label="Оролтын НӨАТ" value={fmtMnt(amounts.inputVat)} mono hint={amounts.carriedInVat ? `Шилжсэн кредит ${fmtMnt(amounts.carriedInVat)}` : undefined} />
-        <TaxStatCard label="Төлөх НӨАТ" value={fmtMnt(amounts.payableVat)} mono tone={amounts.payableVat > 0 ? "danger" : undefined} hint={`Эцсийн хугацаа ${current?.snapshot.deadline ?? live.deadline}`} />
-        <TaxStatCard label="Шилжүүлэх НӨАТ" value={fmtMnt(amounts.refundableVat)} mono tone={amounts.refundableVat > 0 ? "success" : undefined} />
+        {form.cardFields.map((field, index) => {
+          const value = amounts[field] ?? 0;
+          const isCount = field === "employeeCount";
+          const last = index === form.cardFields.length - 1;
+          return (
+            <TaxStatCard
+              key={field}
+              label={ETAX_FIELD_LABELS[field] ?? field}
+              value={isCount ? String(value) : fmtMnt(value)}
+              mono={!isCount}
+              tone={last && value > 0 ? "danger" : last && value < 0 ? "success" : undefined}
+              hint={last ? `Эцсийн хугацаа ${current?.snapshot.deadline ?? live.deadline}` : undefined}
+            />
+          );
+        })}
       </div>
 
       <section className="space-y-3 rounded-lg border p-4" style={{ borderColor: "var(--ea-border)", background: "var(--ea-surface)" }}>
@@ -232,8 +265,10 @@ export function EtaxView({
           <>
             <div className="text-xs text-[var(--ea-text-3)]">
               Хуулбар {fmtDateTimeUb(current.snapshot.computedAt) ?? "—"} · {current.snapshot.taxpayer.name || "—"} · Регистр{" "}
-              {current.snapshot.taxpayer.registerNo ?? "—"} · Мөр: гаралт {current.snapshot.counts.outputLines}, оролт{" "}
-              {current.snapshot.counts.inputLines}
+              {current.snapshot.taxpayer.registerNo ?? "—"} · Огноо {current.snapshot.range.from} – {current.snapshot.range.to}
+              {Object.entries(current.snapshot.counts)
+                .map(([k, v]) => ` · ${k} ${v}`)
+                .join("")}
             </div>
             {validation?.errors.length ? (
               <ul className="list-disc space-y-0.5 pl-5 text-xs text-[var(--ea-danger-fg)]">
@@ -380,13 +415,15 @@ export function EtaxView({
         <>
           <EtaxConnectionSettings connection={data.connection} />
           <EtaxMappingEditor
-            key={`${data.mapping?.templateFetchedAt ?? "none"}:${JSON.stringify(data.mapping?.cells ?? {})}`}
+            key={`${data.form}:${data.mapping?.templateFetchedAt ?? "none"}:${JSON.stringify(data.mapping?.cells ?? {})}`}
+            form={data.form}
             mapping={data.mapping}
             periodCode={periodCode}
             enabled={!!data.connection?.apiReady && data.connection.entId != null}
           />
           <EtaxSheetEditor
-            key={`${data.mapping?.sheetTemplatesFetchedAt ?? "none"}:${JSON.stringify(data.mapping?.sheets ?? [])}`}
+            key={`${data.form}:${data.mapping?.sheetTemplatesFetchedAt ?? "none"}:${JSON.stringify(data.mapping?.sheets ?? [])}`}
+            form={data.form}
             mapping={data.mapping}
             savedSubmissionId={current && (current.status === "saved" || current.status === "submitted") && current.reportNo != null ? current.id : null}
           />

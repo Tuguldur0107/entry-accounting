@@ -15,11 +15,11 @@ import { requireModuleAction, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { etaxConnections } from "@/lib/db/schema";
 import { isItcEnvironment } from "@/lib/itc/auth";
-import { ETAX_FORMS, ETAX_STATUS_LABELS, ETAX_SUBMISSION_STATUSES, type EtaxSubmissionStatus } from "@/lib/itc/etax/constants";
+import { ETAX_FORMS, ETAX_STATUS_LABELS, ETAX_SUBMISSION_STATUSES, isEtaxFormKey, type EtaxFormKey, type EtaxSubmissionStatus } from "@/lib/itc/etax/constants";
 import {
   checkEtaxConnection,
   loadEtaxConnectionRow,
-  prepareVatSubmission,
+  prepareSubmission,
   toEtaxConnectionView,
   transitionEtaxSubmission,
 } from "@/lib/itc/etax/store";
@@ -39,6 +39,10 @@ import {
 import type { EtaxConnectionView, EtaxMappingView, EtaxReportChoice, EtaxSubmissionView } from "@/lib/itc/etax/types";
 
 const cleanText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+const formOf = (value: unknown): EtaxFormKey => {
+  if (!isEtaxFormKey(value)) throw new Error("Маягт буруу (vat / pit / cit)");
+  return value;
+};
 
 function revalidate() {
   revalidatePath("/tax/etax");
@@ -154,13 +158,15 @@ export async function deleteEtaxConnection(): Promise<ActionResult<{ ok: true }>
   }
 }
 
-/** НӨАТ-ын тайланг eTax-д бэлтгэх — ноорог үүсгэнэ/шинэчилнэ (tax:write). */
-export async function prepareEtaxVatReturn(
-  periodCode: string
-): Promise<ActionResult<{ submission: EtaxSubmissionView; created: boolean; revertedToDraft: boolean }>> {
+/** Тайланг eTax-д бэлтгэх — ноорог үүсгэнэ/шинэчилнэ (tax:write). `periodCode` маягтын тайлант үе. */
+export async function prepareEtaxReturn(input: {
+  form: string;
+  periodCode: string;
+}): Promise<ActionResult<{ submission: EtaxSubmissionView; created: boolean; revertedToDraft: boolean }>> {
   try {
+    const form = formOf(input.form);
     const { orgId, userId } = await requireModuleAction("tax", "write");
-    const result = await prepareVatSubmission(orgId, userId, periodCode);
+    const result = await prepareSubmission(orgId, userId, form, cleanText(input.periodCode));
     const { validation } = result.submission;
     await logAuditEvent({
       userId,
@@ -168,13 +174,18 @@ export async function prepareEtaxVatReturn(
       action: result.created ? "create" : "update",
       entityType: "etax_submission",
       entityId: result.submission.id,
-      summary: `${ETAX_FORMS.vat.label} ${periodCode} eTax-д ${result.created ? "бэлтгэгдэв" : "дахин бодогдов"}${result.revertedToDraft ? " — дүн зөрсөн тул ноорог руу буцав" : ""}; алдаа ${validation?.errors.length ?? 0}, анхааруулга ${validation?.warnings.length ?? 0}`,
+      summary: `${ETAX_FORMS[form].label} ${result.submission.periodCode} eTax-д ${result.created ? "бэлтгэгдэв" : "дахин бодогдов"}${result.revertedToDraft ? " — дүн зөрсөн тул ноорог руу буцав" : ""}; алдаа ${validation?.errors.length ?? 0}, анхааруулга ${validation?.warnings.length ?? 0}`,
     });
     revalidate();
     return result;
   } catch (caught) {
-    return actionError("prepareEtaxVatReturn", caught, "НӨАТ-ын тайланг eTax-д бэлтгэж чадсангүй");
+    return actionError("prepareEtaxReturn", caught, "Тайланг eTax-д бэлтгэж чадсангүй");
   }
+}
+
+/** @deprecated — `prepareEtaxReturn({ form: "vat", periodCode })`. */
+export async function prepareEtaxVatReturn(periodCode: string) {
+  return prepareEtaxReturn({ form: "vat", periodCode });
 }
 
 /**
@@ -248,14 +259,16 @@ export async function getEtaxReportChoices(): Promise<ActionResult<{ choices: Et
 
 /** §3.7 — маягтын загвар татаж нүдний жагсаалтыг холболтод хадгална (admin+). */
 export async function fetchEtaxFormTemplate(input: {
+  form: string;
   taxTypeId: number;
   formNo: number;
   taxTypeName?: string | null;
   periodCode: string;
 }): Promise<ActionResult<{ mapping: EtaxMappingView }>> {
   try {
+    const form = formOf(input.form);
     const { orgId, userId } = await requireRole("admin");
-    const mapping = await fetchEtaxTemplate(orgId, userId, input);
+    const mapping = await fetchEtaxTemplate(orgId, userId, { ...input, form });
     await logAuditEvent({
       userId,
       organizationId: orgId,
@@ -272,10 +285,11 @@ export async function fetchEtaxFormTemplate(input: {
 }
 
 /** Нүдний холболт хадгалах (admin+). */
-export async function saveEtaxFormMapping(input: { cells: Record<string, string | null> }): Promise<ActionResult<{ mapping: EtaxMappingView }>> {
+export async function saveEtaxFormMapping(input: { form: string; cells: Record<string, string | null> }): Promise<ActionResult<{ mapping: EtaxMappingView }>> {
   try {
+    const form = formOf(input.form);
     const { orgId, userId } = await requireRole("admin");
-    const mapping = await saveEtaxMapping(orgId, userId, input.cells);
+    const mapping = await saveEtaxMapping(orgId, userId, form, input.cells);
     await logAuditEvent({
       userId,
       organizationId: orgId,
@@ -375,10 +389,11 @@ export async function fetchEtaxSheetTemplatesAction(input: { submissionId: strin
 }
 
 /** Мэдээний холболт хадгалах (admin+). */
-export async function saveEtaxSheetMappingsAction(input: { sheets: unknown[] }): Promise<ActionResult<{ mapping: EtaxMappingView }>> {
+export async function saveEtaxSheetMappingsAction(input: { form: string; sheets: unknown[] }): Promise<ActionResult<{ mapping: EtaxMappingView }>> {
   try {
+    const form = formOf(input.form);
     const { orgId, userId } = await requireRole("admin");
-    const mapping = await saveEtaxSheetMappings(orgId, userId, Array.isArray(input.sheets) ? input.sheets : []);
+    const mapping = await saveEtaxSheetMappings(orgId, userId, form, Array.isArray(input.sheets) ? input.sheets : []);
     await logAuditEvent({
       userId,
       organizationId: orgId,

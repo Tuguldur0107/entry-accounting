@@ -9,14 +9,16 @@ import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { ledgerSign } from "@/lib/arap/document-kind";
 import { mainAccountOfCode } from "@/lib/arap/credit-note";
 import { db } from "@/lib/db";
-import { arApDocumentLines, arApDocuments, counterparties } from "@/lib/db/schema";
-import { periodRange } from "@/lib/periods/period";
+import { arApDocumentLines, arApDocuments, counterparties, employees, payrollRunLines, payrollRuns } from "@/lib/db/schema";
+import { pitCreditOf } from "@/lib/payroll/calc";
+import { loadPayrollSettings } from "@/lib/payroll/settings";
+import { periodRangeOf, etaxPeriodOf } from "./submission";
 import { loadVatSettings } from "@/lib/vat/settings";
 
 import type { EtaxSheetSourceRow } from "./api";
-import type { EtaxSheetGranularity, EtaxSheetSource } from "./constants";
+import type { EtaxFormKey, EtaxSheetGranularity, EtaxSheetSource } from "./constants";
 
-const SOURCE_TYPES: Record<EtaxSheetSource, readonly string[]> = {
+const SOURCE_TYPES: Record<Exclude<EtaxSheetSource, "payroll">, readonly string[]> = {
   sales: ["ar_invoice", "ar_credit_note"],
   purchases: ["ap_bill", "ap_debit_note"],
 };
@@ -24,8 +26,19 @@ const COUNTED_STATUSES = ["posted", "partially_paid", "paid"];
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
-export async function loadVatSheetRows(orgId: string, periodCode: string, source: EtaxSheetSource, granularity: EtaxSheetGranularity): Promise<EtaxSheetSourceRow[]> {
-  const { startDate, endDate } = periodRange(periodCode);
+/** Маягтын мэдээний мөрүүд — эхээр нь салгана (АР/АП задаргаа эсвэл цалин); огноо маягтын тайлант үеэр. */
+export async function loadSheetRows(
+  orgId: string,
+  form: EtaxFormKey,
+  periodCode: string,
+  source: EtaxSheetSource,
+  granularity: EtaxSheetGranularity
+): Promise<EtaxSheetSourceRow[]> {
+  if (source === "payroll") {
+    if (etaxPeriodOf(periodCode).kind !== "month") throw new Error("Цалингийн задаргаа сарын тайлант үетэй маягтад л");
+    return loadPayrollSheetRows(orgId, periodCode);
+  }
+  const { from: startDate, to: endDate } = periodRangeOf(form, periodCode);
   const settings = await loadVatSettings(orgId);
   const vatMain = mainAccountOfCode(source === "sales" ? settings.outputVatAccountNumber : settings.inputVatAccountNumber);
 
@@ -103,4 +116,54 @@ export async function loadVatSheetRows(orgId: string, periodCode: string, source
     existing.tin = existing.tin ?? row.tin;
   }
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, "mn"));
+}
+
+/**
+ * Цалингийн задаргаа — ажилтан бүрээр (ХАОАТ суутгагчийн тайлангийн хавсралт): регистр = ажилтны
+ * РД, нэр = овог нэр, нийт = олголт, цэвэр = татвар ногдох орлого (calc.ts томьёо), татвар = суутгасан
+ * ХАОАТ; баримтын тоо 1. `pitCredit` нь ДДТД-ийн оронд бичигдэхгүй — зөвхөн дүнгийн багана.
+ */
+export async function loadPayrollSheetRows(orgId: string, periodCode: string): Promise<EtaxSheetSourceRow[]> {
+  const [settings, run] = await Promise.all([
+    loadPayrollSettings(orgId),
+    db.query.payrollRuns.findFirst({ where: and(eq(payrollRuns.organizationId, orgId), eq(payrollRuns.periodMonth, periodCode)), columns: { id: true } }),
+  ]);
+  if (!run) return [];
+  const monthlyTaxFree = Math.max(0, Number(settings.monthlyTaxFree ?? 0));
+  const lines = await db
+    .select({
+      earnings: payrollRunLines.earnings,
+      employeeSi: payrollRunLines.employeeSi,
+      pit: payrollRunLines.pit,
+      name: employees.name,
+      lastName: employees.lastName,
+      registerNo: employees.registerNo,
+    })
+    .from(payrollRunLines)
+    .leftJoin(employees, eq(employees.id, payrollRunLines.employeeId))
+    .where(eq(payrollRunLines.runId, run.id));
+  return lines
+    .map((line) => {
+      const earnings = Number(line.earnings);
+      const taxable = Math.max(0, earnings - Number(line.employeeSi) - monthlyTaxFree);
+      void pitCreditOf;
+      return {
+        registerNo: line.registerNo?.trim() || null,
+        tin: null,
+        name: [line.lastName, line.name].filter(Boolean).join(" ").trim() || "Ажилтан",
+        documentNo: null,
+        date: null,
+        ddtd: null,
+        netAmount: round2(taxable),
+        vatAmount: round2(Number(line.pit)),
+        totalAmount: round2(earnings),
+        documentCount: 1,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "mn"));
+}
+
+/** @deprecated — `loadSheetRows(orgId, "vat", …)`. */
+export function loadVatSheetRows(orgId: string, periodCode: string, source: EtaxSheetSource, granularity: EtaxSheetGranularity) {
+  return loadSheetRows(orgId, "vat", periodCode, source, granularity);
 }
