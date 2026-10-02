@@ -55,13 +55,15 @@ test("харьцах дансны санал: харилцагчийн сүүл�
   assert.equal(suggestInvoiceCounterAccount(hints, "ar_invoice", "c1"), "51200000");
   assert.equal(suggestInvoiceCounterAccount(hints, "ar_invoice", "new"), "51100000");
   assert.equal(suggestInvoiceCounterAccount(hints, "ap_bill", "s1"), "73100001");
-  // Зардалд байгууллагын default ЗОХИОХГҮЙ.
-  assert.equal(suggestInvoiceCounterAccount(hints, "ap_bill", "new"), null);
+  // Түүхгүй шинэ ханган нийлүүлэгчид байгууллагын хамгийн их хэрэглэсэн зардлын данс
+  // (product owner 2026-10-02).
+  assert.equal(hints.apDefault, "73100001");
+  assert.equal(suggestInvoiceCounterAccount(hints, "ap_bill", "new"), "73100001");
   assert.equal(suggestInvoiceCounterAccount(null, "ar_invoice", "c1"), null);
 });
 
 test("fillInvoiceCounterAccounts: зөвхөн хоосон харьцах талтай нэхэмжлэх үүсгэх мөр", () => {
-  const hints = { ar: { c1: "51200000" }, ap: {}, arDefault: "51100000" };
+  const hints = { ar: { c1: "51200000" }, ap: {}, arDefault: "51100000", apDefault: null };
   const blank = "000.000000..00.0000.0.0.CA.0.0";
   const rows = [
     row({ id: "a", rowAction: "create_ar_invoice", counterpartyId: "c1", creditAccountNumber: blank }),
@@ -113,7 +115,7 @@ test("linkStatementCounterparties: данс → ЯГ нэр, сонгосон / 
 });
 
 test("холбосон харилцагчийн өмнөх нэхэмжлэхээс зардлын данс бөглөгдөнө", () => {
-  const hints = { ar: {}, ap: { s1: "73100001" }, arDefault: null };
+  const hints = { ar: {}, ap: { s1: "73100001" }, arDefault: null, apDefault: "72000000" };
   const blank = "000.000000..00.0000.0.0.CA.0.0";
   const rows = [
     row({
@@ -129,4 +131,21 @@ test("холбосон харилцагчийн өмнөх нэхэмжлэхэ�
   const filled = fillInvoiceCounterAccounts(linkStatementCounterparties(rows, MASTERS), hints, code);
   assert.equal(filled[0].counterpartyId, "s1");
   assert.equal(filled[0].debitAccountNumber, code("73100001"));
+});
+
+test("apDefault: олон ханган нийлүүлэгчийн хамгийн их хэрэглэсэн зардлын данс, түүхгүй бол null", () => {
+  const hints = buildInvoiceAccountHints(
+    [
+      { counterpartyId: "s1", documentType: "ap_bill", accountNumber: "72500000" },
+      { counterpartyId: "s1", documentType: "ap_bill", accountNumber: "13620000" }, // НӨАТ
+      { counterpartyId: "s2", documentType: "ap_bill", accountNumber: "73100001" },
+      { counterpartyId: "s3", documentType: "ap_bill", accountNumber: "73100001" },
+    ],
+    ["31410000", "13620000"]
+  );
+  assert.equal(hints.ap.s1, "72500000"); // харилцагчийн өөрийнх давуу
+  assert.equal(hints.apDefault, "73100001");
+  assert.equal(suggestInvoiceCounterAccount(hints, "ap_bill", "s1"), "72500000");
+  assert.equal(suggestInvoiceCounterAccount(hints, "ap_bill", "new"), "73100001");
+  assert.equal(buildInvoiceAccountHints([], []).apDefault, null);
 });
