@@ -4318,8 +4318,9 @@ async function runCreateArap(
   const dueDate =
     input.dueDate?.trim() ||
     (() => {
-      const date = new Date(`${input.date}T00:00:00`);
-      date.setDate(date.getDate() + counterparty.paymentTermsDays);
+      // UTC-ээр — серверийн цагийн бүсээс хамаарч өдөр шилжихгүй.
+      const date = new Date(`${input.date}T00:00:00Z`);
+      date.setUTCDate(date.getUTCDate() + counterparty.paymentTermsDays);
       return date.toISOString().slice(0, 10);
     })();
 
@@ -5380,7 +5381,7 @@ async function runSettleArApOffset(
       Number(apDoc.totalAmount) - Number(apDoc.paidAmount)
     );
   assertPostLimit(amount);
-  const date = input.date?.trim() || new Date().toISOString().slice(0, 10);
+  const date = input.date?.trim() || ulaanbaatarToday();
 
   unwrapAction(
     await settleArApOffset({
@@ -7499,7 +7500,7 @@ async function runCounterpartyBalance(
   orgId: string,
   input: { counterparty?: string; asOf?: string; aging?: boolean }
 ): Promise<AiToolResult> {
-  const asOf = input.asOf?.trim() || new Date().toISOString().slice(0, 10);
+  const asOf = input.asOf?.trim() || ulaanbaatarToday();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf))
     throw new Error("asOf огноо YYYY-MM-DD форматтай байна");
 
@@ -11255,7 +11256,7 @@ async function runClosePurchaseOrder(
     )
   );
   const closeDate =
-    input.closeDate?.trim() || new Date().toISOString().slice(0, 10);
+    input.closeDate?.trim() || ulaanbaatarToday();
   const closed = unwrapAction(
     await closePurchaseOrder({
       id: order.id,

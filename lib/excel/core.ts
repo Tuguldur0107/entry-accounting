@@ -8,6 +8,7 @@
 // bold, багана өргөнтэй. Файлын нэр: <slug>-YYYYMMDD.xlsx.
 
 import type { ImportSpec } from "./import-spec";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 
 type CellValue = string | number | null;
 
@@ -66,7 +67,7 @@ export interface ExportColumn {
 }
 
 function stampedName(slug: string): string {
-  const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const today = ulaanbaatarToday().replaceAll("-", "");
   return `${slug}-${today}.xlsx`;
 }
 

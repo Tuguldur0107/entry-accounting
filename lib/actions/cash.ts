@@ -1,6 +1,7 @@
 "use server";
 
 import { stateChangedError, unchangedSince } from "@/lib/state-guard";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
@@ -1973,9 +1974,7 @@ async function postCashFxRevaluationCore(data: {
   const { orgId, userId } = await requireModuleAction("cash", "post");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.valuationDate))
     throw new Error("Тэгшитгэлийн огноо буруу байна");
-  const todayInUlaanbaatar = new Date(Date.now() + 8 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  const todayInUlaanbaatar = ulaanbaatarToday();
   if (data.valuationDate > todayInUlaanbaatar)
     throw new Error("Ирээдүйн огноонд ханшийн тэгшитгэл хийхгүй");
   // Хаагдсан периодын хамгаалалт — тэгшитгэлийн журнал энэ огноогоор бичигдэнэ.

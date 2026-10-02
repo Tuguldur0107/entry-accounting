@@ -32,7 +32,7 @@ import {
   type PanelInstance,
 } from "@/lib/store/panel-store";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
-import { currentDocumentDate } from "@/lib/periods/document-date";
+import { currentDocumentDate, ulaanbaatarToday } from "@/lib/periods/document-date";
 import { DEFAULT_FA_ACCUM_DEP_ACCOUNT, DEFAULT_FA_ASSET_ACCOUNT } from "@/lib/fa/opening";
 
 const ERROR_MESSAGES = {
@@ -110,7 +110,7 @@ function buildInitialForm(data: FaAssetPanelData): AssetForm {
     custodian: "",
     location: "",
     subLocation: "",
-    depreciationStartMonth: new Date().toISOString().slice(0, 7),
+    depreciationStartMonth: ulaanbaatarToday().slice(0, 7),
     depreciationStartDate: "",
     taxUsefulLifeMonths: "",
     openingAccumulatedDepreciation: "",

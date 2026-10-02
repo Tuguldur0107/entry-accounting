@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { Icon, type IconName } from "@/components/ui/icon";
 import Link from "next/link";
 import type { ColDef } from "ag-grid-community";
@@ -292,7 +293,7 @@ function TieOutDetailBody({
   /** Журнал руу үсрэхэд dialog-оо хаана — панель нь ил гарна. */
   onNavigate: () => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = ulaanbaatarToday();
   const currentMonth = today.slice(0, 7);
   // Default PTD — их түүхтэй данс дээр ч хурдан нээгдэнэ.
   const [scope, setScope] = useState<PeriodScope | "custom">("PTD");

@@ -6,6 +6,7 @@
 // Мөнгөн хөрөнгө, тооцоо → GL ноорог журнал (human-in-the-loop §9).
 
 import { useMemo, useState, useTransition } from "react";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { useRouter } from "next/navigation";
 import type { CellDoubleClickedEvent, ColDef } from "ag-grid-community";
 import { toast } from "sonner";
@@ -69,8 +70,8 @@ export function TaxManager({
   const [isPending, startTransition] = useTransition();
   const [accrualOpen, setAccrualOpen] = useState(false);
   const [accrualForm, setAccrualForm] = useState(() => ({
-    // Локал огноо — UTC-ийн toISOString УБ-ын 00:00–08:00 цагт өчигдрийг өгдөг.
-    date: new Date().toLocaleDateString("sv-SE"),
+    // УБ-ын өнөөдөр — UTC-ийн toISOString 00:00–08:00 цагт өчигдрийг өгдөг.
+    date: ulaanbaatarToday(),
     amount: "",
     description: accrual?.description ?? "",
     debitMain: accrual?.debitMain ?? "",

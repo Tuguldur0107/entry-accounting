@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, lte } from "drizzle-orm";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 
 import { CashDashboard } from "@/components/cash/cash-dashboard";
 import { getActiveOrg } from "@/lib/auth";
@@ -28,9 +29,7 @@ import {
 } from "@/lib/db/schema";
 
 function todayInUlaanbaatar() {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  return ulaanbaatarToday();
 }
 
 // Тулгалт хуудасны цөм статусыг самбарын нарийвчилсан төлөвт хөрвүүлнэ:

@@ -295,6 +295,8 @@ S1/S6 нь `organizations`-оос АВТОМАТ — код нэг удаа ху
 - Огноо (`lib/periods/document-date.ts`): хуанлид байхгүй огноо татгалзана;
   ирээдүйн САРЫН огноо батлагдахгүй; шинэ баримтын анхдагч огноо
   `currentDocumentDate()` — `new Date().toISOString()`-оор баримтын огноо ӨГӨХИЙГ ХОРИГЛОНО
+  (UTC-ээр УБ-ын 00–08 цагт ӨЧИГДӨР болно); «өнөөдөр» ЗӨВХӨН `ulaanbaatarToday()` — гар
+  «+8 цаг» ч ХОРИОТОЙ (`tests/ulaanbaatar-today.test.ts` статикаар сахиулна)
 - Огноо-шүүлттэй шинэ хуудас: URL параметр → байхгүй бол `getPeriodSelection()`
 - Урт хугацааны үлдэгдлийг snapshot + delta-аар (`loadBalanceRowsFast` г.м.) —
   баримтыг JS-д ачаалахгүй

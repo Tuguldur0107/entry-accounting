@@ -7,6 +7,7 @@
 // байгааг ЭНЭ жагсаалтаас автоматаар сонгоно. Нэгтгэл П28 уншигчаар.
 
 import { eq } from "drizzle-orm";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { requireAnyModuleAction } from "@/lib/auth";
@@ -64,9 +65,7 @@ export async function getTaxOffsetCandidates(
       ),
     ];
 
-    const today = new Date(Date.now() + 8 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
+    const today = ulaanbaatarToday();
     const rows = await loadBalanceRowsFast(
       orgId,
       "1900-01-01",

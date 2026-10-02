@@ -10,6 +10,7 @@
 // шалгаад хадгална/батална (§9 — тусдаа бичилтийн зам байхгүй).
 
 import { useTransition } from "react";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ export type TaxOffsetDefaults = {
 const EPS = 0.005;
 
 function localToday() {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return ulaanbaatarToday();
 }
 
 /** Хамгийн их Кт үлдэгдэлтэй (хамгийн сөрөг balance) данс. */
