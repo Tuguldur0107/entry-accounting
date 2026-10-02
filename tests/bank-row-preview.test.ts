@@ -149,3 +149,52 @@ test("apDefault: олон ханган нийлүүлэгчийн хамгийн
   assert.equal(suggestInvoiceCounterAccount(hints, "ap_bill", "new"), "73100001");
   assert.equal(buildInvoiceAccountHints([], []).apDefault, null);
 });
+
+test("matchCounterpartyByAccount: 8 оронтой утас / гүйлгээний дугаар данс руу таарахгүй", () => {
+  const masters = [{ id: "p", name: "Ханган", bankAccountNo: "5099112233" }];
+  assert.equal(matchCounterpartyByAccount("99112233", masters), null);
+  // 10 оронтой өөр дансны төгсгөл ч таарахгүй — зөвхөн IBAN (≥ 16) дансаар төгсөнө.
+  assert.equal(matchCounterpartyByAccount("125099112233", masters), null);
+  assert.equal(matchCounterpartyByAccount("MN120005005099112233", masters)?.id, "p");
+});
+
+test("linkStatementCounterparties: чиглэл зөрсөн харилцагч, settlement мөрийг холбохгүй", () => {
+  const masters = [
+    { id: "sup", name: "Зөвхөн нийлүүлэгч", counterpartyType: "supplier", bankAccountNo: null },
+    { id: "cus", name: "QPay", counterpartyType: "customer", bankAccountNo: null },
+  ];
+  const rows = [
+    row({ id: "a", counterparty: "Зөвхөн нийлүүлэгч" }), // орлого ↔ supplier
+    row({ id: "b", counterparty: "Зөвхөн нийлүүлэгч", income: 0, expense: 10_000 }),
+    row({
+      id: "c",
+      counterparty: "QPay",
+      ewalletSettlement: { paymentMethodId: "m", grossAmount: 1000, feeAmount: 10 },
+    }),
+  ];
+  const linked = linkStatementCounterparties(rows, masters);
+  assert.equal(linked[0], rows[0]);
+  assert.equal(linked[1].counterpartyId, "sup");
+  assert.equal(linked[2], rows[2]);
+});
+
+test("apDefault: нэхэмжлэхээр тоолно, PO / бараатай мөр зардлын саналд орохгүй", () => {
+  const hints = buildInvoiceAccountHints(
+    [
+      // Олон мөртэй PO нэхэмжлэх — түр данс, давамгайлахгүй.
+      { counterpartyId: "s1", documentType: "ap_bill", accountNumber: "31900000", documentId: "po", notExpense: true },
+      { counterpartyId: "s1", documentType: "ap_bill", accountNumber: "31900000", documentId: "po", notExpense: true },
+      { counterpartyId: "s1", documentType: "ap_bill", accountNumber: "31900000", documentId: "po", notExpense: true },
+      // Нэг нэхэмжлэхийн 3 мөр ижил данс = 1.
+      { counterpartyId: "s2", documentType: "ap_bill", accountNumber: "72500000", documentId: "d1" },
+      { counterpartyId: "s2", documentType: "ap_bill", accountNumber: "72500000", documentId: "d1" },
+      { counterpartyId: "s2", documentType: "ap_bill", accountNumber: "72500000", documentId: "d1" },
+      { counterpartyId: "s3", documentType: "ap_bill", accountNumber: "73100001", documentId: "d2" },
+      { counterpartyId: "s4", documentType: "ap_bill", accountNumber: "73100001", documentId: "d3" },
+    ],
+    []
+  );
+  assert.equal(hints.apDefault, "73100001");
+  assert.equal(hints.ap.s1, undefined); // PO-той нийлүүлэгчид түр данс санал болгохгүй
+  assert.equal(hints.ap.s2, "72500000");
+});

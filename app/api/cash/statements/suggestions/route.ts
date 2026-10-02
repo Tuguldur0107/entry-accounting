@@ -110,6 +110,9 @@ export async function GET() {
           counterpartyId: arApDocuments.counterpartyId,
           documentType: arApDocuments.documentType,
           accountNumber: arApDocumentLines.accountNumber,
+          documentId: arApDocuments.id,
+          itemId: arApDocumentLines.itemId,
+          purchaseOrderId: arApDocuments.purchaseOrderId,
         })
         .from(arApDocumentLines)
         .innerJoin(arApDocuments, eq(arApDocumentLines.documentId, arApDocuments.id))
@@ -152,7 +155,16 @@ export async function GET() {
       ewalletMethods: ewallet.methods,
       counterparties: counterpartyRows,
       invoiceAccountHints: buildInvoiceAccountHints(
-        invoiceLines.filter((line): line is typeof line & { counterpartyId: string } => !!line.counterpartyId),
+        invoiceLines
+          .filter((line): line is typeof line & { counterpartyId: string } => !!line.counterpartyId)
+          .map((line) => ({
+            counterpartyId: line.counterpartyId,
+            documentType: line.documentType,
+            accountNumber: line.accountNumber,
+            documentId: line.documentId,
+            // PO-той нэхэмжлэх / бараатай мөр — түр, бараа материалын данс (зардал биш).
+            notExpense: !!line.purchaseOrderId || !!line.itemId,
+          })),
         [vatSettings.outputVatAccountNumber, vatSettings.inputVatAccountNumber]
       ),
       advanceSettings: {
