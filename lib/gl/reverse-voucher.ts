@@ -3,6 +3,9 @@
 // журналаа буцаахдаа (цалин — `reversePayrollVoucher`) НЭГ логикоор: эх
 // журнал `reversed`, эх огноогоор буцаалтын журнал (ижил тал, сөрөг дүн),
 // эх модулийн дугаар, аудит. Эрх, период, эзэмшлийн шалгалт ДУУДАГЧИЙН үүрэг.
+// Валютын журнал (IAS 21) — буцаалт ЭХИЙН валют, ханш, валютын дүнгээр
+// (сөрөг) бичигдэнэ: мөрийн касс/бизнес объектын түлхүүр ч хадгалагдана, тэгэхгүй
+// бол валютын үлдэгдэл, PO-ийн клиринг цэвэрлэгдэхгүй (ontology-audit M2).
 
 import { and, eq } from "drizzle-orm";
 
@@ -20,11 +23,20 @@ export type ReversibleVoucher = {
   date: string;
   description: string;
   documentNo: string | null;
+  currency?: string;
+  exchangeRate?: string;
+  rateSource?: string | null;
+  rateDate?: string | null;
   lines: {
     accountNumber: string;
     debit: string;
     credit: string;
+    debitFc?: string;
+    creditFc?: string;
     description: string | null;
+    cashAccountId?: string | null;
+    businessObjectType?: string | null;
+    businessObjectId?: string | null;
   }[];
 };
 
@@ -62,6 +74,10 @@ export async function reverseVoucherInTx(
         voucher.date
       ),
       status: "posted",
+      currency: voucher.currency ?? "MNT",
+      exchangeRate: voucher.exchangeRate ?? "1",
+      rateSource: voucher.rateSource ?? null,
+      rateDate: voucher.rateDate ?? null,
       // Эх журналтайгаа хосолно: эхийг устгавал буцаалт FK cascade-аар
       // хамт устана; буцаалтыг дангаар устгахыг deleteVoucher хориглоно.
       reversalOfVoucherId: voucher.id,
@@ -72,8 +88,16 @@ export async function reverseVoucherInTx(
     voucher.lines.map((line, index) => ({
       voucherId: reversal.id,
       accountNumber: line.accountNumber,
-      ...stornoOf({ debit: Number(line.debit), credit: Number(line.credit) }),
+      ...stornoOf({
+        debit: Number(line.debit),
+        credit: Number(line.credit),
+        debitFc: Number(line.debitFc ?? 0),
+        creditFc: Number(line.creditFc ?? 0),
+      }),
       description: line.description,
+      cashAccountId: line.cashAccountId ?? null,
+      businessObjectType: line.businessObjectType ?? null,
+      businessObjectId: line.businessObjectId ?? null,
       sortOrder: index,
     }))
   );
