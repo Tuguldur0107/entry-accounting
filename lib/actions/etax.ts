@@ -25,10 +25,13 @@ import {
 } from "@/lib/itc/etax/store";
 import { isPostingTransition } from "@/lib/itc/etax/submission";
 import {
+  fetchEtaxSheetTemplates,
   fetchEtaxTemplate,
   loadEtaxReportChoices,
   refreshTaxStatus,
   saveEtaxMapping,
+  saveEtaxSheetMappings,
+  saveSheetsToTax,
   saveSubmissionToTax,
   submitSubmissionToTax,
   syncEtaxOrg,
@@ -346,5 +349,69 @@ export async function refreshEtaxSubmissionStatus(input: { id: string }): Promis
     return result;
   } catch (caught) {
     return actionError("refreshEtaxSubmissionStatus", caught, "ТЕГ-ийн төлөв шинэчлэгдсэнгүй");
+  }
+}
+
+// ── Хавсралт мэдээ (спек §3.11–§3.15) ───────────────────────────────────────
+
+/** §3.11–§3.12 — ТЕГ-д хадгалсан тайлангийн мэдээний загваруудыг татна (admin+). */
+export async function fetchEtaxSheetTemplatesAction(input: { submissionId: string }): Promise<ActionResult<{ mapping: EtaxMappingView }>> {
+  try {
+    const { orgId, userId } = await requireRole("admin");
+    const mapping = await fetchEtaxSheetTemplates(orgId, userId, cleanText(input.submissionId));
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "update",
+      entityType: "etax_form_mapping",
+      entityId: orgId,
+      summary: `eTax мэдээний загвар татагдав — ${mapping.sheetTemplates.map((t) => t.sheetCode).join(", ") || "мэдээгүй"}`,
+    });
+    revalidate();
+    return { mapping };
+  } catch (caught) {
+    return actionError("fetchEtaxSheetTemplatesAction", caught, "Мэдээний загварыг ТЕГ-ээс татаж чадсангүй");
+  }
+}
+
+/** Мэдээний холболт хадгалах (admin+). */
+export async function saveEtaxSheetMappingsAction(input: { sheets: unknown[] }): Promise<ActionResult<{ mapping: EtaxMappingView }>> {
+  try {
+    const { orgId, userId } = await requireRole("admin");
+    const mapping = await saveEtaxSheetMappings(orgId, userId, Array.isArray(input.sheets) ? input.sheets : []);
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "update",
+      entityType: "etax_form_mapping",
+      entityId: orgId,
+      summary: `eTax мэдээний холболт хадгалагдав — эхтэй ${mapping.sheets.filter((m) => m.source).length}/${mapping.sheets.length}${mapping.sheetProblems.length ? `; дутуу ${mapping.sheetProblems.length}` : ""}`,
+    });
+    revalidate();
+    return { mapping };
+  } catch (caught) {
+    return actionError("saveEtaxSheetMappingsAction", caught, "Мэдээний холболт хадгалагдсангүй");
+  }
+}
+
+/** §3.14–§3.15 — мэдээг Entry-ийн задаргаагаар ТЕГ-д бичих (илгээхгүй) — tax:write. */
+export async function saveEtaxSheetsToTax(input: { id: string }): Promise<ActionResult<{ submission: EtaxSubmissionView; summary: Record<string, number> }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction("tax", "write");
+    const result = await saveSheetsToTax(orgId, userId, cleanText(input.id));
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "update",
+      entityType: "etax_submission",
+      entityId: result.submission.id,
+      summary: `${ETAX_FORMS[result.submission.form].label} ${result.submission.periodCode} хавсралт мэдээ ТЕГ-д бичигдэв — ${Object.entries(result.summary)
+        .map(([code, n]) => `${code}: ${n} мөр`)
+        .join(", ")}`,
+    });
+    revalidate();
+    return result;
+  } catch (caught) {
+    return actionError("saveEtaxSheetsToTax", caught, "Хавсралт мэдээг ТЕГ-д бичиж чадсангүй");
   }
 }

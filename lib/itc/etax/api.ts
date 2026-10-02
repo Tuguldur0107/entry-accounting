@@ -4,7 +4,19 @@
 // tests/etax-api.test.ts. Дүн ЗОХИОХГҮЙ — зөвхөн snapshot-ын утгыг холбосон нүдэнд буулгана;
 // танигдахгүй хариу → EtaxError (чимээгүй таамаглахгүй).
 
-import { ETAX_ERRORS, ETAX_TAX_STATUS, ETAX_VAT_FIELDS, type EtaxSubmissionStatus, type EtaxVatField } from "./constants";
+import {
+  ETAX_ERRORS,
+  ETAX_SHEET_FIELDS,
+  ETAX_SHEET_GRANULARITIES,
+  ETAX_SHEET_SOURCES,
+  ETAX_TAX_STATUS,
+  ETAX_VAT_FIELDS,
+  type EtaxSheetField,
+  type EtaxSheetGranularity,
+  type EtaxSheetSource,
+  type EtaxSubmissionStatus,
+  type EtaxVatField,
+} from "./constants";
 import { EtaxError, type EtaxVatSnapshot } from "./submission";
 
 type Json = Record<string, unknown>;
@@ -495,4 +507,253 @@ export function findHistoryRow(rows: EtaxHistoryRow[], match: { reportNo: number
   }
   const byPeriod = rows.filter((r) => r.year === match.year && r.period === match.period && (match.formNo == null || r.formNo === match.formNo));
   return byPeriod.length === 1 ? byPeriod[0] : null;
+}
+
+// ── §3.11–§3.15 Хавсралт мэдээ (sheet) ─────────────────────────────────────
+
+export interface EtaxSheetInfo {
+  sheetFormNo: number;
+  sheetName: string;
+  sheetCode: string;
+  sheetLabel: string;
+  sheetVersion: string;
+  sequence: number | null;
+  statusId: number | null;
+  statusName: string;
+  sheetType: number | null;
+}
+
+/** §3.11 — тайлангийн хавсралт мэдээний жагсаалт (массив / нэг объект / `data`). */
+export function parseSheetList(json: unknown): EtaxSheetInfo[] {
+  const body = Array.isArray(json) ? json : assertEtaxCode(json, "Мэдээний жагсаалт");
+  const rows = Array.isArray(body) ? body.map(obj) : listOf((body as Json).sheetList ?? (body as Json).data ?? body);
+  const out: EtaxSheetInfo[] = [];
+  for (const row of rows) {
+    const sheetFormNo = num(row.sheetFormNo);
+    const sheetCode = text(row.sheetCode);
+    if (sheetFormNo == null || !sheetCode) continue;
+    out.push({
+      sheetFormNo,
+      sheetName: text(row.sheetName),
+      sheetCode,
+      sheetLabel: text(row.sheetLabel),
+      sheetVersion: text(row.sheetVersion),
+      sequence: num(row.sequence),
+      statusId: num(row.status),
+      statusName: text(row.statusDesc),
+      sheetType: num(row.sheetType),
+    });
+  }
+  return out;
+}
+
+export interface EtaxSheetColumn {
+  /** Нүдний код — `sheetDataDetail[].cells[].key`. */
+  columnKey: string;
+  sequence: number | null;
+  name: string;
+  dataType: string;
+  /** Спек: «Утга авах эсэх». */
+  acceptsValue: boolean;
+  hasExpression: boolean;
+  hasSum: boolean;
+  hidden: boolean;
+  maxLength: number | null;
+}
+
+export interface EtaxSheetTemplate {
+  sheetFormNo: number;
+  sheetCode: string;
+  sheetName: string;
+  sheetLabel: string;
+  sheetVersion: string;
+  isExcelImport: boolean;
+  columns: EtaxSheetColumn[];
+}
+
+/**
+ * §3.12 — мэдээний загвар. Спекийн хариу хавтгай (мэдээний мета + баганын талбар нэг
+ * түвшинд) тул: массив бол мөр бүр = багана; объект бол `columns`/`child`/`data` дотроос,
+ * үгүй бол өөрөө нэг багана. Багана `columnKey`-гүй бол алгасна.
+ */
+export function parseSheetDetail(json: unknown): EtaxSheetTemplate {
+  const items: Json[] = Array.isArray(json) ? json.map(obj) : [];
+  const root = Array.isArray(json) ? obj(json[0]) : obj(json);
+  if (!Array.isArray(json)) {
+    assertEtaxCode(json, "Мэдээний загвар");
+    const nested = listOf(root.columns ?? root.child ?? root.data ?? root.sheetColumns);
+    if (nested.length) items.push(...nested);
+    else items.push(root);
+  }
+  const meta = Array.isArray(json) ? root : root;
+  const columns: EtaxSheetColumn[] = [];
+  for (const item of items) {
+    const columnKey = text(item.columnKey);
+    if (!columnKey) continue;
+    columns.push({
+      columnKey,
+      sequence: num(item.columnSequence ?? item.sequence),
+      name: text(item.name ?? item.field),
+      dataType: text(item.dataType),
+      acceptsValue: bool(item.isDisable),
+      hasExpression: text(item.expression) !== "",
+      hasSum: bool(item.hasSum),
+      hidden: bool(item.hidden),
+      maxLength: num(item.maxLength),
+    });
+  }
+  const sheetFormNo = num(meta.sheetFormNo);
+  const sheetCode = text(meta.sheetCode);
+  if (sheetFormNo == null || !sheetCode) throw new EtaxError(ETAX_ERRORS.api, "Мэдээний загвар: sheetFormNo / sheetCode алга");
+  if (columns.length === 0) throw new EtaxError(ETAX_ERRORS.api, `Мэдээний загвар ${sheetCode}: багана алга — хариу танигдсангүй`);
+  columns.sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+  return {
+    sheetFormNo,
+    sheetCode,
+    sheetName: text(meta.sheetName),
+    sheetLabel: text(meta.sheetLabel),
+    sheetVersion: text(meta.sheetVersion),
+    isExcelImport: bool(meta.isExcelImport),
+    columns,
+  };
+}
+
+export function describeSheetColumn(column: EtaxSheetColumn): string {
+  return `${column.columnKey}${column.name ? ` — ${column.name}` : ""}${column.hasExpression ? " (томьёотой)" : ""}${column.hidden ? " (далд)" : ""}`;
+}
+
+/** Нэг мэдээний холболт: эх (борлуулалт / худалдан авалт / илгээхгүй), нэгтгэл, багана → Entry талбар. */
+export interface EtaxSheetMapping {
+  sheetFormNo: number;
+  sheetCode: string;
+  source: EtaxSheetSource | null;
+  granularity: EtaxSheetGranularity;
+  columns: Partial<Record<EtaxSheetField, string | null>>;
+}
+
+export function normalizeSheetMapping(raw: unknown, fallback: { sheetFormNo: number; sheetCode: string }): EtaxSheetMapping {
+  const source = obj(raw);
+  const src = text(source.source);
+  const gran = text(source.granularity);
+  const columnsRaw = obj(source.columns);
+  const columns: Partial<Record<EtaxSheetField, string | null>> = {};
+  for (const field of ETAX_SHEET_FIELDS) columns[field] = text(columnsRaw[field]) || null;
+  return {
+    sheetFormNo: num(source.sheetFormNo) ?? fallback.sheetFormNo,
+    sheetCode: text(source.sheetCode) || fallback.sheetCode,
+    source: (ETAX_SHEET_SOURCES as readonly string[]).includes(src) ? (src as EtaxSheetSource) : null,
+    granularity: (ETAX_SHEET_GRANULARITIES as readonly string[]).includes(gran) ? (gran as EtaxSheetGranularity) : "counterparty",
+    columns,
+  };
+}
+
+/** Эхтэй мэдээнд ЗААВАЛ: харилцагчийн таних (регистр эсвэл ТТД эсвэл нэр) + НӨАТ эсвэл нийт дүн. */
+export function sheetMappingProblems(mapping: EtaxSheetMapping, columns: EtaxSheetColumn[] | null): string[] {
+  if (!mapping.source) return [];
+  const problems: string[] = [];
+  const c = mapping.columns;
+  if (!c.registerNo && !c.tin && !c.name) problems.push(`${mapping.sheetCode}: харилцагчийн регистр / ТТД / нэрийн аль нэг нь холбогдоогүй`);
+  if (!c.vatAmount && !c.totalAmount && !c.netAmount) problems.push(`${mapping.sheetCode}: дүнгийн багана холбогдоогүй`);
+  const used = new Map<string, EtaxSheetField>();
+  for (const field of ETAX_SHEET_FIELDS) {
+    const key = c[field];
+    if (!key) continue;
+    const prev = used.get(key);
+    if (prev) problems.push(`${mapping.sheetCode}: ${key} баганад ${prev} ба ${field} хоёулаа`);
+    used.set(key, field);
+    if (columns && !columns.some((col) => col.columnKey === key)) problems.push(`${mapping.sheetCode}: ${key} багана загварт алга`);
+  }
+  return problems;
+}
+
+/** Entry-ээс гарсан мэдээний нэг мөр (sheet-source.ts) — дүн тэмдэгтэй (буцаалт сөрөг). */
+export interface EtaxSheetSourceRow {
+  registerNo: string | null;
+  tin: string | null;
+  name: string;
+  documentNo: string | null;
+  date: string | null;
+  ddtd: string | null;
+  netAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+  documentCount: number;
+}
+
+export interface EtaxSheetDataRow {
+  rowNumber: number;
+  isTotal: number;
+  isChecked: boolean;
+  isEdit: boolean;
+  type: string;
+  cells: { key: string; value: string }[];
+}
+
+function sheetCellValue(field: EtaxSheetField, row: EtaxSheetSourceRow, rowNo: number): string {
+  switch (field) {
+    case "rowNo":
+      return String(rowNo);
+    case "registerNo":
+      return row.registerNo ?? "";
+    case "tin":
+      return row.tin ?? "";
+    case "name":
+      return row.name;
+    case "documentNo":
+      return row.documentNo ?? "";
+    case "date":
+      return row.date ?? "";
+    case "ddtd":
+      return row.ddtd ?? "";
+    case "netAmount":
+      return cellValueOf(row.netAmount);
+    case "vatAmount":
+      return cellValueOf(row.vatAmount);
+    case "totalAmount":
+      return cellValueOf(row.totalAmount);
+    case "documentCount":
+      return String(row.documentCount);
+  }
+}
+
+/** Эх мөрүүд → `sheetDataDetail` (§3.14); холбоогүй багана бичигдэхгүй; хоосон мөр үгүй. */
+export function buildSheetDataDetail(rows: EtaxSheetSourceRow[], mapping: EtaxSheetMapping, columns: EtaxSheetColumn[]): EtaxSheetDataRow[] {
+  const problems = sheetMappingProblems(mapping, columns);
+  if (problems.length) throw new EtaxError(ETAX_ERRORS.validation, `Мэдээний холболт дутуу: ${problems.join("; ")}`);
+  const mapped = ETAX_SHEET_FIELDS.filter((f) => !!mapping.columns[f]);
+  return rows.map((row, index) => ({
+    rowNumber: index + 1,
+    isTotal: 0,
+    isChecked: false,
+    isEdit: false,
+    type: "0",
+    cells: mapped.map((field) => ({ key: mapping.columns[field]!, value: sheetCellValue(field, row, index + 1) })),
+  }));
+}
+
+export function saveSheetDataBody(head: Pick<EtaxReportHead, "reportNo" | "activitiType" | "resubmitId">, mapping: Pick<EtaxSheetMapping, "sheetFormNo" | "sheetCode">, detail: EtaxSheetDataRow[]) {
+  if (!head.reportNo) throw new EtaxError(ETAX_ERRORS.state, "Эхлээд ТЕГ-д хадгална (reportNo алга)");
+  return {
+    sheetFormNo: mapping.sheetFormNo,
+    reportNo: head.reportNo,
+    activitiType: head.activitiType,
+    resubmitId: head.resubmitId,
+    sheetCode: mapping.sheetCode,
+    sheetDataDetail: detail,
+  };
+}
+
+/** §3.15 — мэдээний мөрүүдийг бүгдийг устгах (дахин бичихийн өмнө). */
+export function deleteAllSheetDataBody(head: Pick<EtaxReportHead, "reportNo" | "activitiType" | "resubmitId">, sheetFormNo: number) {
+  if (!head.reportNo) throw new EtaxError(ETAX_ERRORS.state, "reportNo алга");
+  return { sheetFormNo, reportNo: head.reportNo, activitiType: head.activitiType, resubmitId: head.resubmitId };
+}
+
+/** §3.14 хариу — `code` байвал шалгана, `reportData.reportNo` таарахыг баталгаажуулна. */
+export function parseSaveSheetResponse(json: unknown, expectedReportNo: number): { reportNo: number } {
+  const body = assertEtaxCode(json, "Мэдээ хадгалах");
+  const reportNo = num(obj(body.reportData).reportNo);
+  if (reportNo != null && reportNo !== 0 && reportNo !== expectedReportNo)
+    throw new EtaxError(ETAX_ERRORS.api, `Мэдээ хадгалах: ТЕГ өөр reportNo буцаав (${reportNo} ≠ ${expectedReportNo})`);
+  return { reportNo: expectedReportNo };
 }

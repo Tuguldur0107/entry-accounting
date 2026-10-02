@@ -18,7 +18,15 @@ import { isPeriodCode } from "@/lib/periods/period";
 import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { stateChangedError } from "@/lib/state-guard";
 
-import { mappingProblems, normalizeCellMapping, type EtaxFormCell } from "./api";
+import {
+  mappingProblems,
+  normalizeCellMapping,
+  normalizeSheetMapping,
+  sheetMappingProblems,
+  type EtaxFormCell,
+  type EtaxSheetMapping,
+  type EtaxSheetTemplate,
+} from "./api";
 import { etaxClientId, etaxNeKey, type EtaxAuth } from "./client";
 import {
   ETAX_ACTIVE_STATUSES,
@@ -115,9 +123,18 @@ export async function loadEtaxMappingRow(orgId: string, form = "vat"): Promise<M
   return (await db.query.etaxFormMappings.findFirst({ where: and(eq(etaxFormMappings.organizationId, orgId), eq(etaxFormMappings.form, form)) })) ?? null;
 }
 
+/** Мэдээний холболтууд — загвар бүрд нэг (хадгалаагүй бол эхгүй default). */
+export function sheetMappingsOf(row: Pick<MappingRow, "sheets" | "sheetTemplates">): { templates: EtaxSheetTemplate[]; mappings: EtaxSheetMapping[] } {
+  const templates = (row.sheetTemplates ?? []) as unknown as EtaxSheetTemplate[];
+  const saved = row.sheets ?? {};
+  const mappings = templates.map((t) => normalizeSheetMapping(saved[t.sheetCode], { sheetFormNo: t.sheetFormNo, sheetCode: t.sheetCode }));
+  return { templates, mappings };
+}
+
 export function toEtaxMappingView(row: MappingRow): EtaxMappingView {
   const templateCells = (row.templateCells ?? []) as unknown as EtaxFormCell[];
   const cells = normalizeCellMapping(row.cells);
+  const { templates, mappings } = sheetMappingsOf(row);
   return {
     form: isEtaxFormKey(row.form) ? row.form : "vat",
     formNo: row.formNo,
@@ -129,6 +146,10 @@ export function toEtaxMappingView(row: MappingRow): EtaxMappingView {
     templateCells,
     templateFetchedAt: row.templateFetchedAt?.toISOString() ?? null,
     problems: mappingProblems(cells, templateCells.length ? templateCells : null),
+    sheetTemplates: templates,
+    sheets: mappings,
+    sheetTemplatesFetchedAt: row.sheetTemplatesFetchedAt?.toISOString() ?? null,
+    sheetProblems: mappings.flatMap((m) => sheetMappingProblems(m, templates.find((t) => t.sheetCode === m.sheetCode)?.columns ?? null)),
   };
 }
 
@@ -189,6 +210,8 @@ export function toEtaxSubmissionView(row: SubmissionRow): EtaxSubmissionView {
     taxStatusId: row.taxStatusId,
     taxStatusName: row.taxStatusName,
     taxSyncedAt: row.taxSyncedAt?.toISOString() ?? null,
+    sheetsSavedAt: row.sheetsSavedAt?.toISOString() ?? null,
+    sheetsSummary: row.sheetsSummary ?? null,
     submittedAt: row.submittedAt?.toISOString() ?? null,
     resultNote: row.resultNote,
     createdAt: row.createdAt.toISOString(),

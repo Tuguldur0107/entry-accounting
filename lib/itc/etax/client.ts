@@ -10,10 +10,14 @@ import { bearerHeader, type ItcToken } from "@/lib/itc/auth";
 import type { ItcEnvironment } from "@/lib/itc/constants";
 
 import {
+  assertEtaxCode,
   parseFormDetail,
   parseHistory,
   parseReportList,
   parseSaveResponse,
+  parseSaveSheetResponse,
+  parseSheetDetail,
+  parseSheetList,
   parseSubmitResponse,
   parseUserOrgs,
   type EtaxFormTemplate,
@@ -21,6 +25,8 @@ import {
   type EtaxOrg,
   type EtaxReportListRow,
   type EtaxSaveResult,
+  type EtaxSheetInfo,
+  type EtaxSheetTemplate,
 } from "./api";
 import { ETAX_API_BASE, ETAX_CLIENT_IDS, ETAX_ERRORS, ETAX_PATHS, ETAX_TIMEOUT_MS } from "./constants";
 import { EtaxError } from "./submission";
@@ -142,4 +148,26 @@ export async function saveEtaxFormData(env: ItcEnvironment, auth: EtaxAuth, entI
 /** §3.10 — тайлан ИЛГЭЭХ (ТЕГ загварын validations-оо шалгана). */
 export async function submitEtaxReport(env: ItcEnvironment, auth: EtaxAuth, entId: number, body: unknown): Promise<{ message: string }> {
   return parseSubmitResponse(await request(env, auth, "POST", ETAX_PATHS.submit, { entId }, body));
+}
+
+// ── §3.11–§3.15 Хавсралт мэдээ ──────────────────────────────────────────────
+
+/** §3.11 — тайлангийн хавсралт мэдээний жагсаалт (reportNo-той тайланд). */
+export async function fetchEtaxSheetList(env: ItcEnvironment, auth: EtaxAuth, query: { entId: number; formNo: number; reportNo: number }): Promise<EtaxSheetInfo[]> {
+  return parseSheetList(await request(env, auth, "GET", ETAX_PATHS.sheetList, query));
+}
+
+/** §3.12 — мэдээний загвар (баганууд). */
+export async function fetchEtaxSheetDetail(env: ItcEnvironment, auth: EtaxAuth, query: { entId: number; sheetFormNo: number }): Promise<EtaxSheetTemplate> {
+  return parseSheetDetail(await request(env, auth, "GET", ETAX_PATHS.sheetDetail, query));
+}
+
+/** §3.14 — мэдээний мөр хадгалах. */
+export async function saveEtaxSheetData(env: ItcEnvironment, auth: EtaxAuth, entId: number, body: unknown, expectedReportNo: number): Promise<{ reportNo: number }> {
+  return parseSaveSheetResponse(await request(env, auth, "POST", ETAX_PATHS.saveSheetData, { entId }, body), expectedReportNo);
+}
+
+/** §3.15 — мэдээний бүх мөр устгах (дахин бичихийн өмнө). */
+export async function deleteEtaxSheetData(env: ItcEnvironment, auth: EtaxAuth, entId: number, body: unknown): Promise<void> {
+  assertEtaxCode(await request(env, auth, "POST", ETAX_PATHS.deleteAllSheetData, { entId }, body), "Мэдээ устгах");
 }

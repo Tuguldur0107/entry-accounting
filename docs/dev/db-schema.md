@@ -213,11 +213,12 @@ VAT        vat_settings
 eTax       etax_connections (ITC Keycloak нэвтрэлт, passwordEnc шифртэй, lastCheck*,
              entId/entName/entTin/branch* — getUserOrgs),
            etax_form_mappings (org × form: formNo, taxTypeId, cells {Entry талбар → tagKey},
-             templateCells, templateVersion),
+             templateCells, templateVersion; sheets {sheetCode → source/granularity/columns},
+             sheetTemplates — хавсралт мэдээ),
            etax_submissions (form "vat", formCode ТТ-03А, periodCode, status draft→ready→
              saved→submitted→accepted|rejected, snapshot = бодолтын хуулбар, validation,
-             reportNo/taxStatusId/taxHead (eTax API), taxReference, submittedAt/By,
-             resultNote) — docs/dev/etax.md
+             reportNo/taxStatusId/taxHead (eTax API), sheetsSavedAt/sheetsSummary,
+             taxReference, submittedAt/By, resultNote) — docs/dev/etax.md
 Payroll    employees, payroll_settings, payroll_runs, payroll_run_lines
              run_lines.standardHours / workedHours — цагт суурилсан олголт
              run_lines.vacationPay / otherAdditions — нийт олголтод нэмэгдэнэ

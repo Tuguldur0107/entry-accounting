@@ -5046,6 +5046,14 @@ export const etaxFormMappings = pgTable(
     /** Сүүлд татсан загварын нүдний товч жагсаалт (UI сонголт; нууц биш). */
     templateCells: jsonb("template_cells").$type<Record<string, unknown>[]>(),
     templateFetchedAt: timestamp("template_fetched_at"),
+    /**
+     * Хавсралт МЭДЭЭНИЙ холболт (спек §3.11–§3.14): `{ [sheetCode]: { sheetFormNo, source
+     * "sales"|"purchases"|null, granularity, columns {Entry талбар → columnKey} } }`.
+     */
+    sheets: jsonb("sheets").$type<Record<string, Record<string, unknown>>>().notNull().default({}),
+    /** Сүүлд татсан мэдээний загварууд (sheetFormNo, sheetCode, columns[]). */
+    sheetTemplates: jsonb("sheet_templates").$type<Record<string, unknown>[]>(),
+    sheetTemplatesFetchedAt: timestamp("sheet_templates_fetched_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -5089,6 +5097,9 @@ export const etaxSubmissions = pgTable(
     taxSyncedAt: timestamp("tax_synced_at"),
     /** ТЕГ-д явуулсан толгой (taxTypeId, branchId, formNo …) — submit/түүхэд дахин хэрэглэнэ. */
     taxHead: jsonb("tax_head").$type<Record<string, unknown>>(),
+    /** Хавсралт мэдээ ТЕГ-д хадгалсан мөч ба мэдээ бүрийн мөрийн тоо `{ [sheetCode]: rows }`. */
+    sheetsSavedAt: timestamp("sheets_saved_at"),
+    sheetsSummary: jsonb("sheets_summary").$type<Record<string, number>>(),
     submittedAt: timestamp("submitted_at"),
     submittedByUserId: text("submitted_by_user_id").references(() => users.id, { onDelete: "set null" }),
     /** ТЕГ-ийн хариу / буцаасан шалтгаан / хүчингүй болгосон тайлбар. */
