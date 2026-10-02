@@ -114,8 +114,8 @@ export function EbarimtCustomsView({
       <EmptyState
         icon="document"
         title="ТЕГ-ийн TPI холболт тохируулаагүй"
-        description="Гаалийн мэдүүлгийг ITC-ийн ижил нэвтрэлтээр татна — админ POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт»-д ITC нэвтрэлтээ холбоно."
-        actions={[{ label: "TPI холболт", href: "/inventory/pos-settings?section=ebarimt", icon: "settings" }]}
+        description="Гаалийн мэдүүлгийг ITC-ийн ижил нэвтрэлтээр татна — админ Татвар → «ТЕГ-ийн холболт»-д ITC нэвтрэлтээ холбоно."
+        actions={[{ label: "ТЕГ-ийн холболт", href: "/tax/ebarimt", icon: "settings" }]}
       />
     );
   }

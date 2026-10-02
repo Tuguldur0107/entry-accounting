@@ -31,6 +31,9 @@ export default async function CustomsTaxPage() {
           subtitle="Импортын бараанд гаалийн байгууллагад төлөх татвар, хураамжууд."
         />
         <div className="flex gap-2">
+          <TaxModuleLink href="/payables/ebarimt?view=customs" icon="reconciliation">
+            Гаалийн мэдүүлэг (ТЕГ)
+          </TaxModuleLink>
           <TaxModuleLink href="/payables/documents" icon="document">
             Өглөгийн нэхэмжлэх
           </TaxModuleLink>

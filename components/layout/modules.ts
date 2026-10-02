@@ -94,7 +94,8 @@ export const MODULES: Module[] = [
       { label: "Нэхэмжлэл", href: "/receivables/documents", icon: "document" },
       { label: "Тайлан", href: "/receivables/reports", icon: "reportDetailed" },
       { label: "ECL нөөц", href: "/receivables/ecl", icon: "shield" },
-      { label: "eBarimt", href: "/receivables/ebarimt", icon: "reconciliation" },
+      // eBarimt — БОРЛУУЛАЛТ ба түүний төлөлт: илгээсэн баримт, ТЕГ-ийн тулгалт, ТЕГ-ийн бүх борлуулалт.
+      { label: "eBarimt · борлуулалт", href: "/receivables/ebarimt", icon: "reconciliation" },
       { label: "Давтамжтай", href: "/receivables/recurring", icon: "refresh" },
       { label: "Сануулга", href: "/receivables/reminders", icon: "bell" },
       // Харилцагч бол лавлах өгөгдөл — тохиргооны байрлалд (сүүлд) байна.
@@ -114,7 +115,8 @@ export const MODULES: Module[] = [
       { label: "Хяналтын самбар", href: "/payables", icon: "dashboard" },
       { label: "Нэхэмжлэх", href: "/payables/documents", icon: "document" },
       { label: "Тайлан", href: "/payables/reports", icon: "reportDetailed" },
-      { label: "eBarimt", href: "/payables/ebarimt", icon: "reconciliation" },
+      // eBarimt — ХУДАЛДАН АВАЛТ: ТЕГ-ийн худалдан авалт ↔ өглөг, гаалийн мэдүүлэг.
+      { label: "eBarimt · худалдан авалт", href: "/payables/ebarimt", icon: "reconciliation" },
       {
         label: "Харилцагчид",
         href: "/payables/counterparties",
@@ -235,7 +237,9 @@ export const MODULES: Module[] = [
     items: [
       { label: "Татварын самбар", href: "/tax", icon: "dashboard" },
       { label: "НӨАТ", href: "/tax/vat", icon: "report" },
-      { label: "eBarimt баримт", href: "/tax/ebarimt", icon: "document" },
+      // ТЕГ-ийн холболт (ITC TPI) — борлуулалт/худалдан авалт/гаалийн татлагын тохиргоо, төлөв
+      // (баримт ОЛГОХ тохиргоо нь Бараа → POS тохиргоо → eBarimt; жагсаалтууд Авлага/Өглөгт).
+      { label: "ТЕГ-ийн холболт", href: "/tax/ebarimt", icon: "settings" },
       { label: "ХХОАТ (цалин)", href: "/tax/pit", icon: "user" },
       { label: "НДШ", href: "/tax/ndsh", icon: "shield" },
       { label: "ААНОАТ", href: "/tax/cit", icon: "company" },

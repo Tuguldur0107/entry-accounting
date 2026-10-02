@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { DiscountRuleDialog } from "@/components/pos/discount-rule-dialog";
 import { EbarimtArapSettings } from "@/components/pos/ebarimt-arap-settings";
-import { EbarimtTpiSettings } from "@/components/pos/ebarimt-tpi-settings";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
@@ -127,7 +127,13 @@ export function PosSettingsView({
         <>
           <EbarimtSection key={JSON.stringify(checkout.settings)} settings={checkout.settings} />
           <EbarimtArapSettings key={`arap-${JSON.stringify(checkout.settings)}`} settings={checkout.settings} />
-          <EbarimtTpiSettings />
+          {/* ТЕГ-ээс ТАТАХ (TPI) тохиргоо энд биш — Татвар → ТЕГ-ийн холболт (2026-10-02 цэгцлэлт). */}
+          <p className="text-xs text-[var(--ea-text-3)]">
+            ТЕГ-ээс борлуулалт, худалдан авалт, гаалийн мэдүүлэг татах холболт (ITC нэвтрэлт):{" "}
+            <Link href="/tax/ebarimt" className="underline">
+              Татвар → ТЕГ-ийн холболт
+            </Link>
+          </p>
         </>
       )}
       {section === "qpay" && <QpaySection key={JSON.stringify(checkout.settings)} settings={checkout.settings} />}
