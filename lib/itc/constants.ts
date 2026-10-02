@@ -42,6 +42,21 @@ export const TPI_PATHS = {
   info: "/api/info/check/getInfo",
 } as const;
 
+/**
+ * Хуулийн этгээдийн ГААЛИЙН МЭДҮҮЛЭГ (developer портал 10.4) — `data.ebarimt.mn`,
+ * e-inventory-service. Staging-ийн тусдаа хост портал дээр БАЙХГҮЙ (зөвхөн staging
+ * X-API-KEY) тул хоёр орчинд ижил; Монголд байрлах прокси бол env `ITC_CUSTOMS_BASE`.
+ * X-API-KEY нь TPI-ийнхээс ТУСДАА — Гаалийн ерөнхий газрын МТ газраас албан бичгээр
+ * (env `ITC_CUSTOMS_API_KEY`, операторын).
+ */
+export const ITC_CUSTOMS_BASE: Readonly<Record<ItcEnvironment, string>> = {
+  staging: "https://data.ebarimt.mn",
+  production: "https://data.ebarimt.mn",
+};
+export const ITC_CUSTOMS_PATHS = {
+  declarations: "/rest/e-inventory-service/api/v1/tpiDeclaration",
+} as const;
+
 /** `getSalesTotalData` status шүүлт (албан тайлбар). */
 export const TPI_SALES_STATUS = {
   all: 0,

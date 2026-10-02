@@ -190,6 +190,10 @@ eBarimt    pos_settings.ebarimt{Enabled,MerchantTin,BranchNo,DistrictCode,PosNo,
              ebarimt_tpi_connections.purchases* / lastPurchase* (тусдаа явц),
              ar_ap_documents.supplierEbarimtId (ap_bill-ийн нийлүүлэгчийн ДДТД;
              (org, supplierEbarimtId) partial unique) — §7
+           ebarimt_customs_declarations (TPI tpiDeclaration — гаалийн мэдүүлэг;
+             declarationNo, declarationDate, items jsonb, duty/excise/fee/vatBase/vat;
+             (org, declarationNo) unique), ebarimt_tpi_connections.customs* /
+             lastCustoms* (тусдаа явц) — §10
 Costing    cost_components, inventory_issue_types, costing_account_settings,
            costing_item_settings, cost_allocations, cost_allocation_lines,
            costing_runs, cost_entries, cost_period_results

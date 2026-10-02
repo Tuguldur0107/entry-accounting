@@ -19,6 +19,7 @@ import {
   syncEbarimtTaxPurchases,
   type PurchaseSyncResult,
 } from "@/lib/ebarimt/purchase-sync";
+import { syncEbarimtCustomsDeclarations, type CustomsSyncResult } from "@/lib/ebarimt/customs-sync";
 import { normalizePurchaseDdtd, type EbarimtPurchaseCheckRow } from "@/lib/ebarimt/purchase-reconcile";
 import {
   loadEbarimtTaxChecks,
@@ -178,6 +179,29 @@ export async function getEbarimtTaxChecks(): Promise<
     return await loadEbarimtTaxChecks(orgId);
   } catch (caught) {
     return actionError("getEbarimtTaxChecks", caught, "ТЕГ-ийн тулгалтыг уншиж чадсангүй");
+  }
+}
+
+// ── Гаалийн мэдүүлэг (tpiDeclaration) — docs/dev/ebarimt-tax-reconcile.md §10 ──────
+
+/** Гаалийн мэдүүлгийг одоо татах (≤ 16 × 7 хоног, үлдсэнийг хуваарьт татлага). */
+export async function syncEbarimtCustomsNow(): Promise<ActionResult<CustomsSyncResult>> {
+  try {
+    const { orgId, userId } = await requireModuleAction("ap", "write");
+    const result = await syncEbarimtCustomsDeclarations(orgId);
+    const row = await loadTpiConnectionRow(orgId);
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "sync",
+      entityType: "ebarimt_tpi_connection",
+      entityId: row?.id ?? orgId,
+      summary: `Гаалийн мэдүүлэг татав — ${result.ranges[0]?.startDate ?? "—"} … ${result.ranges.at(-1)?.endDate ?? "—"}, мэдүүлэг ${result.declarations}`,
+    });
+    revalidatePath("/payables/ebarimt");
+    return result;
+  } catch (caught) {
+    return actionError("syncEbarimtCustomsNow", caught, "Гаалийн мэдүүлэг татаж чадсангүй");
   }
 }
 

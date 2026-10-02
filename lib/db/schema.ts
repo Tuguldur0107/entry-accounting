@@ -4846,6 +4846,15 @@ export const ebarimtTpiConnections = pgTable(
     lastPurchaseSyncOkAt: timestamp("last_purchase_sync_ok_at"),
     lastPurchaseSyncError: text("last_purchase_sync_error"),
     lastPurchaseSummary: jsonb("last_purchase_summary").$type<{ checked: number; problems: number; danger: number }>(),
+    /**
+     * ГААЛИЙН МЭДҮҮЛЭГ (`tpiDeclaration`, developer портал 10.4) — тусдаа явц/алдаа
+     * (X-API-KEY нь Гаалийн ерөнхий газрынх, эрх өөр байж болно). docs/dev/ebarimt-tax-reconcile.md §10.
+     */
+    customsSyncFrom: text("customs_sync_from"),
+    customsSyncedThrough: text("customs_synced_through"),
+    lastCustomsSyncAt: timestamp("last_customs_sync_at"),
+    lastCustomsSyncOkAt: timestamp("last_customs_sync_ok_at"),
+    lastCustomsSyncError: text("last_customs_sync_error"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -4889,6 +4898,40 @@ export const ebarimtTaxReceipts = pgTable(
     index("ebarimt_tax_receipts_parent_ix")
       .on(table.organizationId, table.parentDdtd)
       .where(sql`${table.parentDdtd} is not null`),
+  ]
+);
+
+/**
+ * Хуулийн этгээдийн ГААЛИЙН МЭДҮҮЛЭГ (`tpiDeclaration`) — импортын татвар, НӨАТ
+ * (оролтын НӨАТ-ын эх). Мэдүүлгийн дугаараар upsert; барааны мөрүүд ирсэн хэвээр
+ * `items` jsonb-д, дүн нь мөрүүдийн нийлбэр. ЗӨВХӨН унших — GL-д бичихгүй.
+ */
+export const ebarimtCustomsDeclarations = pgTable(
+  "ebarimt_customs_declarations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    declarationNo: text("declaration_no").notNull(),
+    /** Эх огноо (dclrDate). */
+    rawDate: text("raw_date").notNull().default(""),
+    /** YYYY-MM-DD — эх огнооноос, танигдахгүй бол татсан мужийн эхлэл. */
+    declarationDate: text("declaration_date").notNull(),
+    items: jsonb("items")
+      .$type<{ name: string; unitPrice: number | null; duty: number; excise: number; fee: number; vatBase: number; vat: number }[]>()
+      .notNull()
+      .default([]),
+    dutyAmount: numeric("duty_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    exciseAmount: numeric("excise_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    feeAmount: numeric("fee_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    vatBaseAmount: numeric("vat_base_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    vatAmount: numeric("vat_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    syncedAt: timestamp("synced_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("ebarimt_customs_declarations_org_no_ux").on(table.organizationId, table.declarationNo),
+    index("ebarimt_customs_declarations_org_date_ix").on(table.organizationId, table.declarationDate),
   ]
 );
 

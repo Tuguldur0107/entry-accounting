@@ -320,3 +320,130 @@ export function reconcileDdtd(taxDdtds: readonly string[], entryDdtds: readonly 
   const onlyEntry = [...entry].filter((d) => !tax.has(d)).sort();
   return { matched, onlyTax, onlyEntry };
 }
+
+// ── Гаалийн мэдүүлэг (developer портал 10.4, `tpiDeclaration`) ───────────────
+
+/** Нэг хуудасны мэдүүлэг (албан жишээ 100). */
+export const CUSTOMS_PAGE_SIZE = 100;
+/** Нэг мужид хамгийн ихдээ хэдэн хуудас — хэтэрвэл ил алдаа (чимээгүй таслахгүй). */
+export const CUSTOMS_MAX_PAGES = 200;
+
+export interface CustomsDeclarationRequest {
+  startDate: string;
+  endDate: string;
+  /** 1-ээс (албан жишээ `pageNumber: 1`). */
+  pageNumber: number;
+  pageSize?: number;
+}
+
+export function customsDeclarationBody(input: CustomsDeclarationRequest): {
+  startDate: string;
+  endDate: string;
+  pageNumber: number;
+  pageSize: number;
+} {
+  if (!DATE_RE.test(input.startDate) || !DATE_RE.test(input.endDate))
+    throw new ItcError(ITC_ERRORS.tpi, "Огноо YYYY-MM-DD хэлбэртэй байна");
+  if (input.startDate > input.endDate) throw new ItcError(ITC_ERRORS.tpi, "Эхлэх огноо дуусахаас хойш байж болохгүй");
+  if (!Number.isInteger(input.pageNumber) || input.pageNumber < 1) throw new ItcError(ITC_ERRORS.tpi, "pageNumber 1-ээс эхэлнэ");
+  return { startDate: input.startDate, endDate: input.endDate, pageNumber: input.pageNumber, pageSize: input.pageSize ?? CUSTOMS_PAGE_SIZE };
+}
+
+/** Мэдүүлгийн барааны мөр — албан талбарууд (утгыг ЗОХИОХГҮЙ, ирсэн хэвээр). */
+export interface CustomsDeclarationItem {
+  /** Барааны нэр (goodsnm). */
+  name: string;
+  /** Нэгжийн үнэ (itemuprc) — валют/нэгж албан тайлбаргүй тул ДАНСАНД ХЭРЭГЛЭХГҮЙ. */
+  unitPrice: number | null;
+  /** Гаалийн албан татвар (dutyamt). */
+  duty: number;
+  /** Онцгой албан татвар (exciseamt). */
+  excise: number;
+  /** Маягтын / бусад хураамж (formamt). */
+  fee: number;
+  /** НӨАТ-ын суурь (vatBaseAmt). */
+  vatBase: number;
+  /** Импортын НӨАТ (vatamt) — оролтын НӨАТ-ын эх. */
+  vat: number;
+}
+
+export interface CustomsDeclaration {
+  /** Мэдүүлгийн дугаар (dclrNo) — далдлагдсан ирж болно, тулгалтын түлхүүр. */
+  declarationNo: string;
+  /** Эх огноо (dclrDate, «2020-09-24T09:15:58.000+0000»). */
+  rawDate: string;
+  /** YYYY-MM-DD (эх огнооны эхний 10 тэмдэгт; танигдахгүй бол ""). */
+  date: string;
+  items: CustomsDeclarationItem[];
+  duty: number;
+  excise: number;
+  fee: number;
+  vatBase: number;
+  vat: number;
+}
+
+export interface CustomsParseResult {
+  rows: CustomsDeclaration[];
+  skipped: number;
+  /** Spring хуудаслалтын `totalPages` ирвэл (албан схемд байхгүй) — үгүй бол null. */
+  totalPages: number | null;
+}
+
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+/**
+ * `tpiDeclaration` хариу → мэдүүлгүүд. Албан хариу `{ content: [{dclrNo, dclrDate,
+ * items[]}] }`. Дугааргүй мөр алгасаж ТООЛНО. Дүн нь мөрүүдийн нийлбэр (2 орон).
+ */
+export function parseCustomsDeclarations(json: unknown): CustomsParseResult {
+  assertTpiStatus(json);
+  const record = json && typeof json === "object" && !Array.isArray(json) ? (json as Record<string, unknown>) : {};
+  const data = record.data && typeof record.data === "object" && !Array.isArray(record.data) ? (record.data as Record<string, unknown>) : record;
+  const content = Array.isArray(data.content) ? data.content : Array.isArray(json) ? (json as unknown[]) : [];
+  const rows: CustomsDeclaration[] = [];
+  let skipped = 0;
+  for (const raw of content) {
+    if (!raw || typeof raw !== "object") {
+      skipped += 1;
+      continue;
+    }
+    const entry = raw as Record<string, unknown>;
+    const declarationNo = str(pick(entry, ["dclrNo", "declarationNo"]));
+    if (!declarationNo) {
+      skipped += 1;
+      continue;
+    }
+    const rawDate = str(pick(entry, ["dclrDate", "declarationDate"]));
+    const items = (Array.isArray(entry.items) ? entry.items : [])
+      .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+      .map((item) => ({
+        name: str(pick(item, ["goodsnm", "goodsName", "name"])),
+        unitPrice: num(pick(item, ["itemuprc", "unitPrice"])),
+        duty: num(pick(item, ["dutyamt"])) ?? 0,
+        excise: num(pick(item, ["exciseamt"])) ?? 0,
+        fee: num(pick(item, ["formamt"])) ?? 0,
+        vatBase: num(pick(item, ["vatBaseAmt", "vatbaseamt"])) ?? 0,
+        vat: num(pick(item, ["vatamt", "vatAmt"])) ?? 0,
+      }));
+    const sum = (field: "duty" | "excise" | "fee" | "vatBase" | "vat") => round2(items.reduce((total, item) => total + item[field], 0));
+    rows.push({
+      declarationNo,
+      rawDate,
+      date: DATE_RE.test(rawDate.slice(0, 10)) ? rawDate.slice(0, 10) : "",
+      items,
+      duty: sum("duty"),
+      excise: sum("excise"),
+      fee: sum("fee"),
+      vatBase: sum("vatBase"),
+      vat: sum("vat"),
+    });
+  }
+  const totalPages = num(data.totalPages);
+  return { rows, skipped, totalPages: totalPages === null ? null : Math.trunc(totalPages) };
+}
+
+/** Дараагийн хуудас бий эсэх — `totalPages` ирвэл түүгээр, эс бөгөөс дүүрэн хуудсаар. */
+export function customsHasMorePages(pageNumber: number, rowsInPage: number, totalPages: number | null, size = CUSTOMS_PAGE_SIZE): boolean {
+  if (totalPages !== null) return pageNumber < totalPages;
+  return rowsInPage >= size;
+}
