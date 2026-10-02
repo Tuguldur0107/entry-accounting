@@ -4,6 +4,7 @@
 // (tests/golomt-transfer-isolation.test.ts).
 //
 //   npx tsx scripts/golomt-uat-transfer.ts
+//   npx tsx scripts/golomt-uat-transfer.ts --check-code   (илгээхгүй, кодыг authenticator-тай харьцуулна)
 //
 // - Хост ЗӨВХӨН UAT (openapi-uat) — бодит мөнгө хөдлөхгүй; дүн ≤ MAX_AMOUNT
 // - Нууцыг (нууц үг, session/IV key, X-Golomt-Key) нуугдсан оролтоор асууна —
@@ -93,7 +94,24 @@ async function login(username: string, password: string, keys: GolomtKeys): Prom
   return token;
 }
 
+/**
+ * `--check-code`: юу ч илгээхгүй, зөвхөн түлхүүрээс бодсон кодыг ТАНЫ дэлгэцэнд
+ * харуулна — Google Authenticator-т ижил түлхүүрээ нэмж кодууд таарч байгааг
+ * харьцуулна (таарвал түлхүүр + алгоритм зөв, асуудал өөр газар).
+ */
+async function checkCode() {
+  const secret = base32Decode(await ask("X-Golomt-Key: ", true));
+  if (!secret || secret.length === 0) throw new Error("X-Golomt-Key base32 хэлбэр биш (A–Z, 2–7)");
+  for (let i = 0; i < 3; i++) {
+    const left = 30 - (Math.floor(Date.now() / 1000) % 30);
+    console.log(`Код: ${totp(secret)}  (${left} сек хүчинтэй; UTC ${new Date().toISOString()})`);
+    await new Promise((resolve) => setTimeout(resolve, left * 1000 + 300));
+  }
+  console.log("Кодыг чатад БҮҮ бичээрэй — зөвхөн апп-тай харьцуулна.");
+}
+
 async function main() {
+  if (process.argv.includes("--check-code")) return checkCode();
   console.log("Голомт UAT — НЭГ туршилтын шилжүүлэг (CGWTXNADD). Нууц дэлгэцэнд харагдахгүй.");
   console.log(`Хост: ${UAT_BASE} (ЗӨВХӨН туршилтын орчин), дүн ≤ ${MAX_AMOUNT.toLocaleString("en-US")}₮\n`);
 
@@ -138,19 +156,14 @@ async function main() {
   const token = await login(username, password, keys);
   console.log("✓ Нэвтэрлээ\n");
 
-  // Код эцэст нь — 30 секундэд багтаана.
   const mode = (await ask("X-Golomt-Code: [1] authenticator-ын код (санал болгох)  [2] түлхүүрээс бодох (1): ")) || "1";
-  let code: string;
+  let secret: Buffer | null = null;
   if (mode === "2") {
     const rawKey = await ask("X-Golomt-Key: ", true);
     // Хавсралт 3: decodeBase32(X-Golomt-Key) — A–Z, 2–7 л (0, 1, 8, 9 үгүй).
-    const secret = base32Decode(rawKey);
+    secret = base32Decode(rawKey);
     if (!secret || secret.length === 0)
       throw new Error("X-Golomt-Key base32 хэлбэр биш (A–Z, 2–7) — банкнаас ирсэн утгыг шалгана уу");
-    code = totp(secret);
-  } else {
-    code = await ask("Authenticator-ын одоогийн 6 оронтой код: ", true);
-    if (!/^\d{6,8}$/.test(code)) throw new Error("Код 6–8 оронтой тоо байна");
   }
 
   const confirm = await ask(`\n${amount.toLocaleString("en-US")}₮ → ${toAccount} илгээх үү? «ИЛГЭЭ» гэж бичнэ үү: `);
@@ -158,6 +171,25 @@ async function main() {
     console.log("Цуцаллаа — юу ч илгээгдээгүй.");
     return;
   }
+
+  // Код 30 секундийн цонхонд л хүчинтэй — баталгаажуулалтын ДАРАА, илгээхийн яг
+  // өмнө авна (2026-10-02 UAT: «ИЛГЭЭ» бичих зуур цонх солигдож 406 өгсөн байж болзошгүй).
+  let code: string;
+  if (secret) {
+    const left = 30 - (Math.floor(Date.now() / 1000) % 30);
+    if (left < 6) {
+      console.log(`Цонх дуусахад ${left} сек — дараагийн цонхыг хүлээж байна…`);
+      await new Promise((resolve) => setTimeout(resolve, left * 1000 + 300));
+    }
+    code = totp(secret);
+  } else {
+    code = await ask("Authenticator-ын ОДООГИЙН 6 оронтой код (шууд илгээгдэнэ): ", true);
+    if (!/^\d{6,8}$/.test(code)) throw new Error("Код 6–8 оронтой тоо байна");
+  }
+  const sentAt = new Date();
+  console.log(
+    `Илгээж байна… (компьютерийн цаг UTC ${sentAt.toISOString()}, цонхонд ${30 - (Math.floor(sentAt.getTime() / 1000) % 30)} сек үлдсэн)`
+  );
 
   const response = await fetch(`${UAT_BASE}${TRANSFER_PATH}?client_id=&state=&scope=`, {
     method: "POST",
