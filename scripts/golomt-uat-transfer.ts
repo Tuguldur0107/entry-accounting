@@ -9,8 +9,9 @@
 // - Нууцыг (нууц үг, session/IV key, X-Golomt-Key) нуугдсан оролтоор асууна —
 //   аргумент, env, файлаар өгөхгүй; гаралтад нууц, токен, код ОРОХГҮЙ
 // - X-Golomt-Code: (1) authenticator апп-ын 6 оронтой код — D1-A (түлхүүр
-//   Entry-д орохгүй) ажиллах эсэхийг батална; эсвэл (2) түлхүүрээс RFC 6238-аар
-//   (HMAC-SHA1, 30 сек, 6 орон) — Хавсралт 3 тодорхой болтол ТААМАГ, UAT л
+//   Entry-д орохгүй) ажиллах эсэхийг батална; эсвэл (2) түлхүүрээс SPEC
+//   Хавсралт 3-ын TimeBasedOneTimePasswordUtil-ээр: X-Golomt-Key = BASE32 нууц
+//   (16 тэмдэгт), HMAC-SHA1, 30 сек, 6 орон (RFC 6238 — Google Authenticator-тай ижил)
 // - Илгээхээс өмнө хүсэлтийн биеийг харуулж «ИЛГЭЭ» гэж бичихийг шаардана;
 //   хариу тодорхойгүй бол ДАХИН ИЛГЭЭХГҮЙ (D6) — хуулгаар шалгана
 // - Хүсэлтийн талбарын нэр (fromAccount, toAccount, amount …) SPEC-ээс
@@ -44,7 +45,7 @@ function ask(question: string, hidden = false): Promise<string> {
   );
 }
 
-// ── RFC 6238 TOTP (Хавсралт 3-ын ТААМАГ хувилбар) ─────────────────────────
+// ── TOTP — SPEC Хавсралт 3 (TimeBasedOneTimePasswordUtil.generateNumber) ────
 
 function base32Decode(input: string): Buffer | null {
   const clean = input.replace(/[\s=-]/g, "").toUpperCase();
@@ -141,9 +142,10 @@ async function main() {
   let code: string;
   if (mode === "2") {
     const rawKey = await ask("X-Golomt-Key: ", true);
-    const encoding = (await ask("Түлхүүрийн хэлбэр [a] ASCII текст  [b] base32 (a): ")) || "a";
-    const secret = encoding === "b" ? base32Decode(rawKey) : Buffer.from(rawKey, "utf8");
-    if (!secret || secret.length === 0) throw new Error("Түлхүүр base32 хэлбэр биш");
+    // Хавсралт 3: decodeBase32(X-Golomt-Key) — A–Z, 2–7 л (0, 1, 8, 9 үгүй).
+    const secret = base32Decode(rawKey);
+    if (!secret || secret.length === 0)
+      throw new Error("X-Golomt-Key base32 хэлбэр биш (A–Z, 2–7) — банкнаас ирсэн утгыг шалгана уу");
     code = totp(secret);
   } else {
     code = await ask("Authenticator-ын одоогийн 6 оронтой код: ", true);
@@ -178,7 +180,7 @@ async function main() {
   console.log(
     response.ok
       ? `\nrefCode: ${refCode} — UAT хуулгад гарсан эсэхийг шалгана уу.`
-      : "\nАмжилтгүй. Код буруу бол алгоритм (Хавсралт 3) өөр байж магадгүй; талбарын алдаа бол SPEC-ийн нэрээр засна."
+      : "\nАмжилтгүй. «Access code not matched» бол X-Golomt-Key ба компьютерийн цагийг (±30 сек) шалгана; талбарын алдаа бол SPEC-ийн нэрээр засна."
   );
 }
 
