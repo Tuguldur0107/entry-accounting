@@ -3,6 +3,7 @@ import {
   type CountSheetRow,
 } from "@/components/inventory/inventory-counting-view";
 import { getActiveOrg } from "@/lib/auth";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { balanceKey } from "@/lib/inventory/balances";
 import { loadInventoryBase } from "@/lib/inventory/load-data";
 import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
@@ -10,7 +11,7 @@ import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 type SearchParams = Promise<{ warehouse?: string; date?: string }>;
 
 function today() {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return ulaanbaatarToday();
 }
 
 export default async function InventoryCountingPage({

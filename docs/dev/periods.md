@@ -35,6 +35,11 @@ Knowledge: `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/02
     өдөр, ирээдүй → 1-ний өдөр). Форм/диалог/панелийн анхны утгад л —
     SSR-д рендерлэгддэг input-д БИШ (hydration). `new Date().toISOString()`-оор
     баримтын огноо ӨГӨХИЙГ ХОРИГЛОНО
+  - **«Өнөөдөр» = `ulaanbaatarToday()`** — server, client, AI tool-ын огноогүй
+    дуудлага (`date`/`asOf`/`closeDate` анхдагч) бүгд. `new Date().toISOString().slice(0, 10|7)`
+    нь УБ-ын 00:00–08:00 цагт өчигдөр (сарын 1-нд өмнөх САР), гар `Date.now() + 8 цаг`,
+    хөтчийн `toLocaleDateString("sv-SE")` ч ХОРИОТОЙ — `tests/ulaanbaatar-today.test.ts`
+    `lib/`, `app/`, `components/`, `custom/`-ийг статикаар шалгана (ontology-audit M3)
   - **Кассын нээлт** `cash_accounts.opening_date` (эхний үлдэгдэлтэй бол
     ЗААВАЛ) + `opening_rate` (валютын дансанд, хоосон бол албан ханш);
     нээлтийн журнал ТЭР огноогоор, валютын данс FC × ханшаар (`lib/cash/opening.ts`)

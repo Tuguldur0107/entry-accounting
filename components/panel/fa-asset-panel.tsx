@@ -6,6 +6,7 @@
 // ачаална. Ноорог картад "Бөглөж идэвхжүүлэх" → openFaAssetFormPanel.
 
 import { useEffect, useState, useTransition } from "react";
+import { currentDocumentDate } from "@/lib/periods/document-date";
 import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 
@@ -517,7 +518,7 @@ function DisposeBody({
 }) {
   const [isPending, startTransition] = useTransition();
   const [disposalType, setDisposalType] = useState<FaDisposalType>("scrap");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => currentDocumentDate());
   const [proceeds, setProceeds] = useState("");
   const [proceedsAccount, setProceedsAccount] = useState("");
   const [gainLossAccount, setGainLossAccount] = useState("");

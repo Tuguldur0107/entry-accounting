@@ -10,6 +10,7 @@
 // демо байгууллага бүхэлдээ устаж (cascade) цэвэр үлдэнэ.
 
 import { and, eq } from "drizzle-orm";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 
@@ -34,8 +35,8 @@ function toolError(resultText: string): string | null {
 }
 
 function monthCode(offset: number): string {
-  const now = new Date();
-  const d = new Date(Date.UTC(now.getFullYear(), now.getMonth() + offset, 1));
+  const [year, month] = ulaanbaatarToday().split("-").map(Number);
+  const d = new Date(Date.UTC(year, month - 1 + offset, 1));
   return d.toISOString().slice(0, 7);
 }
 

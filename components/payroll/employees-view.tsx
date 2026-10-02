@@ -1,6 +1,7 @@
 "use client";
 
 import { useNewParam } from "@/components/ui/use-new-param";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 
 // Ажилтны бүртгэл — цалингийн бодолтын суурь лавлах.
 // Мөр дээр ДАВХАР даралт = засварын dialog (нэг даралт нээхгүй — UI стандарт).
@@ -125,7 +126,7 @@ const fullNameOf = (row: EmployeeRow) =>
 function yearsWorkedOf(row: EmployeeRow): string {
   if (!row.hireDate) return "—";
   const start = Date.parse(`${row.hireDate}T00:00:00Z`);
-  const endDate = row.terminationDate ?? new Date().toISOString().slice(0, 10);
+  const endDate = row.terminationDate ?? ulaanbaatarToday();
   const end = Date.parse(`${endDate}T00:00:00Z`);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "—";
   const years = (end - start) / (365.25 * 86_400_000);

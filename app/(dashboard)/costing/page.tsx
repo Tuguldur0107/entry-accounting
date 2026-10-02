@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 
 import { CostingDashboard } from "@/components/costing/costing-dashboard";
 import { getActiveOrg } from "@/lib/auth";
@@ -19,7 +20,7 @@ import type { PendingValuationView } from "@/lib/inventory/types";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
 
 function today() {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return ulaanbaatarToday();
 }
 
 function mainAccountOf(accountNumber: string) {

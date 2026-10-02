@@ -65,7 +65,7 @@ import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { buildSegCode, fmtAccountDisplay } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
 import { openArapDocPanel, openCashNewPanel } from "@/lib/store/panel-store";
-import { currentDocumentDate } from "@/lib/periods/document-date";
+import { currentDocumentDate, ulaanbaatarToday } from "@/lib/periods/document-date";
 import { arapBalanceSummary, arapKpis } from "@/lib/arap/kpis";
 import { arapLedger, controlSide, documentTypeLabel, ledgerSign } from "@/lib/arap/document-kind";
 import { ArapBalanceHero } from "@/components/arap/arap-balance-hero";
@@ -167,7 +167,7 @@ const MODE_CONFIG: Record<
 };
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return ulaanbaatarToday();
 }
 
 export function ArApWorkspace({

@@ -13,6 +13,7 @@
 // loadCostingAccountSettings / itemAccountsFor-оос.
 
 import { stateChangedError } from "@/lib/state-guard";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, asc, eq, inArray, isNotNull, like, ne, notInArray, sql } from "drizzle-orm";
@@ -119,7 +120,7 @@ function round4(value: number): number {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return ulaanbaatarToday();
 }
 
 function assertDate(value: string, label: string) {

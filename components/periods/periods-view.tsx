@@ -7,6 +7,7 @@
 // бүртгэнэ.
 
 import { useMemo, useState, useTransition } from "react";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
@@ -73,7 +74,7 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
   const [busyCode, setBusyCode] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [newCode, setNewCode] = useState(() =>
-    new Date().toISOString().slice(0, 7)
+    ulaanbaatarToday().slice(0, 7)
   );
 
   function handleClose(row: PeriodRow) {
