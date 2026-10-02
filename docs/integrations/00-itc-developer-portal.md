@@ -5,10 +5,10 @@
 сурвалж, хаяг, нэвтрэлт, орчин, дүрмийг нэг дор хадгална. Холболтыг эхлэхээс
 ӨМНӨ энэ баримтыг уншина; шинэ мэдээлэл олдвол ЭНД нэмнэ (тархай баримт үүсгэхгүй).
 
-**Төлөв (2026-09-25):** судалгаа. eBarimt (PosAPI 3.0) хэсэг албан агуулгаар
-бүрэн тулгагдсан — `01-ebarimt-posapi-verification.md`. eTax API-ийн
-дэлгэрэнгүй спек (PDF) ба developer порталын eTax хуудас энэ орчноос
-уншигдаагүй (§7 — хандалтын хязгаар); Монголын сүлжээнээс татаж §4-ийг нөхнө.
+**Төлөв (2026-10-02):** eBarimt (PosAPI 3.0) хэсэг албан агуулгаар бүрэн тулгагдсан —
+`01-ebarimt-posapi-verification.md`. **eTax API-ийн албан спек татагдсан** —
+`etax/00-etax-api-spec.md` (developer портал proj-1787125468395, product owner Монголын
+сүлжээнээс), хэрэгжилт `docs/dev/etax.md`. Нээлттэй: бодит орчны client_id, NE-KEY олголт (§4.4).
 
 ---
 
@@ -162,12 +162,13 @@ lib/itc/
 │                    ITC_AUTH_BASE (Keycloak ч Монголын IP-д л — прокси; нууц header
 │                    зөвхөн EBARIMT_GATEWAY_HOSTS руу) — docs/deployment/mongolia-network-runbook.md
 │                    (Монголд байрлах прокси — §3), ITC_ENV, ITC_TPI_API_KEY (.env.example)
-├── etax/            ✅ 2026-10-02 СУУРЬ (docs/dev/etax.md): constants (ETAX_FORMS vat ТТ-03А, төлөв),
-│                    submission.ts (ЦЭВЭР: snapshot, шалгалт, төлөвийн машин), store.ts (DB,
-│                    Keycloak нэвтрэлт шалгах), types.ts. ⏳ client.ts + forms/ — v1.1 PDF-ээс (§4.4)
-lib/actions/etax.ts  ✅ холболт (admin), бэлтгэх (tax:write), тушаалт бүртгэх (tax:post)
-app/(dashboard)/tax/etax   ✅ Тохиргоо, энэ сарын илгээлт, түүх; тушаалт etax.mta.mn-ээс ГАРААР
-                           (ТЕГ-ийн дугаараар бүртгэнэ) — API спек ирмэгц автоматжина
+├── etax/            ✅ 2026-10-02 АЛБАН API (docs/dev/etax.md; спек docs/integrations/etax/00-etax-api-spec.md):
+│                    constants (ETAX_PATHS, client_id, төлвийн код), api.ts (ЦЭВЭР parser/body/нүдний холболт),
+│                    client.ts (Bearer + NE-KEY), submission.ts (snapshot, шалгалт, төлөвийн машин),
+│                    store.ts, tax-flow.ts (entId, загвар, saveFormData → submit → getHistory)
+lib/actions/etax.ts  ✅ холболт/байгууллага/холболт (admin), бэлтгэх + ТЕГ-д хадгалах + төлөв (tax:write),
+                     илгээх + гар бүртгэл (tax:post)
+app/(dashboard)/tax/etax   ✅ Тохиргоо, нүдний холболт, энэ сарын илгээлт (API + гар), түүх
 ```
 
 ⚠ `salesTotalDataBody`-ийн wire талбарын нэр (year/month/day/status/startCount/endCount)

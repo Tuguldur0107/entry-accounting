@@ -168,7 +168,10 @@ export function snapshotAmountsDiffer(a: EtaxVatSnapshot, b: EtaxVatSnapshot): b
 /** Төлөвийн машин — зөвхөн эдгээр ирмэг. */
 export const ETAX_TRANSITIONS: Readonly<Record<EtaxSubmissionStatus, readonly EtaxSubmissionStatus[]>> = {
   draft: ["ready", "cancelled"],
-  ready: ["submitted", "draft", "cancelled"],
+  // ready → saved: API-аар ТЕГ-д хадгалсан; ready → submitted: вэбээс гараар тушаасан (дугаартай)
+  ready: ["saved", "submitted", "draft", "cancelled"],
+  // saved → saved: дахин хадгалах (ижил reportNo); saved → draft: дүн өөрчлөгдвөл дахин бодох
+  saved: ["saved", "submitted", "draft", "cancelled"],
   submitted: ["accepted", "rejected"],
   accepted: [],
   rejected: [],
@@ -190,7 +193,7 @@ export function isPostingTransition(to: EtaxSubmissionStatus): boolean {
   return to === "submitted" || to === "accepted" || to === "rejected";
 }
 
-/** Тушаалтын бүртгэлд ТЕГ-ийн хүлээн авсан дугаар ЗААВАЛ (хоосон «тушаасан» төлөв ХОРИОТОЙ). */
+/** Тушаалтын бүртгэлд ТЕГ-ийн дугаар (reportNo эсвэл гараар) ЗААВАЛ (хоосон «тушаасан» төлөв ХОРИОТОЙ). */
 export function requiresTaxReference(to: EtaxSubmissionStatus): boolean {
   return to === "submitted";
 }

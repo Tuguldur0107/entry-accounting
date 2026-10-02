@@ -10,17 +10,18 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getVatReturnData } from "@/lib/actions/vat";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { db } from "@/lib/db";
-import { etaxConnections, etaxSubmissions, organizationProfile } from "@/lib/db/schema";
-import { ItcError, describeToken, isItcEnvironment } from "@/lib/itc/auth";
+import { etaxConnections, etaxFormMappings, etaxSubmissions, organizationProfile } from "@/lib/db/schema";
+import { ItcError, describeToken, isAccessTokenUsable, isItcEnvironment, type ItcToken } from "@/lib/itc/auth";
 import { fetchItcToken } from "@/lib/itc/client";
 import { ITC_ERRORS, type ItcEnvironment } from "@/lib/itc/constants";
 import { isPeriodCode } from "@/lib/periods/period";
 import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { stateChangedError } from "@/lib/state-guard";
 
+import { mappingProblems, normalizeCellMapping, type EtaxFormCell } from "./api";
+import { etaxClientId, etaxNeKey, type EtaxAuth } from "./client";
 import {
   ETAX_ACTIVE_STATUSES,
-  ETAX_CLIENT_ID_DEFAULT,
   ETAX_ERRORS,
   ETAX_STATUS_LABELS,
   ETAX_WEB_BASE,
@@ -39,7 +40,7 @@ import {
   type EtaxValidation,
   type EtaxVatSnapshot,
 } from "./submission";
-import type { EtaxConnectionView, EtaxPageData, EtaxSubmissionView } from "./types";
+import type { EtaxConnectionView, EtaxMappingView, EtaxPageData, EtaxSubmissionView } from "./types";
 
 type ConnectionRow = typeof etaxConnections.$inferSelect;
 type SubmissionRow = typeof etaxSubmissions.$inferSelect;
@@ -48,11 +49,6 @@ const ACTIVE = [...ETAX_ACTIVE_STATUSES];
 
 /** jsonb баганад бичихэд — схем `Record<string, unknown>` (interface-д index signature байхгүй). */
 const asJson = (snapshot: EtaxVatSnapshot): Record<string, unknown> => snapshot as unknown as Record<string, unknown>;
-
-/** Keycloak client_id — env `ETAX_CLIENT_ID` байвал тэр, үгүй бол вэбийн `etax-gui`. */
-export function etaxClientId(vars: Record<string, string | undefined> = process.env): string {
-  return vars.ETAX_CLIENT_ID?.trim() || ETAX_CLIENT_ID_DEFAULT;
-}
 
 export async function loadEtaxConnectionRow(orgId: string): Promise<ConnectionRow | null> {
   return (await db.query.etaxConnections.findFirst({ where: eq(etaxConnections.organizationId, orgId) })) ?? null;
@@ -73,6 +69,66 @@ export function toEtaxConnectionView(row: ConnectionRow): EtaxConnectionView {
     lastCheckOkAt: row.lastCheckOkAt?.toISOString() ?? null,
     lastCheckError: row.lastCheckError,
     webUrl: ETAX_WEB_BASE[environment],
+    entId: row.entId,
+    entName: row.entName,
+    entTin: row.entTin,
+    branchName: row.branchName,
+    lastOrgSyncAt: row.lastOrgSyncAt?.toISOString() ?? null,
+    apiReady: etaxNeKey() !== null,
+  };
+}
+
+/**
+ * eTax API сесс — нууц үг энд л тайлагдана; token дуусвал (30 сек skew) дахин нэвтэрнэ;
+ * NE-KEY = операторын env. Нууц утга алдаа/логт орохгүй.
+ */
+export function etaxSessionOf(row: ConnectionRow): { env: ItcEnvironment; entId: number | null; auth(): Promise<EtaxAuth> } {
+  if (!isItcEnvironment(row.environment)) throw new ItcError(ITC_ERRORS.config, "ITC орчин буруу — тохиргоогоо хадгална уу");
+  const env = row.environment;
+  const password = decryptSecret(row.passwordEnc);
+  if (!password) throw new ItcError(ITC_ERRORS.config, "Нууц үг тайлагдсангүй (AUTH_SECRET солигдсон?) — тохиргоонд дахин оруулна уу");
+  const neKey = etaxNeKey();
+  let current: ItcToken | null = null;
+  return {
+    env,
+    entId: row.entId,
+    async auth() {
+      if (!current || !isAccessTokenUsable(current)) current = await fetchItcToken(env, { username: row.username, password }, etaxClientId(env));
+      return { token: current, neKey };
+    },
+  };
+}
+
+/** Холболт + entId заавал (API дуудлагын өмнө). */
+export async function requireEtaxSession(orgId: string): Promise<{ row: ConnectionRow; env: ItcEnvironment; entId: number; auth(): Promise<EtaxAuth> }> {
+  const row = await loadEtaxConnectionRow(orgId);
+  if (!row) throw new EtaxError(ETAX_ERRORS.config, "Эхлээд eTax холболтоо хадгална уу (Татвар → eTax тайлан → тохиргоо)");
+  if (!row.isEnabled) throw new EtaxError(ETAX_ERRORS.config, "eTax холболт идэвхгүй — тохиргооноос асаана уу");
+  const session = etaxSessionOf(row);
+  if (session.entId == null) throw new EtaxError(ETAX_ERRORS.config, "ТЕГ-ийн байгууллагын дугаар (entId) татагдаагүй — тохиргоонд «Байгууллага татах» дарна уу");
+  return { row, env: session.env, entId: session.entId, auth: session.auth };
+}
+
+type MappingRow = typeof etaxFormMappings.$inferSelect;
+
+export async function loadEtaxMappingRow(orgId: string, form = "vat"): Promise<MappingRow | null> {
+  return (await db.query.etaxFormMappings.findFirst({ where: and(eq(etaxFormMappings.organizationId, orgId), eq(etaxFormMappings.form, form)) })) ?? null;
+}
+
+export function toEtaxMappingView(row: MappingRow): EtaxMappingView {
+  const templateCells = (row.templateCells ?? []) as unknown as EtaxFormCell[];
+  const cells = normalizeCellMapping(row.cells);
+  return {
+    form: isEtaxFormKey(row.form) ? row.form : "vat",
+    formNo: row.formNo,
+    taxTypeId: row.taxTypeId,
+    taxTypeName: row.taxTypeName,
+    reportCode: row.reportCode,
+    templateVersion: row.templateVersion,
+    cells,
+    templateCells,
+    templateFetchedAt: row.templateFetchedAt?.toISOString() ?? null,
+    problems: mappingProblems(cells, templateCells.length ? templateCells : null),
   };
 }
 
@@ -88,7 +144,7 @@ export async function checkEtaxConnection(orgId: string): Promise<{ expiresAt: s
   if (!password) throw new ItcError(ITC_ERRORS.config, "Нууц үг тайлагдсангүй (AUTH_SECRET солигдсон?) — тохиргоонд дахин оруулна уу");
   const now = new Date();
   try {
-    const token = await fetchItcToken(row.environment, { username: row.username, password }, etaxClientId());
+    const token = await fetchItcToken(row.environment, { username: row.username, password }, etaxClientId(row.environment));
     const described = describeToken(token);
     await db
       .update(etaxConnections)
@@ -129,6 +185,10 @@ export function toEtaxSubmissionView(row: SubmissionRow): EtaxSubmissionView {
     snapshot: row.snapshot as unknown as EtaxVatSnapshot,
     validation: (row.validation as EtaxValidation | null) ?? null,
     taxReference: row.taxReference,
+    reportNo: row.reportNo,
+    taxStatusId: row.taxStatusId,
+    taxStatusName: row.taxStatusName,
+    taxSyncedAt: row.taxSyncedAt?.toISOString() ?? null,
     submittedAt: row.submittedAt?.toISOString() ?? null,
     resultNote: row.resultNote,
     createdAt: row.createdAt.toISOString(),
@@ -176,7 +236,7 @@ async function currentVatSnapshot(orgId: string, periodCode: string, now: Date):
 export async function loadEtaxPageData(orgId: string, periodCode: string): Promise<EtaxPageData> {
   if (!isPeriodCode(periodCode)) throw new EtaxError(ETAX_ERRORS.validation, "Тайлант үеийн код буруу");
   const now = new Date();
-  const [connection, active, history, live] = await Promise.all([
+  const [connection, active, history, live, mapping] = await Promise.all([
     loadEtaxConnectionRow(orgId),
     loadActiveVatSubmission(orgId, periodCode),
     db.query.etaxSubmissions.findMany({
@@ -185,6 +245,7 @@ export async function loadEtaxPageData(orgId: string, periodCode: string): Promi
       limit: 50,
     }),
     currentVatSnapshot(orgId, periodCode, now),
+    loadEtaxMappingRow(orgId),
   ]);
   const current = active ? toEtaxSubmissionView(active) : null;
   return {
@@ -195,6 +256,7 @@ export async function loadEtaxPageData(orgId: string, periodCode: string): Promi
     history: history.map(toEtaxSubmissionView),
     isVatPayer: live.isVatPayer,
     live: { ...live.snapshot.amounts, deadline: live.snapshot.deadline },
+    mapping: mapping ? toEtaxMappingView(mapping) : null,
   };
 }
 
@@ -226,7 +288,8 @@ export async function prepareVatSubmission(
     );
 
   if (existing) {
-    const revertedToDraft = existing.status === "ready" && snapshotAmountsDiffer(existing.snapshot as unknown as EtaxVatSnapshot, snapshot);
+    const revertedToDraft =
+      (existing.status === "ready" || existing.status === "saved") && snapshotAmountsDiffer(existing.snapshot as unknown as EtaxVatSnapshot, snapshot);
     const [updated] = await db
       .update(etaxSubmissions)
       .set({
@@ -285,7 +348,7 @@ export async function transitionEtaxSubmission(
       throw new EtaxError(ETAX_ERRORS.validation, `Шалгалт алдаатай — ${validation.errors.join("; ")}`);
   }
   if (requiresTaxReference(input.to)) {
-    const reference = normalizeTaxReference(input.taxReference);
+    const reference = normalizeTaxReference(input.taxReference) ?? (row.reportNo != null ? String(row.reportNo) : null);
     if (!reference) throw new EtaxError(ETAX_ERRORS.validation, "ТЕГ-ийн хүлээн авсан дугаарыг оруулна уу (eTax → Тайлангийн түүх)");
     patch.taxReference = reference;
     patch.submittedAt = now;

@@ -12,7 +12,7 @@ import { FormField, SwitchField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { FilterChips } from "@/components/ui/tabs";
-import { deleteEtaxConnection, saveEtaxConnection, testEtaxConnection } from "@/lib/actions/etax";
+import { deleteEtaxConnection, saveEtaxConnection, syncEtaxOrganization, testEtaxConnection } from "@/lib/actions/etax";
 import { fmtDateTimeUb } from "@/lib/format/datetime";
 import type { EtaxConnectionView } from "@/lib/itc/etax/types";
 import { feedback } from "@/lib/ui/feedback";
@@ -48,6 +48,15 @@ export function EtaxConnectionSettings({ connection }: { connection: EtaxConnect
       const { error, expiresAt } = await testEtaxConnection();
       if (error || !expiresAt) feedback.error(error ?? "eTax нэвтрэлт амжилтгүй");
       else feedback.saved(`ITC нэвтрэлт амжилттай — token ${fmtDateTimeUb(expiresAt) ?? ""} хүртэл`);
+      router.refresh();
+    });
+  }
+
+  function syncOrg() {
+    startTransition(async () => {
+      const { error, connection: synced, orgCount } = await syncEtaxOrganization();
+      if (error || !synced) feedback.error(error ?? "Байгууллага татагдсангүй");
+      else feedback.saved(`ТЕГ-ийн байгууллага: ${synced.entName ?? "—"} (entId ${synced.entId}; ${orgCount} байгууллагаас)`);
       router.refresh();
     });
   }
@@ -117,10 +126,28 @@ export function EtaxConnectionSettings({ connection }: { connection: EtaxConnect
       </div>
 
       {connection ? (
-        <div className="text-xs text-[var(--ea-text-3)]">
-          Сүүлийн шалгалт: {fmtDateTimeUb(connection.lastCheckAt) ?? "—"}
-          {connection.lastCheckError ? (
-            <span className="ml-2 text-[var(--ea-danger-fg)]">{connection.lastCheckError}</span>
+        <div className="space-y-1 text-xs text-[var(--ea-text-3)]">
+          <div>
+            Сүүлийн шалгалт: {fmtDateTimeUb(connection.lastCheckAt) ?? "—"}
+            {connection.lastCheckError ? (
+              <span className="ml-2 text-[var(--ea-danger-fg)]">{connection.lastCheckError}</span>
+            ) : null}
+          </div>
+          <div>
+            ТЕГ-ийн байгууллага:{" "}
+            {connection.entId != null ? (
+              <>
+                {connection.entName ?? "—"} · ТТД {connection.entTin ?? "—"} · {connection.branchName ?? "—"} · бүртгэлийн № {connection.entId} · татсан{" "}
+                {fmtDateTimeUb(connection.lastOrgSyncAt) ?? "—"}
+              </>
+            ) : (
+              <span className="text-[var(--ea-warning-fg)]">татаагүй — «Байгууллага татах» дарна (API ажиллахад заавал)</span>
+            )}
+          </div>
+          {!connection.apiReady ? (
+            <div className="text-[var(--ea-warning-fg)]">
+              eTax API-ийн операторын түлхүүр (NE-KEY) серверт тохируулагдаагүй — Entry багт хандана уу. Тушаалтыг etax.mta.mn-ээс гараар бүртгэх хэвээр боломжтой.
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -131,6 +158,9 @@ export function EtaxConnectionSettings({ connection }: { connection: EtaxConnect
         </Button>
         <Button size="sm" variant="outline" onClick={check} disabled={isPending || !connection}>
           Нэвтрэлт шалгах
+        </Button>
+        <Button size="sm" variant="outline" onClick={syncOrg} disabled={isPending || !connection || !connection.apiReady}>
+          Байгууллага татах
         </Button>
         {connection ? (
           <Button size="sm" variant="ghost" onClick={remove} disabled={isPending}>

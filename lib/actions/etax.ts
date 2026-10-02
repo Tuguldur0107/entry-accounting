@@ -1,9 +1,9 @@
 "use server";
 
-// eTax («Цахим татварын систем») — docs/dev/etax.md. Холболт хадгалах/шалгах/устгах
-// admin+; тайлан бэлтгэх (ноорог, бэлэн, хүчингүй) `tax:write`; ТЕГ-д тушаасан /
-// хүлээн авсан / буцаасан гэж бүртгэх нь батлах шинжтэй — `tax:post`. ТЕГ рүү юу ч
-// илгээхгүй (албан API спек ирээгүй). Нууцын УТГА хариу/аудитад ХЭЗЭЭ Ч орохгүй.
+// eTax («Цахим татварын систем») — docs/dev/etax.md. Холболт/байгууллага/маягтын холболт
+// admin+; тайлан бэлтгэх, ТЕГ-д ХАДГАЛАХ (илгээхгүй), төлөв шинэчлэх `tax:write`; ТЕГ-д
+// ИЛГЭЭХ ба тушаасан/хүлээн авсан/буцаасан гэж бүртгэх нь батлах шинжтэй — `tax:post`.
+// API: АЛБАН спек docs/integrations/etax/00-etax-api-spec.md. Нууцын УТГА хариу/аудитад ХЭЗЭЭ Ч орохгүй.
 
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -24,7 +24,16 @@ import {
   transitionEtaxSubmission,
 } from "@/lib/itc/etax/store";
 import { isPostingTransition } from "@/lib/itc/etax/submission";
-import type { EtaxConnectionView, EtaxSubmissionView } from "@/lib/itc/etax/types";
+import {
+  fetchEtaxTemplate,
+  loadEtaxReportChoices,
+  refreshTaxStatus,
+  saveEtaxMapping,
+  saveSubmissionToTax,
+  submitSubmissionToTax,
+  syncEtaxOrg,
+} from "@/lib/itc/etax/tax-flow";
+import type { EtaxConnectionView, EtaxMappingView, EtaxReportChoice, EtaxSubmissionView } from "@/lib/itc/etax/types";
 
 const cleanText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
@@ -199,5 +208,143 @@ export async function setEtaxSubmissionStatus(input: {
     return { submission };
   } catch (caught) {
     return actionError("setEtaxSubmissionStatus", caught, "eTax илгээлтийн төлөв өөрчлөгдсөнгүй");
+  }
+}
+
+// ── eTax API (албан спек §3) ────────────────────────────────────────────────
+
+/** §3.2 — ITC хэрэглэгчийн байгууллагуудаас регистрээр сонгож entId хадгална (admin+). */
+export async function syncEtaxOrganization(): Promise<ActionResult<{ connection: EtaxConnectionView; orgCount: number }>> {
+  try {
+    const { orgId, userId } = await requireRole("admin");
+    const result = await syncEtaxOrg(orgId);
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "sync",
+      entityType: "etax_connection",
+      entityId: orgId,
+      summary: `eTax байгууллага татагдав — entId ${result.connection.entId}, ${result.connection.entName ?? ""} (${result.orgCount} байгууллагаас)`,
+    });
+    revalidate();
+    return result;
+  } catch (caught) {
+    return actionError("syncEtaxOrganization", caught, "ТЕГ-ээс байгууллагын мэдээлэл татаж чадсангүй");
+  }
+}
+
+/** §3.3 — тушаах жагсаалтын татварын төрөл × маягт (холболтын сонголт, admin+). */
+export async function getEtaxReportChoices(): Promise<ActionResult<{ choices: EtaxReportChoice[] }>> {
+  try {
+    const { orgId } = await requireRole("admin");
+    return { choices: await loadEtaxReportChoices(orgId) };
+  } catch (caught) {
+    return actionError("getEtaxReportChoices", caught, "ТЕГ-ийн тушаах жагсаалтыг татаж чадсангүй");
+  }
+}
+
+/** §3.7 — маягтын загвар татаж нүдний жагсаалтыг холболтод хадгална (admin+). */
+export async function fetchEtaxFormTemplate(input: {
+  taxTypeId: number;
+  formNo: number;
+  taxTypeName?: string | null;
+  periodCode: string;
+}): Promise<ActionResult<{ mapping: EtaxMappingView }>> {
+  try {
+    const { orgId, userId } = await requireRole("admin");
+    const mapping = await fetchEtaxTemplate(orgId, userId, input);
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "update",
+      entityType: "etax_form_mapping",
+      entityId: orgId,
+      summary: `eTax маягтын загвар татагдав — ${mapping.reportCode ?? mapping.formNo} (${mapping.taxTypeName ?? mapping.taxTypeId}), ${mapping.templateCells.length} нүд`,
+    });
+    revalidate();
+    return { mapping };
+  } catch (caught) {
+    return actionError("fetchEtaxFormTemplate", caught, "Маягтын загварыг ТЕГ-ээс татаж чадсангүй");
+  }
+}
+
+/** Нүдний холболт хадгалах (admin+). */
+export async function saveEtaxFormMapping(input: { cells: Record<string, string | null> }): Promise<ActionResult<{ mapping: EtaxMappingView }>> {
+  try {
+    const { orgId, userId } = await requireRole("admin");
+    const mapping = await saveEtaxMapping(orgId, userId, input.cells);
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "update",
+      entityType: "etax_form_mapping",
+      entityId: orgId,
+      summary: `eTax маягтын нүдний холболт хадгалагдав — ${Object.values(mapping.cells).filter(Boolean).length} талбар${mapping.problems.length ? `; дутуу ${mapping.problems.length}` : ""}`,
+    });
+    revalidate();
+    return { mapping };
+  } catch (caught) {
+    return actionError("saveEtaxFormMapping", caught, "Маягтын холболт хадгалагдсангүй");
+  }
+}
+
+/** §3.9 — ТЕГ-д ХАДГАЛАХ (илгээхгүй, reportNo авна) — tax:write. */
+export async function saveEtaxSubmissionToTax(input: { id: string }): Promise<ActionResult<{ submission: EtaxSubmissionView; message: string }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction("tax", "write");
+    const result = await saveSubmissionToTax(orgId, userId, cleanText(input.id));
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "update",
+      entityType: "etax_submission",
+      entityId: result.submission.id,
+      summary: `${ETAX_FORMS[result.submission.form].label} ${result.submission.periodCode} ТЕГ-д хадгалагдав — reportNo ${result.submission.reportNo}`,
+    });
+    revalidate();
+    return result;
+  } catch (caught) {
+    return actionError("saveEtaxSubmissionToTax", caught, "ТЕГ-д хадгалж чадсангүй");
+  }
+}
+
+/** §3.10 — ТЕГ-д ИЛГЭЭХ (батлах шинжтэй) — tax:post. */
+export async function submitEtaxSubmissionToTax(input: { id: string }): Promise<ActionResult<{ submission: EtaxSubmissionView; message: string }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction("tax", "post");
+    const result = await submitSubmissionToTax(orgId, userId, cleanText(input.id));
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "post",
+      entityType: "etax_submission",
+      entityId: result.submission.id,
+      summary: `${ETAX_FORMS[result.submission.form].label} ${result.submission.periodCode} ТЕГ-д илгээгдэв — reportNo ${result.submission.reportNo}${result.message ? `; «${result.message}»` : ""}`,
+    });
+    revalidate();
+    return result;
+  } catch (caught) {
+    return actionError("submitEtaxSubmissionToTax", caught, "ТЕГ-д илгээж чадсангүй");
+  }
+}
+
+/** §3.4 — ТЕГ-ийн төлөв шинэчлэх (хүлээн авсан / буцаасан) — tax:write. */
+export async function refreshEtaxSubmissionStatus(input: { id: string }): Promise<ActionResult<{ submission: EtaxSubmissionView; found: boolean }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction("tax", "write");
+    const result = await refreshTaxStatus(orgId, cleanText(input.id));
+    if (result.found)
+      await logAuditEvent({
+        userId,
+        organizationId: orgId,
+        action: "sync",
+        entityType: "etax_submission",
+        entityId: result.submission.id,
+        summary: `${ETAX_FORMS[result.submission.form].label} ${result.submission.periodCode} ТЕГ-ийн төлөв: ${result.submission.taxStatusName ?? result.submission.taxStatusId ?? "—"} → «${ETAX_STATUS_LABELS[result.submission.status]}»`,
+      });
+    revalidate();
+    return result;
+  } catch (caught) {
+    return actionError("refreshEtaxSubmissionStatus", caught, "ТЕГ-ийн төлөв шинэчлэгдсэнгүй");
   }
 }

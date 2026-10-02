@@ -78,6 +78,7 @@ export const EBARIMT_TAX_CHECK_TONES: Record<string, StatusTone> = {
 export const ETAX_STATUS_TONES: Record<string, StatusTone> = {
   draft: "muted",
   ready: "warning",
+  saved: "warning",
   submitted: "success",
   accepted: "success",
   rejected: "danger",
