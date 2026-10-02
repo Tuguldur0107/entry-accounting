@@ -13,6 +13,7 @@ import {
   passwordGrantBody,
   refreshGrantBody,
 } from "../lib/itc/auth";
+import { itcAuthTokenUrl, itcCustomsBase, itcProxyEnvName, itcProxyOverride, itcTpiBase } from "../lib/itc/client";
 import { ITC_CLIENT_IDS, ITC_TOKEN_SKEW_MS } from "../lib/itc/constants";
 
 // ITC Keycloak нэвтрэлтийн ЦЭВЭР хэсэг (docs/integrations/00 §2): URL, grant body,
@@ -30,6 +31,21 @@ test("itcTokenUrl — орчин бүрийн realm-тэй Keycloak зам", () 
   assert.throws(() => itcTokenUrl("production", "ftp://x"), /ITC_AUTH_BASE/);
   assert.equal(isItcEnvironment("staging"), true);
   assert.equal(isItcEnvironment("prod"), false);
+});
+
+test("прокси override орчин бүрд ТУСДАА — бодитын прокси staging-д хэрэглэгдэхгүй (realm/хост зөрж 404)", () => {
+  const vars = { ITC_AUTH_BASE: "https://ebarimt.chipmo.mn/itc-auth", ITC_TPI_BASE: "https://ebarimt.chipmo.mn/tpi", ITC_CUSTOMS_BASE: "https://ebarimt.chipmo.mn/customs" };
+  assert.equal(itcProxyEnvName("ITC_AUTH_BASE", "staging"), "ITC_AUTH_BASE_STAGING");
+  assert.equal(itcProxyOverride("ITC_AUTH_BASE", "production", vars), "https://ebarimt.chipmo.mn/itc-auth");
+  assert.equal(itcProxyOverride("ITC_AUTH_BASE", "staging", vars), undefined);
+  assert.equal(itcProxyOverride("ITC_TPI_BASE", "staging", { ...vars, ITC_TPI_BASE_STAGING: "https://ebarimt.chipmo.mn/tpi-st" }), "https://ebarimt.chipmo.mn/tpi-st");
+  // Гаалийн хост хоёр орчинд ижил — staging нь ITC_CUSTOMS_BASE-ийг ч хэрэглэнэ.
+  assert.equal(itcProxyOverride("ITC_CUSTOMS_BASE", "staging", vars), "https://ebarimt.chipmo.mn/customs");
+  assert.equal(itcTpiBase("staging", itcProxyOverride("ITC_TPI_BASE", "staging", vars)), "https://st-api.ebarimt.mn");
+  assert.equal(itcTpiBase("production", itcProxyOverride("ITC_TPI_BASE", "production", vars)), "https://ebarimt.chipmo.mn/tpi");
+  assert.equal(itcAuthTokenUrl("staging", itcProxyOverride("ITC_AUTH_BASE", "staging", vars)), "https://st.auth.itc.gov.mn/auth/realms/Staging/protocol/openid-connect/token");
+  assert.equal(itcCustomsBase("production", itcProxyOverride("ITC_CUSTOMS_BASE", "production", vars)), "https://ebarimt.chipmo.mn/customs");
+  assert.throws(() => itcTpiBase("staging", "ftp://x"), /ITC_TPI_BASE_STAGING/);
 });
 
 test("passwordGrantBody — албан form параметрүүд, хоосон утга шиднэ", () => {

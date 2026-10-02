@@ -76,6 +76,37 @@ nginx-д зам нэмэхэд гаднаас ил гарахгүй.
         proxy_read_timeout 15s;
         access_log off;
     }
+    # Гаалийн мэдүүлэг (data.ebarimt.mn — мөн зөвхөн Монголын IP)
+    location /customs/ {
+        limit_except POST { deny all; }
+        proxy_pass https://data.ebarimt.mn/;
+        proxy_set_header Host data.ebarimt.mn;
+        proxy_set_header X-Entry-Gateway-Key "";
+        proxy_ssl_server_name on;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 70s;
+        client_max_body_size 1m;
+    }
+    # ТУРШИЛТЫН орчин (ITC-ийн тестийн хэрэглэгчээр турших үед л) — бодитынхоос ТУСДАА зам
+    location /tpi-st/ {
+        proxy_pass https://st-api.ebarimt.mn/;
+        proxy_set_header Host st-api.ebarimt.mn;
+        proxy_set_header X-Entry-Gateway-Key "";
+        proxy_ssl_server_name on;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 70s;
+        client_max_body_size 1m;
+    }
+    location /itc-auth-st/ {
+        limit_except GET POST { deny all; }
+        proxy_pass https://st.auth.itc.gov.mn/;
+        proxy_set_header Host st.auth.itc.gov.mn;
+        proxy_set_header X-Entry-Gateway-Key "";
+        proxy_ssl_server_name on;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 15s;
+        access_log off;
+    }
 
    Тайлбар: proxy_pass-ын төгсгөлийн "/" заавал. X-Entry-Gateway-Key "" нь манай
    хамгаалалтын header-ийг ТЕГ рүү дамжуулахгүй. /itc-auth/ нэвтрэлтийн хүсэлт
@@ -105,7 +136,10 @@ Railway `entry-accounting`-д:
 | `EBARIMT_PUBLIC_API_BASE` | `https://ebarimt.chipmo.mn/teg` | Касс/тохиргоонд ААН-ийн 7 оронтой регистр → ТТД + нэр (`lib/ebarimt/lookup.ts`) |
 | `ITC_TPI_BASE` | `https://ebarimt.chipmo.mn/tpi` | TPI (`lib/itc/client.ts`) — X-API-KEY ирсний дараа |
 | `ITC_AUTH_BASE` | `https://ebarimt.chipmo.mn/itc-auth` | ITC Keycloak token (`itcTokenUrl`) |
-| `ITC_CUSTOMS_BASE` | (шаардлагатай бол) прокси → `https://data.ebarimt.mn` | Гаалийн мэдүүлэг (`tpiCustomsDeclarations`) — `ITC_CUSTOMS_API_KEY` ирсний дараа |
+| `ITC_TPI_API_KEY` | ХСН-д ТЕГ-ээс олгосон операторын X-API-KEY | TPI борлуулалт/худалдан авалт — байхгүй бол татлага ил `[ITC_CONFIG]` алдаатай |
+| `ITC_CUSTOMS_BASE` | `https://ebarimt.chipmo.mn/customs` | Гаалийн мэдүүлэг (`tpiCustomsDeclarations`) — data.ebarimt.mn зөвхөн Монголын IP |
+| `ITC_CUSTOMS_API_KEY` | Гаалийн ерөнхий газрын МТ газраас албан бичгээр авсан X-API-KEY | Гаалийн татлага — байхгүй бол бүхэлдээ алгасна |
+| `ITC_TPI_BASE_STAGING`, `ITC_AUTH_BASE_STAGING` | `https://ebarimt.chipmo.mn/tpi-st`, `…/itc-auth-st` | ЗӨВХӨН холболтыг «Туршилтын орчин» (ITC-ийн тестийн хэрэглэгч) болгож турших үед; бодитын прокси staging-д хэрэглэгдэхгүй (realm/хост зөрж 404) |
 
 `EBARIMT_GATEWAY_HOSTS=ebarimt.chipmo.mn` аль хэдийн тохируулагдсан тул нууц
 header эдгээр хүсэлтэд автоматаар нэмэгдэнэ (албан ITC хост руу ХЭЗЭЭ Ч).
