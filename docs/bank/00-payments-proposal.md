@@ -179,6 +179,16 @@ REST-д ч гаргахгүй. AI шинэ хүлээн авагчийн дан�
    заавал биш ч гэсэн IP allowlist-ээр нэмэлт хязгаарлаж болох уу?
 8. ACCCHK банк хоорондын шалгалт: хүсэлтийн `bankCode` хэлбэр (`04` /
    `040000` / BIC), `accountId`-д IBAN уу, данс уу (UAT-д `vrfctn:false`).
+9. **UAT 406 (2026-10-02):** CGWTXNADD — `Access code not matched. Please, check
+   request Golomt Service Id and Golomt Code` (debug: `X-Golomt-Code and request
+   path are not matched`). Хүсэлт Spring-ийн талбарын шалгалтыг давсан (400 биш),
+   код Хавсралт 3-аар. X-Golomt-Key ямар сервис / замд олгогдсон бэ, код
+   `X-Golomt-Service`-ээр уу, URI-аар (query-тэй эсэх) уу тулгагддаг вэ?
+   SPEC 1.5.9 B хэсэг (8.17–10.8, Хавсралт 1–4) CGWTXNADD-ийг агуулаагүй —
+   A хэсгийг хүлээж байна. B-д X-Golomt-Code header-тэй сервисүүд (PPCDORD,
+   CDTXNVD, CGWCDVD, MRCHSTMT, LSTTRML) ижил «SecretKey-ээр 6 оронтой» тайлбартай.
+   Скрипт `--check-code` горимоор кодыг authenticator-тай харьцуулж түлхүүрийг
+   тусгаарлаж шалгана, код «ИЛГЭЭ»-ийн ДАРАА бодогдоно.
 
 ## 9. Шийдвэрийн дараа шинэчлэх газар
 
