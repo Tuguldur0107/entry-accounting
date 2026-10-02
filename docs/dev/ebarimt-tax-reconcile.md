@@ -17,7 +17,7 @@ Entry нэхэмжлэх (`*_INVOICE`) ба төлөлт бүрийг `invoiceId
 ## 2. Урсгал
 
 ```
-Тохиргоо (админ): POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт (TPI)»
+Тохиргоо (админ): Татвар → «ТЕГ-ийн холболт» (`/tax/ebarimt`; 2026-10-02 хүртэл POS тохиргоо → eBarimt)
   орчин, ITC нэвтрэх нэр, нууц үг → ebarimt_tpi_connections (шифртэй); X-API-KEY = серверийн env
       │
 ticker (10 мин тутам шалгана) → isTaxSyncDue → syncEbarimtTaxReceipts
@@ -108,7 +108,7 @@ lib/ebarimt/tax-sync.ts        DB: холболт, sessionOf (нууц тайл�
                                testTpiConnection, loadEbarimtTaxChecks, runDueEbarimtTaxSyncs
 lib/ebarimt/ticker.ts          10 мин тутам maybeRunTaxSync (тикийг блоклохгүй, давхар эхлэхгүй)
 lib/actions/ebarimt-tpi.ts     get/save/test/sync/delete + getEbarimtTaxChecks (ActionResult)
-components/pos/ebarimt-tpi-settings.tsx        тохиргоо (POS тохиргоо → eBarimt)
+components/pos/ebarimt-tpi-settings.tsx        тохиргоо (Татвар → ТЕГ-ийн холболт `/tax/ebarimt`; 3 татлагын төлөв карт тэнд)
 components/ebarimt/ebarimt-tax-check-view.tsx  Авлага → eBarimt → «ТЕГ-ийн тулгалт» (?view=tax)
 components/arap/arap-ebarimt-field.tsx         панельд ТЕГ-ийн үлдэгдэл + шалтгаан
 lib/notifications/attention.ts  ebarimt-tax-mismatch, ebarimt-tax-sync-failed (48 цаг)

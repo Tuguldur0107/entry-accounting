@@ -1,4 +1,4 @@
-// eBarimt-д илгээсэн баримтуудын НЭГДСЭН жагсаалт (`/tax/ebarimt`,
+// eBarimt-д илгээсэн баримтуудын НЭГДСЭН жагсаалт (Авлага → eBarimt · борлуулалт,
 // `/receivables/ebarimt`) — ЦЭВЭР төрөл, нийлбэр. `@/lib/db` импортгүй (client
 // component импортлодог — CLAUDE.md «Client/server хил»). DB давхарга: list-data.ts.
 

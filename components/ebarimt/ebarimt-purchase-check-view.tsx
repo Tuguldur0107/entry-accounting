@@ -217,8 +217,8 @@ export function EbarimtPurchaseCheckView({
       <EmptyState
         icon="reconciliation"
         title="ТЕГ-ийн TPI холболт тохируулаагүй"
-        description="Нийлүүлэгчдээс танай регистр дээр олгогдсон eBarimt-ийг ТЕГ-ээс автоматаар татаж өглөгийн нэхэмжлэх, авсан НӨАТ-тай тулгахын тулд админ POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт»-д ITC нэвтрэлтээ холбоно."
-        actions={[{ label: "TPI холболт", href: "/inventory/pos-settings?section=ebarimt", icon: "settings", primary: true }]}
+        description="Нийлүүлэгчдээс танай регистр дээр олгогдсон eBarimt-ийг ТЕГ-ээс автоматаар татаж өглөгийн нэхэмжлэх, авсан НӨАТ-тай тулгахын тулд админ Татвар → «ТЕГ-ийн холболт»-д ITC нэвтрэлтээ холбоно."
+        actions={[{ label: "ТЕГ-ийн холболт", href: "/tax/ebarimt", icon: "settings", primary: true }]}
       />
     );
   }

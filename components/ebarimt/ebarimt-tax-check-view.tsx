@@ -132,8 +132,8 @@ export function EbarimtTaxCheckView({
       <EmptyState
         icon="document"
         title="ТЕГ-ийн TPI холболт тохируулаагүй"
-        description="ТЕГ-ийн порталын нэхэмжлэхийн «Үлдэгдэл»-ийг Entry-ийн авлагатай автоматаар тулгахын тулд админ POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт»-д ITC нэвтрэлтээ холбоно."
-        actions={[{ label: "TPI холболт", href: "/inventory/pos-settings?section=ebarimt", icon: "settings" }]}
+        description="ТЕГ-ийн порталын нэхэмжлэхийн «Үлдэгдэл»-ийг Entry-ийн авлагатай автоматаар тулгахын тулд админ Татвар → «ТЕГ-ийн холболт»-д ITC нэвтрэлтээ холбоно."
+        actions={[{ label: "ТЕГ-ийн холболт", href: "/tax/ebarimt", icon: "settings" }]}
       />
     );
   }

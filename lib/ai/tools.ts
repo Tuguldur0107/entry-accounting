@@ -12904,7 +12904,7 @@ async function runGetEbarimtTaxReconciliation(args: { onlyProblems?: boolean; li
   if (!data.connection)
     return {
       resultText:
-        "ТЕГ-ийн TPI холболт тохируулаагүй — админ вэбээс POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт»-д байгууллагын ITC нэвтрэлт (+ ITC-ийн X-API-KEY) холбоно. Холбосны дараа нэхэмжлэх ба төлбөрийн баримт өдөр бүр татагдаж тулгагдана.",
+        "ТЕГ-ийн TPI холболт тохируулаагүй — админ вэбээс Татвар → «ТЕГ-ийн холболт»-д байгууллагын ITC нэвтрэлтээ холбоно (X-API-KEY = Entry-ийн операторын серверийн түлхүүр). Холбосны дараа нэхэмжлэх ба төлбөрийн баримт өдөр бүр татагдаж тулгагдана.",
     };
   const onlyProblems = args.onlyProblems !== false;
   const limit = Math.min(Math.max(Math.trunc(Number(args.limit) || 50), 1), 200);
@@ -12921,7 +12921,7 @@ async function runGetEbarimtTaxReconciliation(args: { onlyProblems?: boolean; li
         (row) =>
           `- ${row.documentNo} (${row.invoiceDate}, ${row.counterpartyName ?? "—"}, ${row.source === "pos" ? "POS «Зээлээр»" : "АР"}): ${EBARIMT_TAX_CHECK_LABELS[row.check]} — ТЕГ үлдэгдэл ${money(row.taxRemaining)} (нийт ${money(row.taxTotal)}, төлсөн ${money(row.taxPaid)}) · Entry үлдэгдэл ${money(row.entryRemaining)} · Entry ТЕГ-д мэдэгдсэн ${money(row.reportedPaid)} · ДДТД ${row.ddtd}${row.check === "ok" ? "" : ` · ${EBARIMT_TAX_CHECK_HINTS[row.check]}`}`
       ),
-    ...(selected.length > limit ? [`… дахиад ${selected.length - limit} мөр (вэб: Авлага → eBarimt → ТЕГ-ийн тулгалт)`] : []),
+    ...(selected.length > limit ? [`… дахиад ${selected.length - limit} мөр (вэб: Авлага → eBarimt · борлуулалт → ТЕГ-ийн тулгалт)`] : []),
   ];
   return { resultText: lines.join("\n") };
 }
@@ -12932,7 +12932,7 @@ async function runGetEbarimtPurchaseReconciliation(args: { onlyProblems?: boolea
   if (!data.connection)
     return {
       resultText:
-        "ТЕГ-ийн TPI холболт тохируулаагүй — админ вэбээс POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт»-д байгууллагын ITC нэвтрэлт (+ X-API-KEY) холбоно. Худалдан авалтыг байгууллагын регистрээр татна.",
+        "ТЕГ-ийн TPI холболт тохируулаагүй — админ вэбээс Татвар → «ТЕГ-ийн холболт»-д байгууллагын ITC нэвтрэлтээ холбоно. Худалдан авалтыг байгууллагын регистрээр татна.",
     };
   if (!data.syncFrom)
     return {
@@ -12956,7 +12956,7 @@ async function runGetEbarimtPurchaseReconciliation(args: { onlyProblems?: boolea
         : "";
       return `${head}${linked} — ${EBARIMT_PURCHASE_CHECK_LABELS[row.check]}${candidates}${row.check === "ok" ? "" : ` · ${EBARIMT_PURCHASE_CHECK_HINTS[row.check]}`}`;
     }),
-    ...(selected.length > limit ? [`… дахиад ${selected.length - limit} мөр (вэб: Өглөг → eBarimt)`] : []),
+    ...(selected.length > limit ? [`… дахиад ${selected.length - limit} мөр (вэб: Өглөг → eBarimt · худалдан авалт)`] : []),
   ];
   return { resultText: lines.join("\n") };
 }
@@ -12974,7 +12974,7 @@ async function runGetEbarimtCustomsDeclarations(args: {
   if (!data.connection)
     return {
       resultText:
-        "ТЕГ-ийн TPI холболт тохируулаагүй — админ вэбээс POS тохиргоо → eBarimt → «ТЕГ-ийн тулгалт»-д байгууллагын ITC нэвтрэлтээ холбоно. Гаалийн мэдүүлэг мөн тэр нэвтрэлтээр татагдана.",
+        "ТЕГ-ийн TPI холболт тохируулаагүй — админ вэбээс Татвар → «ТЕГ-ийн холболт»-д байгууллагын ITC нэвтрэлтээ холбоно. Гаалийн мэдүүлэг мөн тэр нэвтрэлтээр татагдана.",
     };
   const status: string[] = [];
   if (!data.connection.customsApiKey)
