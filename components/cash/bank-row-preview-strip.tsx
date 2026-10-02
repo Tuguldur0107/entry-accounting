@@ -165,8 +165,8 @@ export function BankRowPreviewStrip({
           variant="ghost"
           size="icon"
           className="ml-auto h-6 w-6"
-          title="Бичилтийн хэсгийг хаах"
-          aria-label="Бичилтийн хэсгийг хаах"
+          title="Бичилтийг нуух — дээрх «Бичилт» товчоор буцааж асаана"
+          aria-label="Бичилтийг нуух"
           onClick={onClose}
         >
           <Icon name="close" size="sm" />

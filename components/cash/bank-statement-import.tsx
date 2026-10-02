@@ -172,6 +172,9 @@ type AssignmentScope = "selected" | "filtered";
 type AnySuggestion = RuleSuggestion | EwalletSettlementSuggestion | RowSuggestion;
 
 /** Саналын лавлах + П8 дүрмүүд + э-хэтэвчийн хэлбэрүүд — suggestions endpoint-ийн хариу. */
+/** «Бичилт» (мөрийн бичилтийн хэсэг) асаалттай эсэх — төхөөрөмжийн тохиргоо. */
+const ROW_PREVIEW_STORAGE_KEY = "ea-bank-row-preview";
+
 type ImportContext = MatchContext & {
   rules?: BankRule[];
   ewalletMethods?: EwalletSettlementMethod[];
@@ -295,6 +298,27 @@ export function BankStatementImport({
   const [selectedCount, setSelectedCount] = useState(0);
   // Хүснэгтийн доорх бичилтийн хэсэг — курсортой (дарсан / гараар шилжсэн) мөр.
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  // Мөрийн бичилтийн хэсгийг (хүснэгтийн доор) хэрэглэгч өөрөө асаана / унтраана —
+  // төхөөрөмжид хадгална. Унтраалттай бол мөр сонгоход нээгдэхгүй.
+  const [rowPreviewOn, setRowPreviewOn] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return window.localStorage.getItem(ROW_PREVIEW_STORAGE_KEY) !== "off";
+    } catch {
+      return true;
+    }
+  });
+  const toggleRowPreview = useCallback(() => {
+    setRowPreviewOn((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(ROW_PREVIEW_STORAGE_KEY, next ? "on" : "off");
+      } catch {
+        /* хувийн цонх г.м. — зөвхөн энэ сессэд */
+      }
+      return next;
+    });
+  }, []);
   const activeRow = useMemo(
     () => (activeRowId ? rows.find((row) => row.id === activeRowId) ?? null : null),
     [activeRowId, rows]
@@ -2062,6 +2086,20 @@ export function BankStatementImport({
             >
               <Icon name="addDocument" />
             </Button>
+            <Button
+              variant={rowPreviewOn ? "secondary" : "ghost"}
+              size="sm"
+              aria-pressed={rowPreviewOn}
+              title={
+                rowPreviewOn
+                  ? "Мөрийн бичилтийг хүснэгтийн доор харуулахгүй"
+                  : "Сонгосон мөрийн бичилтийг хүснэгтийн доор харуулах"
+              }
+              onClick={toggleRowPreview}
+            >
+              <Icon name={rowPreviewOn ? "show" : "hide"} />
+              Бичилт
+            </Button>
             <span className="text-xs text-[var(--ea-text-3)]">
               {selectedCount > 0
                 ? `${selectedCount} мөр сонгосон`
@@ -2104,7 +2142,7 @@ export function BankStatementImport({
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           />
 
-          {activeRow && (
+          {rowPreviewOn && activeRow && (
             <BankRowPreviewStrip
               row={activeRow}
               statement={{
@@ -2124,7 +2162,9 @@ export function BankStatementImport({
                       ? "Ханш / ₮ дүн дутуу"
                       : `${validationText(activeRow)} — бөглөхөд бичилт харагдана`
               }
-              onClose={() => setActiveRowId(null)}
+              // Хаах = хэсгийг унтраах (дараагийн мөрөнд дахин нээгдэхгүй);
+              // toolbar-ын «Бичилт»-ээр буцааж асаана.
+              onClose={toggleRowPreview}
             />
           )}
 
