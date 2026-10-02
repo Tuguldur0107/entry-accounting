@@ -1075,7 +1075,7 @@ export const AI_TOOLS: AiToolDef[] = [
         startDate: { type: "string", description: "Эхлэх огноо YYYY-MM-DD (энэ өдрөөс хойших эхний хуваарийн өдөр)" },
         endDate: { type: "string", description: "Дуусах огноо YYYY-MM-DD (заавал биш)" },
         paymentTermsDays: { type: "number", description: "Төлөх хугацаа, хоног (default: эх нэхэмжлэхийнхтэй ижил)" },
-        autoPost: { type: "boolean", description: "Шууд батлах (default false — ноорог)" },
+        autoPost: { type: "boolean", description: "Шууд батлах (default false — ноорог). Ирээдүйн нэхэмжлэх бүр хүнгүйгээр батлагдах тул ЗӨВХӨН 'Шууд бичих' горимд, нэхэмжлэхийн дүн батлах хязгаар дотор" },
         sendEmail: { type: "boolean", description: "Батлагдсаныг харилцагч руу и-мэйлээр (autoPost шаардана)" },
       },
       required: ["documentId", "intervalMonths", "dayOfMonth", "startDate"],
@@ -2824,7 +2824,7 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           enum: ["block", "warn"],
           description:
-            "Хүлээн авалттай нээлттэй PO-той сар хаалт: block (анхдагч — хаахгүй) | warn (анхааруулаад хаана; бараа материалын түр дансны үлдэгдэл балансад үлдэнэ)",
+            "Хүлээн авалттай нээлттэй PO-той сар хаалт: block (анхдагч — хаахгүй) | warn (анхааруулаад хаана; бараа материалын түр дансны үлдэгдэл балансад үлдэнэ). Энэ tool-оор ЗӨВХӨН чангатгана (block) — warn болгох нь [HUMAN_REQUIRED], вэбээс хүн",
         },
       },
     },
@@ -2990,10 +2990,11 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "update_purchase_order",
     description:
-      "Ноорог эсвэл нээлттэй захиалгыг засна — мөрүүд өгвөл БҮХЭЛДЭЭ солигдоно (хүлээн авсан/нэхэмжилсэн тооноос доогуур болгож болохгүй). Хаагдсан захиалгыг засахгүй ([PO_CLOSED]).",
+      "Ноорог эсвэл нээлттэй захиалгыг засна — мөрүүд өгвөл БҮХЭЛДЭЭ солигдоно (хүлээн авсан/нэхэмжилсэн тооноос доогуур болгож болохгүй). Хаагдсан захиалгыг засахгүй ([PO_CLOSED]). БАТЛАГДСАН (нээлттэй) захиалгын мөрийг засах нь дахин батлах тул ЗӨВХӨН 'Шууд бичих' горимд, батлах хязгаар дотор ([AMOUNT_LIMIT_EXCEEDED] бол вэбээс); валюттай бол exchangeRate өгнө.",
     inputSchema: {
       type: "object",
       properties: {
+        exchangeRate: { type: "number", description: "Валюттай НЭЭЛТТЭЙ PO-ийн мөр засахад батлах хязгаарыг шалгах ханш (1 валют = ? ₮)" },
         purchaseOrderId: {
           type: "string",
           description: "Захиалгын дугаар, externalRef эсвэл ID (бүтэн/6+ тэмдэгт)",
@@ -3397,7 +3398,7 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         allowNegativeStock: {
           type: "boolean",
-          description: "Хасах үлдэгдэлтэй болгож зарахыг зөвшөөрөх эсэх (D9; шинэ байгууллагад анхдагч ХААЛТТАЙ)",
+          description: "Хасах үлдэгдэлтэй болгож зарахыг зөвшөөрөх эсэх (D9; шинэ байгууллагад анхдагч ХААЛТТАЙ). Энэ tool-оор ЗӨВХӨН хаана (false) — асаах нь хамгаалалт сулруулах тул [HUMAN_REQUIRED], вэбээс хүн",
         },
         provisionalCogs: {
           type: "boolean",
@@ -3413,8 +3414,8 @@ export const AI_TOOLS: AiToolDef[] = [
           enum: ["best_single", "cumulative"],
           description: "Хөнгөлөлтийн дүрмүүд давхцахад: хамгийн сайн НЭГ / нийлбэр",
         },
-        maxManualDiscountPercent: { type: "number", description: "Гар хөнгөлөлтийн дээд хувь 0–100" },
-        maxTotalDiscountPercent: { type: "number", description: "Нийт хөнгөлөлтийн тааз 0–100" },
+        maxManualDiscountPercent: { type: "number", description: "Гар хөнгөлөлтийн дээд хувь 0–100 (AI ЗӨВХӨН бууруулна — өсгөх нь [HUMAN_REQUIRED])" },
+        maxTotalDiscountPercent: { type: "number", description: "Нийт хөнгөлөлтийн тааз 0–100 (AI ЗӨВХӨН бууруулна — өсгөх нь [HUMAN_REQUIRED])" },
         cashRoundingUnit: { type: "number", description: "Бэлэн мөнгөний бөөрөнхийлөл: 0, 10 эсвэл 100 ₮" },
         receiptHeader: { type: "string", description: "Баримтын толгойн текст" },
         receiptFooter: { type: "string", description: "Баримтын хөлийн текст" },
@@ -7356,9 +7357,16 @@ async function runCreateRecurring(
     paymentTermsDays?: number;
     autoPost?: boolean;
     sendEmail?: boolean;
-  }
+  },
+  mode: AiWriteMode
 ): Promise<AiToolResult> {
   const document = await findArapDocument(orgId, input.documentId);
+  // H6: autoPost = ирээдүйн нэхэмжлэх бүрийг хүнгүйгээр батлах — «Шууд бичих»
+  // горим ба батлах хязгаар ЗААВАЛ (давтамжтай нэхэмжлэх зөвхөн ₮, дүн тогтмол).
+  if (input.autoPost) {
+    assertPostMode(mode);
+    assertPostLimit(Number(document.totalAmount));
+  }
   const terms =
     input.paymentTermsDays ??
     Math.max(0, Math.round((Date.parse(`${document.dueDate}T00:00:00Z`) - Date.parse(`${document.date}T00:00:00Z`)) / 86_400_000));
@@ -10293,6 +10301,12 @@ async function runUpdateCostingAccounts(
   }
 ): Promise<AiToolResult> {
   const current = await loadCostingAccountSettings(orgId);
+  // H6: хамгаалалтыг AI сулруулахгүй (controlAccountGuard-тай ижил зарчим).
+  if (input.openPoCloseMode === "warn" && current.openPoCloseMode !== "warn")
+    throw codedError(
+      "HUMAN_REQUIRED",
+      "Нээлттэй PO-той сар хаалтын хоригийг зөвхөн вэбийн Өртгийн тохиргооноос хүн сулруулна (block → warn)"
+    );
   const result = await saveCostingAccountSettings({
     clearingAccountNumber: input.clearingAccount ?? current.clearingAccountNumber,
     apClearingAccountNumber:
@@ -11084,9 +11098,18 @@ async function runUpdatePurchaseOrder(
     warehouseCode?: string;
     description?: string;
     lines?: (PoLineToolInput & { purchaseOrderLineId?: string })[];
-  }
+    exchangeRate?: number;
+  },
+  mode: AiWriteMode
 ): Promise<AiToolResult> {
   const order = await findPurchaseOrder(orgId, input.purchaseOrderId);
+  // H6: БАТЛАГДСАН (нээлттэй) PO-ийн мөр/дүнг засах = дахин батлах — ноорог
+  // горимд, батлах хязгаараас их дүнгээр AI засахгүй (approve-тэй ижил дүрэм).
+  if (order.status === "open" && input.lines) {
+    assertPostMode(mode);
+    const newTotal = input.lines.reduce((sum, line) => sum + Number(line.quantity) * Number(line.unitPrice), 0);
+    assertPostLimit(purchaseOrderBaseTotal({ ...order, totalAmount: String(newTotal) }, input.exchangeRate));
+  }
   const refs = await procurementRefs(orgId);
   let lines:
     | (ReturnType<typeof purchaseOrderLineInputs>[number] & { id?: string })[]
@@ -12262,6 +12285,21 @@ async function runUpdatePosSettings(
   }
 ): Promise<AiToolResult> {
   const before = await ensurePosSettings(orgId);
+  // H6: хамгаалалтыг AI сулруулахгүй — хасах үлдэгдэл асаах, хөнгөлөлтийн
+  // дээд хувийг өсгөх нь ЗӨВХӨН вэбээс хүн (чангатгах нь чөлөөтэй).
+  const loosened: string[] = [];
+  if (input.allowNegativeStock === true && !before.allowNegativeStock) loosened.push("хасах үлдэгдэл зөвшөөрөх");
+  for (const [field, label] of [
+    ["maxManualDiscountPercent", "гар хөнгөлөлтийн дээд хувь"],
+    ["maxTotalDiscountPercent", "нийт хөнгөлөлтийн дээд хувь"],
+  ] as const)
+    if (input[field] != null && Number(input[field]) > Number(before[field] ?? 0) + 1e-9)
+      loosened.push(`${label} өсгөх (${Number(before[field] ?? 0)} → ${Number(input[field])})`);
+  if (loosened.length > 0)
+    throw codedError(
+      "HUMAN_REQUIRED",
+      `${loosened.join(", ")} — хамгаалалт сулруулах тул зөвхөн вэбийн POS тохиргооноос хүн хийнэ`
+    );
   const ctx = await accountContext(orgId);
   // Данс нь нэрээр ч өгөгдөж болно — paste/Excel-тэй ИЖИЛ resolve (§9a).
   const account = (value?: string) =>
@@ -13206,7 +13244,7 @@ async function dispatchAiTool(
       case "list_recurring_invoices":
         return await runListRecurring();
       case "create_recurring_invoice":
-        return await runCreateRecurring(orgId, args);
+        return await runCreateRecurring(orgId, args, mode);
       case "get_payment_reminders":
         return await runGetPaymentReminders(args);
       case "send_payment_reminder":
@@ -13383,7 +13421,7 @@ async function dispatchAiTool(
       case "create_purchase_order":
         return await runCreatePurchaseOrder(orgId, args, mode);
       case "update_purchase_order":
-        return await runUpdatePurchaseOrder(orgId, args);
+        return await runUpdatePurchaseOrder(orgId, args, mode);
       case "approve_purchase_order":
         return await runApprovePurchaseOrder(orgId, args, mode);
       case "close_purchase_order":

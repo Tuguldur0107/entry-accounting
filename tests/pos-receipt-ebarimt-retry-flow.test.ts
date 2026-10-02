@@ -26,7 +26,7 @@ import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts } from "../lib/actions/gl";
 import { sendPosSaleEbarimtNow } from "../lib/actions/ebarimt";
-import { createPosSale, getPosReceipt } from "../lib/actions/pos";
+import { createPosSale, getPosReceipt, updatePosSettings } from "../lib/actions/pos";
 import { db } from "../lib/db";
 import {
   inventoryItems,
@@ -137,7 +137,11 @@ test("POS баримт: B2B худалдан авагчийн нэр, eBarimt а
     .set({ ebarimtClassificationCode: "1051100" })
     .where(and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.code, "OIL")));
   ok(await tool("create_cash_account", { name: "Касс", accountType: "cash", currency: "MNT", glAccount: "10000001" }));
-  ok(await tool("update_pos_settings", { allowNegativeStock: true }));
+  // H6: хасах үлдэгдлийг AI асаахгүй — вэбийн замаар (server action).
+  {
+    const posSettings = await asOrg(() => updatePosSettings({ allowNegativeStock: true }));
+    assert.ok(!posSettings.error, posSettings.error);
+  }
   await db
     .update(posSettings)
     .set({

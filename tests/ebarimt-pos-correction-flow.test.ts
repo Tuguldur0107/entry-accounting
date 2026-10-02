@@ -25,7 +25,7 @@ import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts } from "../lib/actions/gl";
 import { resendEbarimt } from "../lib/actions/ebarimt";
-import { updateSaleEbarimt } from "../lib/actions/pos";
+import { updateSaleEbarimt, updatePosSettings } from "../lib/actions/pos";
 import { loadEbarimtDocuments } from "../lib/ebarimt/list-data";
 import { summarizeEbarimtRows } from "../lib/ebarimt/list-types";
 import { processPendingEbarimt } from "../lib/ebarimt/worker";
@@ -175,7 +175,11 @@ test("POS: ТЕГ-д бүртгэлтэй дүн баримт дээр, амжи
     .set({ ebarimtClassificationCode: "1051100" })
     .where(and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.code, "MILK")));
   ok(await tool("create_cash_account", { name: "Касс", accountType: "cash", currency: "MNT", glAccount: "10000001" }));
-  ok(await tool("update_pos_settings", { allowNegativeStock: true }));
+  // H6: хасах үлдэгдлийг AI асаахгүй — вэбийн замаар (server action).
+  {
+    const posSettings = await asOrg(() => updatePosSettings({ allowNegativeStock: true }));
+    assert.ok(!posSettings.error, posSettings.error);
+  }
   await db
     .update(posSettings)
     .set({

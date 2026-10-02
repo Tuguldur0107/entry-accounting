@@ -27,7 +27,7 @@ try {
 import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts } from "../lib/actions/gl";
-import { closeShift } from "../lib/actions/pos";
+import { closeShift, updatePosSettings } from "../lib/actions/pos";
 import { db } from "../lib/db";
 import { memberships, organizationProfile, organizations, posSaleLines, posSales, posShifts, users } from "../lib/db/schema";
 import { purgeOrganization } from "../lib/org/purge";
@@ -71,7 +71,11 @@ async function setupOrg() {
   ok(await tool("create_warehouse", { code: "WH1", name: "Дэлгүүр" }));
   ok(await tool("create_inventory_item", { code: "TEA", name: "Цай", unit: "ш", salesPrice: 5_000 }));
   ok(await tool("create_cash_account", { name: "Касс", accountType: "cash", currency: "MNT", glAccount: "10000001" }));
-  ok(await tool("update_pos_settings", { allowNegativeStock: true }));
+  // H6: хасах үлдэгдлийг AI асаахгүй — вэбийн замаар (server action).
+  {
+    const posSettings = await asOrg(() => updatePosSettings({ allowNegativeStock: true }));
+    assert.ok(!posSettings.error, posSettings.error);
+  }
 }
 
 async function openShift() {
