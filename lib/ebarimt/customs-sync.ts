@@ -22,7 +22,7 @@ import { CUSTOMS_MAX_PAGES, CUSTOMS_PAGE_SIZE, customsHasMorePages, type Customs
 import { ulaanbaatarToday } from "@/lib/periods/document-date";
 
 import { summarizeCustomsDeclarations, type EbarimtCustomsRow, type EbarimtCustomsSummary } from "./customs";
-import { purchaseSyncRanges, purchasesBackfillNeeded, purchasesSyncStart } from "./purchase-reconcile";
+import { EBARIMT_CUSTOMS_CHUNK_DAYS, purchaseSyncRanges, purchasesBackfillNeeded, purchasesSyncStart } from "./purchase-reconcile";
 import { earliestApBillDate } from "./purchase-sync";
 import { isTaxSyncDue, ulaanbaatarHour } from "./tax-reconcile";
 import { loadTpiConnectionRow, sessionOf } from "./tax-sync";
@@ -52,9 +52,10 @@ async function upsertDeclarations(orgId: string, rows: CustomsDeclaration[], fal
         }))
       )
       .onConflictDoUpdate({
-        target: [ebarimtCustomsDeclarations.organizationId, ebarimtCustomsDeclarations.declarationNo],
+        // Түлхүүрт эх огноо ч орно — албан жишээнд дугаар далдлагдсан («14215******I25514»)
+        // тул дугаар дангаараа өөр мэдүүлгүүдийг нэг мөрд нийлүүлж (overwrite) болзошгүй.
+        target: [ebarimtCustomsDeclarations.organizationId, ebarimtCustomsDeclarations.declarationNo, ebarimtCustomsDeclarations.rawDate],
         set: {
-          rawDate: sql`excluded.raw_date`,
           declarationDate: sql`excluded.declaration_date`,
           items: sql`excluded.items`,
           dutyAmount: sql`excluded.duty_amount`,
@@ -105,9 +106,12 @@ export async function syncEbarimtCustomsDeclarations(orgId: string, options: { m
         .set({ customsSyncFrom: desiredFrom, customsSyncedThrough: null })
         .where(eq(ebarimtTpiConnections.id, row.id));
     }
-    const ranges = purchaseSyncRanges({ syncFrom, syncedThrough, todayUb, maxChunks: options.maxChunks });
+    const ranges = purchaseSyncRanges({ syncFrom, syncedThrough, todayUb, maxChunks: options.maxChunks, chunkDays: EBARIMT_CUSTOMS_CHUNK_DAYS });
     for (const range of ranges) {
       let pageNumber = 1;
+      // Мужид үзсэн мэдүүлэг — сервер хуудаслалтыг үл тоож ижил хуудас давтвал (шинэ
+      // мэдүүлэггүй хуудас) зогсоно; 200 хуудас хүртэл эргэж алдаа болохгүй.
+      const seen = new Set<string>();
       for (;;) {
         if (pageNumber > CUSTOMS_MAX_PAGES)
           throw new ItcError(ITC_ERRORS.tpi, `${range.startDate}…${range.endDate}: ${CUSTOMS_MAX_PAGES} хуудаснаас их мэдүүлэг — татлага таслагдав`);
@@ -119,7 +123,10 @@ export async function syncEbarimtCustomsDeclarations(orgId: string, options: { m
         await upsertDeclarations(orgId, result.rows, range.startDate);
         declarations += result.rows.length;
         skipped += result.skipped;
-        if (!customsHasMorePages(pageNumber, result.rows.length + result.skipped, result.totalPages)) break;
+        const before = seen.size;
+        for (const row of result.rows) seen.add(`${row.declarationNo}|${row.rawDate}`);
+        const repeated = result.rows.length > 0 && seen.size === before;
+        if (repeated || !customsHasMorePages(pageNumber, result.rows.length + result.skipped, result.totalPages, CUSTOMS_PAGE_SIZE, result.last)) break;
         pageNumber += 1;
       }
       if (!syncedThrough || range.endDate > syncedThrough) {
@@ -146,7 +153,7 @@ export async function syncEbarimtCustomsDeclarations(orgId: string, options: { m
 /**
  * Гаалийн мэдүүлэг — огнооны мужаар (Өглөг → eBarimt → «Гаалийн мэдүүлэг») эсвэл
  * дугаараар (AI). Дугаараар хайлт DB-д шууд, огнооны цонхгүй (§9a — хуучин мэдүүлэг
- * «олдсонгүй» болохгүй).
+ * «олдсонгүй» болохгүй); далдлагдсан дугаар давхардвал огноогоор ялгаатай хэд хэдэн мөр.
  */
 export async function loadEbarimtCustomsDeclarations(
   orgId: string,
@@ -169,10 +176,8 @@ export async function loadEbarimtCustomsDeclarations(
       vatAmount: ebarimtCustomsDeclarations.vatAmount,
     })
     .from(ebarimtCustomsDeclarations)
-    .where(
-and(eq(ebarimtCustomsDeclarations.organizationId, orgId), filter)
-    )
-    .orderBy(sql`${ebarimtCustomsDeclarations.declarationDate} desc, ${ebarimtCustomsDeclarations.declarationNo}`);
+    .where(and(eq(ebarimtCustomsDeclarations.organizationId, orgId), filter))
+    .orderBy(sql`${ebarimtCustomsDeclarations.declarationDate} desc, ${ebarimtCustomsDeclarations.declarationNo}, ${ebarimtCustomsDeclarations.rawDate}`);
   const mapped: EbarimtCustomsRow[] = rows.map((row) => ({
     declarationNo: row.declarationNo,
     rawDate: row.rawDate,

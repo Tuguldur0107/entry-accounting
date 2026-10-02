@@ -47,11 +47,18 @@ test("Гаалийн мэдүүлгийн хариу (албан жишээ): д
   assert.throws(() => parseCustomsDeclarations({ status: 500, msg: "алдаа" }), /алдаа/);
 });
 
-test("Гаалийн хуудаслалт: totalPages-ээр, эс бөгөөс дүүрэн хуудсаар", () => {
+test("Гаалийн хуудаслалт: last → totalPages → ЯГ дүүрэн хуудас; size-ээс их = хуудаслалт үл тоосон", () => {
   assert.equal(customsHasMorePages(1, 100, null), true);
   assert.equal(customsHasMorePages(1, 37, null), false);
+  // Сервер pageSize-ийг үл тоож бүгдийг өгсөн — дахин асуухгүй (ижил хуудас давтагдахгүй).
+  assert.equal(customsHasMorePages(1, 250, null), false);
   assert.equal(customsHasMorePages(2, 100, 2), false);
   assert.equal(customsHasMorePages(1, 100, 3), true);
+  // Spring `last` ирвэл түүгээр (totalPages/мөрийн тооноос түрүүлнэ).
+  assert.equal(customsHasMorePages(1, 100, 3, 100, true), false);
+  assert.equal(customsHasMorePages(1, 12, null, 100, false), true);
+  assert.equal(parseCustomsDeclarations({ content: [], last: true }).last, true);
+  assert.equal(parseCustomsDeclarations({ content: [] }).last, null);
 });
 
 test("Гаалийн хураангуй ба барааны товч", () => {

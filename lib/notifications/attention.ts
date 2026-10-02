@@ -112,6 +112,8 @@ export interface AttentionInput {
     purchaseProblems?: number;
     purchaseDanger?: number;
     purchaseError?: string | null;
+    /** Гаалийн мэдүүлэг (tpiDeclaration) — сүүлийн татлагын алдаа (null = алдаагүй). */
+    customsError?: string | null;
   };
   /** QPay — `paid` боловч `saleId` null intent-үүд (≥ QPAY_PAID_UNFINALIZED_MINUTES). */
   qpay?: {
@@ -805,7 +807,7 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
           tax.hoursSinceOk === null
             ? "ТЕГ-ээс eBarimt нэхэмжлэх татагдаагүй байна"
             : `ТЕГ-ээс eBarimt нэхэмжлэх ${Math.floor(tax.hoursSinceOk)} цаг татагдаагүй`,
-        detail: `Нэхэмжлэхийн үлдэгдлийн тулгалт хуучирсан${tax.lastError ? `: ${tax.lastError.slice(0, 200)}` : ""}${tax.purchaseError ? `; худалдан авалт: ${tax.purchaseError.slice(0, 160)}` : ""}. POS тохиргоо → eBarimt → ТЕГ-ийн TPI холболтыг шалгана.`,
+        detail: `Нэхэмжлэхийн үлдэгдлийн тулгалт хуучирсан${tax.lastError ? `: ${tax.lastError.slice(0, 200)}` : ""}${tax.purchaseError ? `; худалдан авалт: ${tax.purchaseError.slice(0, 160)}` : ""}${tax.customsError ? `; гаалийн мэдүүлэг: ${tax.customsError.slice(0, 160)}` : ""}. POS тохиргоо → eBarimt → ТЕГ-ийн TPI холболтыг шалгана.`,
         href: "/inventory/pos-settings?section=ebarimt",
         action: "TPI холболт",
         surfaces: ["dashboard", "daily"],

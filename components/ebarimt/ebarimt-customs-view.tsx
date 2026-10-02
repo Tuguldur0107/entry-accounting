@@ -176,7 +176,7 @@ export function EbarimtCustomsView({
         <DataGridDynamic<EbarimtCustomsRow>
           rowData={rows}
           columnDefs={columns}
-          getRowId={(params) => params.data.declarationNo}
+          getRowId={(params) => `${params.data.declarationNo}|${params.data.rawDate}`}
           height="flex"
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus

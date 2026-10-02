@@ -194,6 +194,7 @@ async function loadEbarimtTax(orgId: string): Promise<AttentionInput["ebarimtTax
       lastSyncError: true,
       lastPurchaseSummary: true,
       lastPurchaseSyncError: true,
+      lastCustomsSyncError: true,
     },
   });
   if (!row) return undefined;
@@ -205,6 +206,7 @@ async function loadEbarimtTax(orgId: string): Promise<AttentionInput["ebarimtTax
     purchaseProblems: row.lastPurchaseSummary?.problems ?? 0,
     purchaseDanger: row.lastPurchaseSummary?.danger ?? 0,
     purchaseError: row.lastPurchaseSyncError,
+    customsError: row.lastCustomsSyncError,
   };
 }
 

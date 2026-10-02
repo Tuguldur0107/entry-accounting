@@ -171,6 +171,15 @@ export function EbarimtTpiSettings() {
               {connection.lastPurchaseSyncError && (
                 <div className="text-[var(--ea-danger-fg)]">Худалдан авалт: {connection.lastPurchaseSyncError}</div>
               )}
+              <div className="text-[var(--ea-text-3)]">
+                Гаалийн мэдүүлэг:{" "}
+                {connection.customsApiKey
+                  ? `сүүлд амжилттай ${formatTime(connection.lastCustomsSyncOkAt)} · ${connection.customsSyncFrom ?? "—"} → ${connection.customsSyncedThrough ?? "—"}`
+                  : "гаалийн түлхүүр Entry-д тохируулагдаагүй (татахгүй)"}
+              </div>
+              {connection.lastCustomsSyncError && (
+                <div className="text-[var(--ea-danger-fg)]">Гаалийн мэдүүлэг: {connection.lastCustomsSyncError}</div>
+              )}
               {connection.lastSyncSkipped > 0 && (
                 <div className="text-[var(--ea-warning-fg)]">
                   ТЕГ-ийн хариунаас {connection.lastSyncSkipped} мөр танигдаагүй тул алгасав — тулгалт бүрэн биш байж болно
