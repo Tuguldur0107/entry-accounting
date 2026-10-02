@@ -178,11 +178,13 @@ eBarimt    pos_settings.ebarimt{Enabled,MerchantTin,BranchNo,DistrictCode,PosNo,
            (docs/pos/05)
            ebarimt_tpi_connections (байгууллагад НЭГ — ТЕГ-ийн TPI нэвтрэлт:
              environment, username, passwordEnc, apiKeyEnc (null = env), isEnabled,
-             syncFrom/syncedThrough (YYYY-MM-DD явц), lastSync{At,OkAt,Error,Skipped},
+             syncFrom/syncedThrough (YYYY-MM-DD явц), allReceiptsFrom (бүх баримт
+             хадгалж эхэлсэн; null = дахин татна), lastSync{At,OkAt,Error,Skipped},
              lastCheckSummary jsonb {checked,problems,danger} — «Анхаарах»-ын эх),
-           ebarimt_tax_receipts (TPI-ээс татсан НЭХЭМЖЛЭХ (isInvoice) ба төлбөрийн
-             баримт (parentDdtd = prParentRno) л; (org, ddtd) unique, upsert) —
-             docs/dev/ebarimt-tax-reconcile.md
+           ebarimt_tax_receipts (TPI-ээс татсан БҮХ борлуулалтын баримт — нэхэмжлэх
+             (isInvoice), төлбөрийн баримт (parentDdtd = prParentRno), ААН, иргэн;
+             posNo, districtCode; (org, ddtd) unique, (org, receiptDate) index, upsert) —
+             docs/dev/ebarimt-tax-reconcile.md §8
            ebarimt_tax_purchases (TPI getSaleListERP — нийлүүлэгчийн олгосон худалдан
              авалтын баримт; борлуулагч далдлагдсан; (org, ddtd) unique),
              ebarimt_tpi_connections.purchases* / lastPurchase* (тусдаа явц),

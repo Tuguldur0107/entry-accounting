@@ -23,7 +23,7 @@ Entry нэхэмжлэх (`*_INVOICE`) ба төлөлт бүрийг `invoiceId
 ticker (10 мин тутам шалгана) → isTaxSyncDue → syncEbarimtTaxReceipts
   Keycloak password grant (vatps) → өдөр бүрд:
     getSalesTotalData status 3 (нэхэмжлэх)      → ebarimt_tax_receipts (isInvoice)
-    getSalesTotalData status 0 (бүгд) → prParentRno-той л → ebarimt_tax_receipts (parentDdtd)
+    getSalesTotalData status 0 (БҮХ баримт)     → ebarimt_tax_receipts (2026-10-02-оос бүгд; parentDdtd, posNo)
   syncedThrough урагшилна → тулгалтын тойм → lastCheckSummary
       │
 loadEbarimtTaxChecks (амьд): Entry-ийн ТЕГ-д нэхэмжлэх болж бүртгэгдсэн авлага
@@ -92,7 +92,8 @@ Entry-ийн «илгээсэн төлөлт» = `sent` төлөвтэй `paymen
 - Хуваарьт татлага ХЭЗЭЭ Ч шидэхгүй, request scope ашиглахгүй; багцад eBarimt
   боломжгүй бол алгасна. Тохиргоо хадгалах/шалгах/устгах admin+, гар татлага `ar:write`,
   унших `ar:read`; хадгалах/устгах/гар татлага бүр `logAuditEvent` (`ebarimt_tpi_connection`).
-- Зөвхөн нэхэмжлэх ба `prParentRno`-той баримт хадгалагдана (B2C баримтын урсгал биш).
+- **БҮХ борлуулалтын баримт хадгалагдана** (2026-10-02, product owner): нэхэмжлэх, төлөлт,
+  ААН, иргэний баримт — §8. Нэхэмжлэхийн тулгалт (§3) хэвээр нэхэмжлэх + хүүхэд баримтаар.
 
 ## 5. Файлууд
 
@@ -179,3 +180,28 @@ loadEbarimtPurchaseChecks: ТЕГ-ийн баримт × өглөг (ap_bill, б
 Файлууд: `lib/ebarimt/purchase-reconcile.ts` (ЦЭВЭР, `tests/ebarimt-purchase-reconcile.test.ts`),
 `lib/ebarimt/purchase-sync.ts`, `components/ebarimt/ebarimt-purchase-check-view.tsx`
 (`/payables/ebarimt`), `components/arap/ap-ebarimt-receipt-field.tsx` (панель).
+
+## 8. ТЕГ-ийн БҮХ борлуулалтын баримт (2026-10-02)
+
+Шийдвэр (product owner): борлуулалтын бүх баримтыг татна. `getSalesTotalData` status 0-ийн
+мөр бүр `ebarimt_tax_receipts`-д (ДДТД-ээр upsert, `posNo`, `districtCode`); нэхэмжлэх (status 3)
+түрүүлж хадгалагдана (`isInvoice` алдагдахгүй).
+
+- **Төрөл** `taxReceiptKindOf` (ЦЭВЭР, `lib/ebarimt/tax-sales.ts`): нэхэмжлэх > нэхэмжлэхийн
+  төлөлт (`prParentRno`) > ААН (худалдан авагчийн регистртэй — далдлагдсан ч) > иргэн
+- **Entry-тэй тулгалт** (`loadEbarimtTaxSales`, `tax-sync.ts`): `sent` submission-ий хариуны
+  ДДТД (толгой `id` + дэд `receipts[].id` — хэсэгчилсэн буцаалтын өмнөх ДДТД ч) эсвэл гар
+  ДДТД-тэй POS борлуулалт → «POS / Авлагын нэхэмжлэх / Төлөлтийн баримт»; эс бөгөөс
+  **«Entry-д алга»** (өөр касс, ТЕГ-ийн апп, порталаас олгосон) — Entry-ийн борлуулалтад
+  бүртгэгдээгүй орлого байж болзошгүй тул «Анхаарах»-тай ижил ач холбогдолтой. Дүн ЗОХИОХГҮЙ
+- **Хураангуй** (`summarizeTaxSales`): нэхэмжлэхийн төлөлт борлуулалтын нийлбэрт ДАВХАР
+  орохгүй (ТЕГ ч НӨАТ-ын тайланд давхар тусгадаггүй), зөвхөн тоонд
+- **UI:** Авлага → eBarimt → «ТЕГ-ийн бүх баримт» (`?view=sales`, огноо = URL `from/to` →
+  топбарын период, ≤ 20 000 мөр), chip (Бүгд / Entry-д алга / төрөл), Excel, давхар даралт →
+  Entry-ийн эх баримт
+- **Хуучин холболт** (`allReceiptsFrom` null) дараагийн татлагад `syncedThrough`-ыг тэглэж
+  `syncFrom`-оос БҮХ баримтыг дахин татна (`taxSalesBackfillNeeded`; ердийн хуваариар —
+  01:00–07:00, нэг удаад ≤ 31 өдөр). Шинэ холболтын анхдагч эхлэл = Entry-ийн ТЕГ-д илгээсэн
+  хамгийн эртний нэхэмжлэх/POS баримт (≤ 400 хоног), байхгүй бол энэ сарын 1
+- Staging/бодит орчинд шалгах: status 0 нь толгой эсвэл дэд баримтын ДДТД буцаадаг эсэх
+  (Entry хоёуланг тулгадаг); B2C баримтын `buyerRegNo` хоосон ирэх эсэх
