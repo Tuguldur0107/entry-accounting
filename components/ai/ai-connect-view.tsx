@@ -29,7 +29,7 @@ import { createApiToken, revokeApiToken, type ApiTokenView } from "@/lib/actions
 import type { AiAccountantStatus } from "@/lib/ai/accountant-setup";
 import type { AiWriteMode } from "@/lib/ai/write-mode";
 import type { AiConnectionView } from "@/lib/ai/connector-clients";
-import { MAX_TOKENS_PER_USER } from "@/lib/mcp/constants";
+import { MAX_TOKENS_PER_ORG } from "@/lib/mcp/constants";
 import { StarterPrompts } from "@/components/onboarding/starter-prompts";
 import type { StarterPrompt } from "@/lib/onboarding/first-run";
 import { cn } from "@/lib/utils";
@@ -104,6 +104,8 @@ export function AiConnectView({
   const [writeMode, setWriteMode] = useState<AiWriteMode>(initialWriteMode);
   const [tokenName, setTokenName] = useState("");
   const [tokenExpiry, setTokenExpiry] = useState("");
+  // Хязгаар хэрэглэгч × компаниар — зөвхөн идэвхтэй компанийн token-ыг тоолно.
+  const tokenLimitReached = mcpTokens.filter((token) => token.inActiveOrg).length >= MAX_TOKENS_PER_ORG;
   // Сая үүссэн token — ЗӨВХӨН энэ render-д бүтнээрээ харагдана.
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -228,7 +230,7 @@ export function AiConnectView({
           {!canWrite ? <p className="text-xs text-[var(--ea-text-4)]">Горимыг бичих эрхтэй гишүүн л солино.</p> : null}
         </Step>
 
-        <Step n={5} title="Token (Claude Code, Codex)" hint="OAuth дэмждэггүй клиентэд — token нь нэг л удаа харагдана, дээд тал нь 5.">
+        <Step n={5} title="Token (Claude Code, Codex)" hint="OAuth дэмждэггүй клиентэд — token нь нэг л удаа харагдана, компани бүрд дээд тал нь 5.">
           {mcpTokens.length > 0 && (
             <div className="space-y-1.5">
               {mcpTokens.map((token) => (
@@ -262,11 +264,16 @@ export function AiConnectView({
           )}
 
           {/* Хязгаарт хүрсэн бол урьдчилан хааж, шалтгааныг ил хэлнэ. */}
-          {mcpTokens.length >= MAX_TOKENS_PER_USER && (
+          {tokenLimitReached && (
             <p className="rounded-md bg-[var(--ea-warning)]/10 px-3 py-2 text-xs text-[var(--ea-warning-fg)]">
-              Дээд тал нь {MAX_TOKENS_PER_USER} token байж болно — шинийг үүсгэхийн тулд ашиглахаа больсон token-оо эхлээд устгана уу.
+              Энэ компанид дээд тал нь {MAX_TOKENS_PER_ORG} token байж болно — шинийг үүсгэхийн тулд ашиглахаа больсон token-оо эхлээд устгана уу.
             </p>
           )}
+          {/* Token ИДЭВХТЭЙ компанид уягдана — үүсгэхээс ӨМНӨ ил хэлнэ. */}
+          <p className="text-xs text-[var(--ea-text-3)]">
+            Шинэ token зөвхөн <span className="font-medium text-[var(--ea-text-1)]">{orgName ?? "одоогийн компани"}</span>-д
+            ажиллана. Өөр компанид ашиглах бол тэр компани руу шилжээд тусад нь үүсгэнэ.
+          </p>
           <div className="flex items-end gap-2">
             <div className="grid flex-1 gap-1.5">
               <Label htmlFor="mcp-token-name">Шинэ token</Label>
@@ -275,7 +282,7 @@ export function AiConnectView({
                 placeholder="Жишээ: Codex — ажлын компьютер"
                 value={tokenName}
                 maxLength={60}
-                disabled={mcpTokens.length >= MAX_TOKENS_PER_USER}
+                disabled={tokenLimitReached}
                 onChange={(event) => setTokenName(event.target.value)}
               />
             </div>
@@ -294,7 +301,7 @@ export function AiConnectView({
                 ))}
               </select>
             </div>
-            <Button onClick={createToken} disabled={isPending || !tokenName.trim() || mcpTokens.length >= MAX_TOKENS_PER_USER}>
+            <Button onClick={createToken} disabled={isPending || !tokenName.trim() || tokenLimitReached}>
               Token үүсгэх
             </Button>
           </div>

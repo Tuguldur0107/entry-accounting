@@ -9,10 +9,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { auth, requireRole } from "@/lib/auth";
+import { auth, getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiTokens, organizations } from "@/lib/db/schema";
-import { MAX_TOKENS_PER_USER } from "@/lib/mcp/constants";
+import { MAX_TOKENS_PER_ORG } from "@/lib/mcp/constants";
 
 async function requireUserId(): Promise<string> {
   const session = await auth();
@@ -33,6 +33,8 @@ export interface ApiTokenView {
   expired: boolean;
   /** Token уягдсан компанийн нэр — олон компанитай хэрэглэгч ялгаж харна. */
   organizationName: string;
+  /** Вэбийн идэвхтэй компанийнх эсэх — MAX_TOKENS_PER_ORG-ийг үүгээр тоолно. */
+  inActiveOrg: boolean;
 }
 
 /** Token-ий хугацааны зөвшөөрөгдсөн сонголтууд (хоногоор). */
@@ -48,6 +50,10 @@ function fmtTime(value: Date | null): string | null {
 /** Хэрэглэгчийн бүх token (hash-гүй, зөвхөн танилтын мэдээлэл). */
 export async function listApiTokens(): Promise<ApiTokenView[]> {
   const userId = await requireUserId();
+  const activeOrgId = await getActiveOrg().then(
+    (active) => active.orgId,
+    () => null
+  );
   const rows = await db
     .select({
       id: apiTokens.id,
@@ -56,6 +62,7 @@ export async function listApiTokens(): Promise<ApiTokenView[]> {
       createdAt: apiTokens.createdAt,
       lastUsedAt: apiTokens.lastUsedAt,
       expiresAt: apiTokens.expiresAt,
+      organizationId: apiTokens.organizationId,
       organizationName: organizations.name,
     })
     .from(apiTokens)
@@ -71,6 +78,7 @@ export async function listApiTokens(): Promise<ApiTokenView[]> {
     expiresAt: row.expiresAt ? fmtTime(row.expiresAt)!.slice(0, 10) : null,
     expired: !!row.expiresAt && row.expiresAt.getTime() < Date.now(),
     organizationName: row.organizationName,
+    inActiveOrg: row.organizationId === activeOrgId,
   }));
 }
 
@@ -112,18 +120,18 @@ export async function createApiToken(
 
     // Тоолох + insert хоёрыг зэрэгцээ хүсэлтээс хамгаална — advisory lock
     // (key 6; 1–5 нь бусад модульд эзлэгдсэн) нэг хэрэглэгчийн token үүсгэлтийг
-    // цуваа болгож max хязгаарыг race-гүй сахиулна.
+    // цуваа болгож max хязгаарыг (хэрэглэгч × компани) race-гүй сахиулна.
     await db.transaction(async (tx) => {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtext(${userId}), 6)`
       );
       const existing = await tx.query.apiTokens.findMany({
-        where: eq(apiTokens.userId, userId),
+        where: and(eq(apiTokens.userId, userId), eq(apiTokens.organizationId, orgId)),
         columns: { id: true },
       });
-      if (existing.length >= MAX_TOKENS_PER_USER)
+      if (existing.length >= MAX_TOKENS_PER_ORG)
         throw new Error(
-          `Дээд тал нь ${MAX_TOKENS_PER_USER} token — хуучнаас нь устгаад дахин үүсгэнэ үү`
+          `Энэ компанид дээд тал нь ${MAX_TOKENS_PER_ORG} token — хуучнаас нь устгаад дахин үүсгэнэ үү`
         );
 
       await tx.insert(apiTokens).values({

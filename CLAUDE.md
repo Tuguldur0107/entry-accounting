@@ -594,6 +594,10 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
   `autoPost`) → шууд горим + хязгаар. ШИНЭ тохиргоо/tool нэмэхдээ ижил дүрэм
   (`tests/ai-guardrail-loosening.test.ts`)
 - Бүх нууц (OAuth code/access/refresh, PAT) зөвхөн sha256 hash
+- **Token = НЭГ байгууллага** (OAuth ба PAT): consent хуудсанд компани ИЛ сонгоно
+  (гишүүнчлэлээр шалгана, идэвхтэй руу далдуур унахгүй); MCP instructions компанийн
+  нэрийг хэлнэ; PAT хязгаар хэрэглэгч × компаниар. Компани СОЛИХ tool НЭМЭХГҮЙ —
+  өөр компани = тусдаа холболт (`docs/dev/ai-mcp.md`)
 - Анхны туршилтын карт, `STARTER_PROMPTS` НЭГ эх (`lib/onboarding/first-run.ts`);
   демо компани картад БАЙХГҮЙ
 

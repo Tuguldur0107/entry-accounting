@@ -20,7 +20,8 @@ import { hasFeature } from "@/lib/billing/entitlements";
 import { getEntitlements } from "@/lib/billing/load";
 import { toolInPlan } from "@/lib/billing/tool-scope";
 import { db } from "@/lib/db";
-import { apiTokens } from "@/lib/db/schema";
+import { apiTokens, organizations } from "@/lib/db/schema";
+import { companyScopeInstruction } from "@/lib/mcp/company-scope";
 import {
   publicOrigin,
   resolveOAuthAccessToken,
@@ -153,15 +154,25 @@ async function handleRequest(
   switch (method) {
     case "initialize": {
       const requested = message.params?.protocolVersion;
-      const ent = await getEntitlements(context.orgId);
+      const [ent, org] = await Promise.all([
+        getEntitlements(context.orgId),
+        db.query.organizations.findFirst({
+          where: eq(organizations.id, context.orgId),
+          columns: { name: true },
+        }),
+      ]);
+      const accounting = hasFeature(ent, "accounting");
       return rpcResult(id, {
         protocolVersion:
           typeof requested === "string" ? requested : PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false }, prompts: { listChanged: false } },
         serverInfo: SERVER_INFO,
+        // Token НЭГ компанид уягдсан — AI аль компанид бичиж байгаагаа мэдэж,
+        // хэрэглэгчид ил хэлнэ (lib/mcp/company-scope.ts).
         instructions:
-          (hasFeature(ent, "accounting") ? ACCOUNTING_INSTRUCTIONS : SKILLS_INSTRUCTIONS) +
-          starterInstructionHint(promptFeatures(ent)),
+          (accounting
+            ? ACCOUNTING_INSTRUCTIONS + companyScopeInstruction(org?.name)
+            : SKILLS_INSTRUCTIONS) + starterInstructionHint(promptFeatures(ent)),
       });
     }
     // Бэлэн асуултууд (lib/onboarding/first-run.ts) — ChatGPT / Claude-ийн «+» / «/»
