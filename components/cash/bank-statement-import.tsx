@@ -2142,7 +2142,8 @@ export function BankStatementImport({
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           />
 
-          {rowPreviewOn && activeRow && (
+          {/* Асаалттай бол байрандаа ТОГТМОЛ (мөр сонгоогүй ч) — хүснэгт үсрэхгүй. */}
+          {rowPreviewOn && (
             <BankRowPreviewStrip
               row={activeRow}
               statement={{
@@ -2154,7 +2155,9 @@ export function BankStatementImport({
               }}
               cashAccountId={cashAccount?.id ?? ""}
               missing={
-                !cashAccount
+                !activeRow
+                  ? null
+                  : !cashAccount
                   ? "Банкны данс сонгоогүй"
                   : rowReady(activeRow)
                     ? null
