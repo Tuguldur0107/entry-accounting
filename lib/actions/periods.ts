@@ -474,6 +474,12 @@ export async function reopenPeriod(code: string): Promise<PeriodActionResult> {
   // хийсвэр амжилт мэт харагдахаас сэргийлнэ). Нэг транзакцад snapshot
   // мөн устдаг (П28) — нээлттэй периодын snapshot худал мэдээлэл.
   const reopened = await db.transaction(async (tx) => {
+    // Хаалттай ИЖИЛ exclusive lock (ontology-audit L1): зэрэгцээ closePeriod(дараагийн
+    // сар) «өмнөх сар хаалттай» гэж, энэ нээлт «хойшхи хаалттай үе алга» гэж
+    // хоёулаа давж, дунд нь нээлттэй сар үлдэх (snapshot худал) боломжгүй.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${orgId}), ${PERIOD_GATE_LOCK_KEY})`
+    );
     // Зөвхөн ХАМГИЙН СҮҮЛИЙН хаалттай үеийг нээнэ — дунд нь нээлттэй үе
     // үүсвэл дараагийн хаалтуудын snapshot худал болно (хаалт дараалсантай
     // тэгш хэмтэй дүрэм).
