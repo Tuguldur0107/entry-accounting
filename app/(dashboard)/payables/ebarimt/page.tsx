@@ -3,7 +3,8 @@
 // Эх нь ТЕГ-ийн TPI `getSaleListERP` (docs/dev/ebarimt-tax-reconcile.md §7) — өдөр бүр
 // автоматаар татагдана; холболтгүй бол өгөгдөл ЗОХИОХГҮЙ, тохируулах замыг заана.
 // Огноо: URL `from`/`to` → байхгүй бол топбарын период (CLAUDE.md §4).
-// `?view=customs` — хуулийн этгээдийн гаалийн мэдүүлэг (§10, `tpiDeclaration`).
+// `?view=customs` — хуулийн этгээдийн гаалийн мэдүүлэг (§10, `tpiDeclaration`) — таб нь гаалийн
+// түлхүүр тохируулагдсан үед л (`customsApiKey`).
 
 import { EbarimtCustomsView } from "@/components/ebarimt/ebarimt-customs-view";
 import { EbarimtPayablesTabs } from "@/components/ebarimt/ebarimt-payables-tabs";
@@ -24,9 +25,12 @@ export default async function PayablesEbarimtPage({ searchParams }: { searchPara
   const [params, period] = await Promise.all([searchParams, getPeriodSelection()]);
   const from = isDate(params.from) ? params.from : period.from;
   const to = isDate(params.to) ? params.to : period.to;
-  const view = params.view === "customs" ? "customs" : "purchases";
   const [row, access] = await Promise.all([loadTpiConnectionRow(orgId), moduleAccess(["ap"])]);
   const connection = row ? toTpiConnectionView(row) : null;
+  // Гаалийн таб ЗӨВХӨН операторын гаалийн түлхүүр (ITC_CUSTOMS_API_KEY) тохируулагдсан үед —
+  // түлхүүр ирэх хүртэл нуугдана (product owner 2026-10-03); URL-ээр ч нээгдэхгүй.
+  const customsEnabled = connection?.customsApiKey ?? false;
+  const view = params.view === "customs" && customsEnabled ? "customs" : "purchases";
   const canWrite = PERMISSION_RANK[access.levels.ap ?? "none"] >= PERMISSION_RANK.write;
 
   return (
@@ -39,7 +43,7 @@ export default async function PayablesEbarimtPage({ searchParams }: { searchPara
             : "Нийлүүлэгчдээс танай регистр дээр олгогдсон БҮХ eBarimt (ТЕГ-ээс өдөр бүр татсан, топбарын периодоор) — өглөгийн нэхэмжлэхтэй ДДТД-аар тулгаж, НӨАТ-ын тайлангийн «авсан НӨАТ»-ыг шалгана. Борлуулагчийн нэр ТЕГ-ээс далдлагдаж ирдэг."}
         </p>
       </div>
-      {connection && <EbarimtPayablesTabs view={view} />}
+      {connection && customsEnabled && <EbarimtPayablesTabs view={view} />}
       {view === "customs" ? (
         <CustomsView orgId={orgId} connection={connection} canWrite={canWrite} from={from} to={to} />
       ) : (

@@ -1,4 +1,5 @@
 import { getActiveOrg } from "@/lib/auth";
+import { customsApiKeyConfigured } from "@/lib/ebarimt/customs-sync";
 import { loadTaxLedger } from "@/lib/tax/ledger";
 import { loadTaxSettings } from "@/lib/tax/settings";
 import { TaxManager } from "@/components/tax/tax-manager";
@@ -31,9 +32,11 @@ export default async function CustomsTaxPage() {
           subtitle="Импортын бараанд гаалийн байгууллагад төлөх татвар, хураамжууд."
         />
         <div className="flex gap-2">
-          <TaxModuleLink href="/payables/ebarimt?view=customs" icon="reconciliation">
-            Гаалийн мэдүүлэг (ТЕГ)
-          </TaxModuleLink>
+          {customsApiKeyConfigured() && (
+            <TaxModuleLink href="/payables/ebarimt?view=customs" icon="reconciliation">
+              Гаалийн мэдүүлэг (ТЕГ)
+            </TaxModuleLink>
+          )}
           <TaxModuleLink href="/payables/documents" icon="document">
             Өглөгийн нэхэмжлэх
           </TaxModuleLink>
