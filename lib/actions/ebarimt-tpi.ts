@@ -90,9 +90,24 @@ export async function saveEbarimtTpiConnection(input: {
       updatedAt: new Date(),
       ...(password ? { passwordEnc: encryptSecret(password) } : {}),
       ...(apiKey ? { apiKeyEnc: encryptSecret(apiKey) } : input.clearApiKey ? { apiKeyEnc: null } : {}),
-      // Өөр хэрэглэгч/орчин → өмнөх явц, алдаа хүчингүй.
-      ...(identityChanged ? { syncFrom: null, syncedThrough: null, lastCheckSummary: null } : {}),
+      // Өөр хэрэглэгч/орчин → өмнөх явц, алдаа хүчингүй — борлуулалт, худалдан авалт, гааль ГУРВУУЛАА
+      // (2026-10-03: орчин солиход худалдан авалт хуучин орчны алдаа/явцтай үлдэж байв).
+      ...(identityChanged
+        ? {
+            syncFrom: null,
+            syncedThrough: null,
+            allReceiptsFrom: null,
+            lastCheckSummary: null,
+            purchasesSyncFrom: null,
+            purchasesSyncedThrough: null,
+            lastPurchaseSummary: null,
+            customsSyncFrom: null,
+            customsSyncedThrough: null,
+          }
+        : {}),
       lastSyncError: null,
+      lastPurchaseSyncError: null,
+      lastCustomsSyncError: null,
     };
     let id: string;
     if (existing) {
