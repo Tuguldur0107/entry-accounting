@@ -18,7 +18,9 @@ import { isItcEnvironment } from "@/lib/itc/auth";
 import { ETAX_FORMS, ETAX_STATUS_LABELS, ETAX_SUBMISSION_STATUSES, isEtaxFormKey, type EtaxFormKey, type EtaxSubmissionStatus } from "@/lib/itc/etax/constants";
 import {
   checkEtaxConnection,
+  listEtaxSubmissionRows,
   loadEtaxConnectionRow,
+  loadEtaxOverview,
   prepareSubmission,
   toEtaxConnectionView,
   transitionEtaxSubmission,
@@ -36,7 +38,7 @@ import {
   submitSubmissionToTax,
   syncEtaxOrg,
 } from "@/lib/itc/etax/tax-flow";
-import type { EtaxConnectionView, EtaxMappingView, EtaxReportChoice, EtaxSubmissionView } from "@/lib/itc/etax/types";
+import type { EtaxConnectionView, EtaxMappingView, EtaxOverview, EtaxReportChoice, EtaxSubmissionView } from "@/lib/itc/etax/types";
 
 const cleanText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 const formOf = (value: unknown): EtaxFormKey => {
@@ -159,6 +161,41 @@ export async function deleteEtaxConnection(): Promise<ActionResult<{ ok: true }>
 }
 
 /** Тайланг eTax-д бэлтгэх — ноорог үүсгэнэ/шинэчилнэ (tax:write). `periodCode` маягтын тайлант үе. */
+/** AI/MCP унших: холболт + маягт бүрийн бэлэн байдал + тушаах ёстой үе — `tax:read`. Нууц утгагүй. */
+export async function getEtaxOverview(): Promise<ActionResult<EtaxOverview>> {
+  try {
+    const { orgId } = await requireModuleAction("tax", "read");
+    return await loadEtaxOverview(orgId);
+  } catch (caught) {
+    return actionError("getEtaxOverview", caught, "eTax-ийн байдлыг уншиж чадсангүй");
+  }
+}
+
+/** AI/MCP унших: илгээлтийн түүх (шүүлт DB-д) — `tax:read`. */
+export async function listEtaxSubmissions(input: {
+  form?: string | null;
+  periodCode?: string | null;
+  status?: string | null;
+  limit?: number | null;
+}): Promise<ActionResult<{ submissions: EtaxSubmissionView[] }>> {
+  try {
+    const { orgId } = await requireModuleAction("tax", "read");
+    const form = cleanText(input.form);
+    const status = cleanText(input.status);
+    if (form && !isEtaxFormKey(form)) throw new Error("Маягт буруу (vat / pit / cit)");
+    if (status && !(ETAX_SUBMISSION_STATUSES as readonly string[]).includes(status)) throw new Error(`Төлөв буруу (${ETAX_SUBMISSION_STATUSES.join(" / ")})`);
+    const submissions = await listEtaxSubmissionRows(orgId, {
+      form: form ? (form as EtaxFormKey) : undefined,
+      periodCode: cleanText(input.periodCode) || undefined,
+      status: status ? (status as EtaxSubmissionStatus) : undefined,
+      limit: input.limit ?? undefined,
+    });
+    return { submissions };
+  } catch (caught) {
+    return actionError("listEtaxSubmissions", caught, "eTax илгээлтүүдийг уншиж чадсангүй");
+  }
+}
+
 export async function prepareEtaxReturn(input: {
   form: string;
   periodCode: string;

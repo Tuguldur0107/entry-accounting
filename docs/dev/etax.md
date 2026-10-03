@@ -166,8 +166,9 @@ lib/status.ts               ETAX_STATUS_TONES
 
 1. ~~`attention.ts`: тушаагаагүй тайлан → «Анхаарах»~~ — ✅ §9 (Entry-ийн төлвөөр); ТЕГ-ийн
    `getLateList`-ийг өдрийн татлагаар нэмж тулгах нь дараагийн алхам
-2. MCP tool: `get_etax_submissions` (унших), `prepare_etax_vat_return` (ноорог); илгээх tool НЭМЭХГҮЙ
-   (`[HUMAN_REQUIRED]` — татварын тайлан = хүний баталгаажуулалт)
+2. ~~MCP tool~~ — ✅ §10 (`get_etax_status`, `list_etax_submissions`, `prepare_etax_return`,
+   `refresh_etax_submission_status`); илгээх tool НЭМЭХГҮЙ (`[HUMAN_REQUIRED]`)
+3. ТЕГ-ийн `getLateList`-ийг өдрийн татлагаар Entry-ийн төлөвтэй тулгах (§9)
 
 ## 7. Хавсралт мэдээ (sheet, спек §3.11–§3.15)
 
@@ -235,3 +236,21 @@ lib/status.ts               ETAX_STATUS_TONES
   улирлын үед тайлант үеийн сүүлийн сараар
 - ТЕГ рүү амьд дуудлага ХИЙХГҮЙ (самбар хурдан) — ТЕГ-ийн `getLateList`-тэй тулгах нь §6
 - Тест `tests/notification-attention.test.ts` (eTax 5 тест)
+
+## 10. AI / MCP tool-ууд (`lib/ai/tools.ts`, `docs/dev/ai-mcp.md`)
+
+Унших + ноорог бэлтгэх л. **ТЕГ-д хадгалах (`saveFormData`), илгээх (`submit`), мэдээ бичих, төлөвийг
+гараар солих tool БАЙХГҮЙ** — `[HUMAN_REQUIRED]`, вэбээс хүн (татварын тайлан = хүний гарын үсэг);
+холболт, байгууллага татах, нүд/мэдээний холболт мөн зөвхөн вэбээс админ. Статик тест
+`tests/etax-tools.test.ts` ТЕГ рүү бичих нэртэй tool нэмэгдэхийг хориглоно.
+
+| Tool | Юу | Эрх |
+|---|---|---|
+| `get_etax_status` | холболт (нууцгүй), entId/NE-KEY бэлэн эсэх; маягт бүрд холболтын дутуу, ОДОО тушаах ёстой үе + хугацаа + хүчин төгөлдөр илгээлт (`loadEtaxOverview` — «Анхаарах»-тай НЭГ `etaxDuePeriods`/`etaxEffectiveSubmission`) | `tax:read` (`getEtaxOverview`) |
+| `list_etax_submissions` | түүх: form / periodCode / status / limit ≤ 50 шүүлт DB-д, гол дүн `cardFields`-ээр | `tax:read` (`listEtaxSubmissions`) |
+| `prepare_etax_return` | `form` × `period` (сар YYYY-MM → `periodCodeFor`; ААНОАТ-д YYYY-Qn ч болно) → `prepareEtaxReturn` — ноорог үүсгэнэ/шинэчилнэ, бүх талбар + уялдааны алдаа/анхааруулга буцаана; аль ч горимд ЗӨВХӨН ноорог (`[HUMAN_REQUIRED]` дараагийн алхмыг ил хэлнэ) | `tax:write` |
+| `refresh_etax_submission_status` | ID (бүтэн / 8+ угтвар, таахгүй) → `refreshEtaxSubmissionStatus` — ТЕГ-ийн `getHistory`-оос урагш л | `tax:write` |
+
+Tool DB-д шууд бичихгүй (`tests/ai-tools-no-direct-writes.test.ts`); уншилт ч server action-аар
+(`requireModuleAction("tax","read")`). Алдаа `[CODE]` текст (`INVALID_INPUT`, `NOT_FOUND`, `AMBIGUOUS`,
+`ETAX_*`).
