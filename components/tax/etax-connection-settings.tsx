@@ -81,8 +81,9 @@ export function EtaxConnectionSettings({ connection }: { connection: EtaxConnect
         <div>
           <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">ITC нэвтрэлт (eTax)</h2>
           <p className="text-xs text-[var(--ea-text-3)]">
-            etax.mta.mn-д нэвтэрдэг нэвтрэх нэр, нууц үг — Нэвтрэлтийн нэгдсэн систем (auth.itc.gov.mn). Нууц үг шифртэй
-            хадгалагдана, хэзээ ч харагдахгүй.
+            etax.mta.mn-д нэвтэрдэг нягтлангийн (хувь хүний) нэвтрэх нэр, нууц үг — Нэвтрэлтийн нэгдсэн систем
+            (auth.itc.gov.mn). Тэр хүнд эрх олгогдсон байгууллагуудаас энэ компанийн регистртэй нь «Байгууллага татах»-аар
+            сонгогдоно. Нууц үг шифртэй хадгалагдана, хэзээ ч харагдахгүй; нягтлан солигдвол энд шинэ хүний эрхийг оруулна.
           </p>
         </div>
         {connection ? (
