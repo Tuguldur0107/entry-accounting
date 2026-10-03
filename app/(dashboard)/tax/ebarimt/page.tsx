@@ -40,15 +40,20 @@ export default async function TaxEbarimtConnectionPage() {
           error: connection.lastPurchaseSyncError,
           hint: "Өглөг → eBarimt · худалдан авалт — өглөгтэй ДДТД-аар тулгана",
         },
-        {
-          label: "Гаалийн мэдүүлэг",
-          href: "/payables/ebarimt?view=customs",
-          from: connection.customsSyncFrom,
-          through: connection.customsSyncedThrough,
-          okAt: connection.lastCustomsSyncOkAt,
-          error: connection.customsApiKey ? connection.lastCustomsSyncError : "Гаалийн түлхүүр Entry-д тохируулагдаагүй — Entry багт хандана уу",
-          hint: "Өглөг → eBarimt · худалдан авалт → Гаалийн мэдүүлэг",
-        },
+        // Гаалийн мэдүүлэг — операторын гаалийн түлхүүр тохируулагдсан үед л харагдана.
+        ...(connection.customsApiKey
+          ? [
+              {
+                label: "Гаалийн мэдүүлэг",
+                href: "/payables/ebarimt?view=customs",
+                from: connection.customsSyncFrom,
+                through: connection.customsSyncedThrough,
+                okAt: connection.lastCustomsSyncOkAt,
+                error: connection.lastCustomsSyncError,
+                hint: "Өглөг → eBarimt · худалдан авалт → Гаалийн мэдүүлэг",
+              },
+            ]
+          : []),
       ]
     : [];
 
@@ -66,7 +71,7 @@ export default async function TaxEbarimtConnectionPage() {
         </p>
       </div>
       {streams.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className={`grid gap-3 ${streams.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
           {streams.map((stream) => (
             <Link key={stream.href} href={stream.href} className="block">
               <TaxStatCard

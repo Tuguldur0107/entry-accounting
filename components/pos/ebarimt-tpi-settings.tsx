@@ -172,12 +172,13 @@ export function EbarimtTpiSettings() {
               {connection.lastPurchaseSyncError && (
                 <div className="text-[var(--ea-danger-fg)]">Худалдан авалт: {connection.lastPurchaseSyncError}</div>
               )}
-              <div className="text-[var(--ea-text-3)]">
-                Гаалийн мэдүүлэг:{" "}
-                {connection.customsApiKey
-                  ? `сүүлд амжилттай ${formatTime(connection.lastCustomsSyncOkAt)} · ${connection.customsSyncFrom ?? "—"} → ${connection.customsSyncedThrough ?? "—"}`
-                  : "гаалийн түлхүүр Entry-д тохируулагдаагүй (татахгүй)"}
-              </div>
+              {/* Гаалийн мөр зөвхөн операторын гаалийн түлхүүртэй үед (түлхүүр ирэх хүртэл нуугдана). */}
+              {connection.customsApiKey && (
+                <div className="text-[var(--ea-text-3)]">
+                  Гаалийн мэдүүлэг: сүүлд амжилттай {formatTime(connection.lastCustomsSyncOkAt)} · {connection.customsSyncFrom ?? "—"} →{" "}
+                  {connection.customsSyncedThrough ?? "—"}
+                </div>
+              )}
               {connection.lastCustomsSyncError && (
                 <div className="text-[var(--ea-danger-fg)]">Гаалийн мэдүүлэг: {connection.lastCustomsSyncError}</div>
               )}
