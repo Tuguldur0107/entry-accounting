@@ -22,7 +22,9 @@ action-ууд эндээс хараахан уншдаггүй (P3-ийн engine
 lib/ontology/types.ts            ObjectDef, StateDef, TransitionDef, RelationDef, GuardKey, EffectKey
 lib/ontology/define.ts           defineObject — бүтцийн шалгалт (objectProblems) + гүн freeze
 lib/ontology/objects/            journal-voucher, arap-document, cash-document,
-                                 purchase-order (PurchaseOrderStatus), qpay-intent (QpayIntentStatus)
+                                 purchase-order (PurchaseOrderStatus), qpay-intent (QpayIntentStatus),
+                                 inventory-movement, goods-receipt (GoodsReceiptStatus), cost-entry,
+                                 fixed-asset, fa-depreciation-entry
 lib/ontology/index.ts            ONTOLOGY_OBJECTS, ontologyObject, transitionsFrom, ontologyToolNames
 lib/ontology/describe.ts         describeOntology — tool-ын текст / JSON гаралт
 lib/ai/tools.ts                  describe_ontology (зөвхөн унших, rate kind "read")
@@ -55,6 +57,10 @@ trigger-ээр, M4).
 - АР/АП-ийн модуль `ar|ap` — баримтын төрлөөр (`lib/arap/document-kind.ts`).
 - QPay-ийн шилжилт `lib/qpay/intent.ts`-ийн `TRANSITIONS`-тэй ЯГ ИЖИЛ (тест бүх хосыг тулгана);
   шошго нь `QPAY_INTENT_STATUS_LABELS`-аас.
+- Бараа хөдөлгөөн GL журнал үүсгэхгүй (`ledger: "none"`) — өртгийг `cost_entry` бодно;
+  `po_receipt` хөдөлгөөнийг зөвхөн хүлээн авалтаар (`not_source_locked`).
+- ҮХ-ийн `active` / `disposed` шошго `lib/status.ts`-д байхгүй — эх нь registry (тест зөвхөн
+  `DOCUMENT_STATUS`-д байгаа төлвийг тулгана).
 
 ## 4. Drift тест (`tests/ontology-registry.test.ts`)
 
@@ -64,16 +70,16 @@ trigger-ээр, M4).
 | хүснэгт + `status` багана (NOT NULL, default ∈ initial) | хүснэгт / багана нэр солигдсон |
 | схемийн тайлбар `// "draft" \| …` = states | төлөв нэмсэн атлаа registry-д алга |
 | FK холбоо (`kind: "fk"`) схемийн FK-тэй, soft/polymorphic FK-гүй | FK нэмсэн / хассан |
-| шошго = `lib/status.ts` `DOCUMENT_STATUS`; QPay = `canTransition` | шошго, шилжилт зөрсөн |
+| шошго = `lib/status.ts` `DOCUMENT_STATUS` (тэнд байгаа төлөвт); QPay = `canTransition` | шошго, шилжилт зөрсөн |
 | `lib/**` дахь `eq/ne/inArray(<table>.status, "…")`, `.update(<table>).set({ status: "…" })` литерал ∈ states | үсгийн алдаа, бүртгэлгүй шинэ төлөв |
-| ontology-ийн tool бүр байгаа; `journal_voucher\|arap_(document\|invoice)\|cash_(document\|transaction)\|purchase_order` нэртэй БИЧИХ tool бүр холбогдсон | шинэ tool registry-гүй |
+| ontology-ийн tool бүр байгаа; объектын нэртэй (`OBJECT_TOOL`: журнал, АР/АП, касс, PO, бараа, хүлээн авалт, ҮХ, элэгдэл, өртөг) БИЧИХ tool бүр холбогдсон | шинэ tool registry-гүй |
 | `ai_post_mode` гэсэн шилжилтийн runner-т `assertPostMode` / `mode === "post"` байгаа | registry худлаа хэлсэн |
 | `describe_ontology` гаралт (жагсаалт, forState, алдааны код, < 4 KB) | — |
 
 ## 5. Ratchet (`tests/ontology-status-writes.test.ts`)
 
 `KNOWN_DIRECT_STATUS_WRITES` = файл → registry-ийн объектын хүснэгтэд `status` бичдэг
-`.update(<table>).set({ … })`-ийн тоо (2026-10-03: 16 файл, 47).
+`.update(<table>).set({ … })`-ийн тоо (2026-10-03: 16 файл, 47 → 10 объектод 17 файл, 63).
 
 - **Өсвөл унана** — шинэ шилжилтийг эхлээд `lib/ontology/objects/*`-д бүртгэж, тоог PR-д ИЛ
   өсгөнө (reviewer харна).
@@ -93,8 +99,8 @@ trigger-ээр, M4).
 
 ## 7. Дараагийн шат
 
-- P2-ийн үлдсэн: бусад объект (бараа хөдөлгөөн, хүлээн авалт, ҮХ, элэгдэл, өртөг, POS
-  борлуулалт/ээлж, цалин), `lib/status.ts`-ийг registry-ээс уншдаг болгох, engine-ийн ажиглах
-  горим (`audit_events action='ontology_violation'`).
+- P2-ийн үлдсэн: POS борлуулалт/ээлж, цалин; `lib/status.ts`-ийг registry-ээс уншдаг болгох
+  (ҮХ-ийн шошгын давхар толь `components/fa/*`); engine-ийн ажиглах горим
+  (`audit_events action='ontology_violation'`).
 - P3: `transition()` engine — нөхцөлтэй бичилт + guard дараалал нэг цэгт, модулиар
   `ONTOLOGY_ENFORCE`. P5: `CHECK (status IN …)` registry-ээс.

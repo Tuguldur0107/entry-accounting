@@ -23,16 +23,17 @@ import { ONTOLOGY_OBJECTS } from "../lib/ontology";
 
 /** файл → ontology объектын хүснэгтэд `status` бичдэг `.set({…})`-ийн тоо. */
 const KNOWN_DIRECT_STATUS_WRITES: Record<string, number> = {
-  // 2026-10-03 (P2 эхлэл): 16 файл, 47 бичилт.
+  // 2026-10-03 (P2 эхлэл): 16 файл, 47 бичилт; + бараа, хүлээн авалт, өртөг, ҮХ, элэгдэл: 17 файл, 63.
   "lib/actions/arap-advances.ts": 1,
   "lib/actions/arap-ecl.ts": 4,
   "lib/actions/arap.ts": 6,
   "lib/actions/cash.ts": 8,
-  "lib/actions/costing.ts": 1,
-  "lib/actions/fa.ts": 4,
+  "lib/actions/costing.ts": 3,
+  "lib/actions/fa.ts": 12,
   "lib/actions/gl.ts": 2,
+  "lib/actions/inventory.ts": 2,
   "lib/actions/pos.ts": 2,
-  "lib/actions/procurement.ts": 5,
+  "lib/actions/procurement.ts": 9,
   "lib/actions/qpay.ts": 1,
   "lib/arap/credit-note-db.ts": 2,
   "lib/cash/import-statement.ts": 1,

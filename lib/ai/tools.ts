@@ -2036,7 +2036,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "describe_ontology",
     description:
-      "Entry-ийн бизнес объектын ЗАГВАР (ontology): төлөв, аль төлөвөөс ямар үйлдэл ямар tool-оор хийгдэх, эрх, шалгалт (тайлант үе, хязгаар…), холбоо. Баримтыг засах / батлах / буцаах / устгахын ӨМНӨ «энэ төлөвт юу хийж болох вэ» гэдгийг эндээс шалгана (forState). Объект: journal_voucher, arap_document, cash_document, purchase_order, qpay_intent. ЗӨВХӨН УНШИНА — сервер шалгалтаа дахин хийнэ.",
+      "Entry-ийн бизнес объектын ЗАГВАР (ontology): төлөв, аль төлөвөөс ямар үйлдэл ямар tool-оор хийгдэх, эрх, шалгалт (тайлант үе, хязгаар…), холбоо. Баримтыг засах / батлах / буцаах / устгахын ӨМНӨ «энэ төлөвт юу хийж болох вэ» гэдгийг эндээс шалгана (forState). Объект: journal_voucher, arap_document, cash_document, purchase_order, qpay_intent, inventory_movement, goods_receipt, cost_entry, fixed_asset, fa_depreciation_entry. ЗӨВХӨН УНШИНА — сервер шалгалтаа дахин хийнэ.",
     inputSchema: {
       type: "object",
       properties: {

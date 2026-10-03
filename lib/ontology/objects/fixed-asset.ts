@@ -1,0 +1,82 @@
+// Үндсэн хөрөнгийн карт — lib/actions/fa.ts. docs/dev/fixed-assets.md.
+
+import { defineObject } from "../define";
+
+export const fixedAsset = defineObject({
+  key: "fixed_asset",
+  label: "Үндсэн хөрөнгө",
+  layer: "core",
+  module: "fa",
+  table: "fixed_assets",
+  statusColumn: "status",
+  states: {
+    draft: { label: "Ноорог", ledger: "none", editable: true },
+    active: { label: "Идэвхтэй", ledger: "posted" },
+    disposed: { label: "Хасагдсан", ledger: "posted" },
+  },
+  initial: ["draft", "active"],
+  transitions: [
+    {
+      action: "create",
+      from: [],
+      to: "draft",
+      permission: { module: "fa", level: "write" },
+      guards: ["period_open", "control_account", "ai_post_mode", "ai_post_limit"],
+      tool: { name: "create_fixed_asset", aliases: ["create_fixed_assets_batch"] },
+      note: "Ноорог биш бол капиталжуулах журналтай шууд «active» (fa:post). capitalizeFrom = хяналтын данс бол control_account_guard.",
+    },
+    {
+      action: "activate",
+      from: ["draft"],
+      to: "active",
+      permission: { module: "fa", level: "post" },
+      guards: ["period_open", "ai_post_mode", "ai_post_limit"],
+      effects: ["journal", "voucher_no", "hook:beforeJournalPost"],
+      tool: { name: "activate_fixed_asset" },
+      note: "Ноорог капиталжуулах журнал байвал батлагдана.",
+    },
+    {
+      action: "deactivate",
+      from: ["active"],
+      to: "draft",
+      permission: { module: "fa", level: "write" },
+      guards: [],
+      note: "Вэбээс л (MCP tool алга). Элэгдлийн бичилт (draft / posted) үлдсэн бол татгалзана.",
+    },
+    {
+      action: "dispose",
+      from: ["active"],
+      to: "disposed",
+      permission: { module: "fa", level: "post" },
+      guards: ["period_open", "ai_post_mode", "ai_post_limit"],
+      effects: ["journal", "voucher_no", "hook:beforeJournalPost"],
+      tool: { name: "dispose_fixed_asset" },
+      note: "Данснаас хасалт (актлах / борлуулах / бэлэглэх); тэр сарын ноорог элэгдлийг эхлээд батална / устгана.",
+    },
+    {
+      action: "reverse_disposal",
+      from: ["disposed"],
+      to: "active",
+      permission: { module: "fa", level: "post" },
+      guards: ["period_open"],
+      effects: ["journal", "voucher_no"],
+      note: "Вэбээс л (MCP tool алга) — хасалтын журнал улаан сторноор буцна.",
+    },
+    {
+      action: "delete",
+      from: ["draft", "active"],
+      to: null,
+      permission: { module: "fa", level: "write" },
+      guards: ["ai_post_mode"],
+      tool: { name: "delete_fixed_asset" },
+      note: "Капиталжуулах журнал батлагдсан эсвэл элэгдлийн бичилттэй бол татгалзана — эхлээд журналыг буцаана.",
+    },
+  ],
+  relations: [
+    { name: "sourceVoucher", targetTable: "journal_vouchers", column: "source_voucher_id", kind: "fk", cardinality: "one" },
+    { name: "disposalVoucher", targetTable: "journal_vouchers", column: "disposal_voucher_id", kind: "fk", cardinality: "one" },
+    { name: "depreciation", targetTable: "fa_depreciation_entries", column: "asset_id", kind: "fk", cardinality: "many" },
+  ],
+  idempotency: { column: "external_ref" },
+  note: "Санхүүгийн (IAS 16, GL-д) ба татварын (мэмо) элэгдэл ЗЭРЭГ; ашиглалтын хугацаа дуусмагц элэгдэл зогсоно.",
+});

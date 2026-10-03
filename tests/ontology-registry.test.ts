@@ -104,7 +104,8 @@ test("төлвийн шошго lib/status.ts-тэй ИЖИЛ; QPay шилжил
   for (const object of ONTOLOGY_OBJECTS) {
     if (object.key === "qpay_intent") continue;
     for (const [state, def] of Object.entries(object.states))
-      assert.equal(def.label, DOCUMENT_STATUS[state]?.label, `${object.key}.${state} шошго`);
+      // lib/status.ts-д байхгүй төлвийн (ҮХ-ийн active / disposed) эх нь registry.
+      if (DOCUMENT_STATUS[state]) assert.equal(def.label, DOCUMENT_STATUS[state].label, `${object.key}.${state} шошго`);
   }
   const qpay = ontologyObject("qpay_intent")!;
   assert.deepEqual(Object.keys(qpay.states).sort(), [...QPAY_INTENT_STATUSES].sort());
@@ -142,7 +143,8 @@ test("ontology-ийн tool бүр байгаа; объектын БИЧИХ tool
   assert.ok(names.has("describe_ontology"));
   assert.equal(aiToolRateKind("describe_ontology"), "read");
   // Эдгээр нэртэй бичих tool шинээр нэмэгдвэл ontology-д шилжилтээ бүртгэнэ.
-  const OBJECT_TOOL = /journal_voucher|arap_(document|invoice)|cash_(document|transaction)|purchase_order/;
+  const OBJECT_TOOL =
+    /journal_voucher|arap_(document|invoice)|cash_(document|transaction)|purchase_order|inventory_(movement|count)|opening_stock|goods_receipt|fixed_asset|fa_depreciation|cost_(entr|allocation)|monthly_costing/;
   const unmapped = [...names].filter(
     (name) => OBJECT_TOOL.test(name) && aiToolRateKind(name) === "write" && !mapped.has(name)
   );

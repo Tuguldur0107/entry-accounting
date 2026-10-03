@@ -1,9 +1,14 @@
 // Ontology registry — ЦЭВЭР, client-safe (docs/ontology-audit.md §6, docs/dev/ontology.md).
-// P2 (ажиглах): 5 гол объект. Шинэ объект нэмэхдээ ONTOLOGY_OBJECTS-д бүртгэж,
+// P2 (ажиглах): 10 гол объект. Шинэ объект нэмэхдээ ONTOLOGY_OBJECTS-д бүртгэж,
 // tests/ontology-registry.test.ts-ийн drift шалгалтыг давуулна.
 
 import { arapDocument } from "./objects/arap-document";
 import { cashDocument } from "./objects/cash-document";
+import { costEntry } from "./objects/cost-entry";
+import { faDepreciationEntry } from "./objects/fa-depreciation-entry";
+import { fixedAsset } from "./objects/fixed-asset";
+import { goodsReceipt } from "./objects/goods-receipt";
+import { inventoryMovement } from "./objects/inventory-movement";
 import { journalVoucher } from "./objects/journal-voucher";
 import { purchaseOrder } from "./objects/purchase-order";
 import { qpayIntent } from "./objects/qpay-intent";
@@ -18,6 +23,11 @@ export const ONTOLOGY_OBJECTS: readonly ObjectDef[] = Object.freeze([
   cashDocument,
   purchaseOrder,
   qpayIntent,
+  inventoryMovement,
+  goodsReceipt,
+  costEntry,
+  fixedAsset,
+  faDepreciationEntry,
 ] as ObjectDef[]);
 
 export function ontologyObject(key: string): ObjectDef | null {
