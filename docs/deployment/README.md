@@ -127,6 +127,13 @@ git push https://github.com/<org>/entry-<харилцагч>.git main --tags   #
 
   `release.yml` tsc/eslint/тест ажиллуулаад GitHub Release үүсгэнэ (tag ≠
   package.json бол унана).
+- ⚠️ **Release-ийн commit `.github/workflows/`-ыг ӨӨРЧЛӨХГҮЙ.** Actions → Release
+  (гараар) нь tag-ийг `GITHUB_TOKEN`-оор үүсгэдэг; tag заасан commit өөрөө workflow
+  файл засаж байвал GitHub татгалзана (`workflows` эрхгүй) — «Resource not
+  accessible by integration». 2026-10-02-нд v1.7.0 яг ингэж үүсээгүй (ref = `main`
+  тэр мөчид ci.yml засах #246 байв). Тиймээс хувилбарын bump-ийг тусдаа commit-оор
+  (зөвхөн `package.json` + `CHANGELOG.md`) гаргаж, Release-ийг ЯГ ТЭР commit-ийн
+  SHA-аар ажиллуулна; эсвэл tag-ийг локалаас `git push origin vX.Y.Z`.
 - Deploy дээр хувилбар харах: `/api/health`, `/settings/system`, MCP
   `initialize` → `serverInfo.version`, REST хариуны `X-Entry-Version` header.
 - **MAJOR** = DB schema-д буцаагдахгүй өөрчлөлт эсвэл `custom/` interface
