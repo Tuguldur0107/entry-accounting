@@ -1,0 +1,113 @@
+// Худалдан авалтын захиалга (PO) — lib/actions/procurement.ts.
+// docs/procurement/01-implementation-contract.md, docs/dev/procurement.md.
+
+import type { PurchaseOrderStatus } from "@/lib/procurement/types";
+
+import { defineObject } from "../define";
+
+export const purchaseOrder = defineObject<PurchaseOrderStatus>({
+  key: "purchase_order",
+  label: "Худалдан авалтын захиалга",
+  layer: "core",
+  module: "proc",
+  table: "purchase_orders",
+  statusColumn: "status",
+  states: {
+    draft: { label: "Ноорог", ledger: "none", editable: true },
+    open: { label: "Нээлттэй", ledger: "none", editable: true },
+    closed: { label: "Хаагдсан", ledger: "posted" },
+    cancelled: { label: "Цуцлагдсан", ledger: "none", terminal: true },
+  },
+  initial: ["draft"],
+  transitions: [
+    {
+      action: "create",
+      from: [],
+      to: "draft",
+      permission: { module: "proc", level: "write" },
+      guards: [],
+      tool: { name: "create_purchase_order" },
+    },
+    {
+      action: "update",
+      from: ["draft"],
+      to: "draft",
+      permission: { module: "proc", level: "write" },
+      guards: [],
+      tool: { name: "update_purchase_order" },
+    },
+    {
+      action: "update",
+      from: ["open"],
+      to: "open",
+      permission: { module: "proc", level: "write" },
+      guards: ["ai_post_mode", "ai_post_limit"],
+      tool: { name: "update_purchase_order" },
+      note: "Батлагдсан PO-ийн мөр засах = батлах шинжтэй (AI: шууд горим + хязгаар); хүлээн авсан / нэхэмжилсэн хэмжээнээс доош бууруулахгүй.",
+    },
+    {
+      action: "approve",
+      from: ["draft"],
+      to: "open",
+      permission: { module: "proc", level: "write" },
+      guards: ["ai_post_mode", "ai_post_limit"],
+      tool: { name: "approve_purchase_order" },
+    },
+    {
+      action: "receive",
+      from: ["open"],
+      to: "open",
+      permission: { module: "proc", level: "write" },
+      guards: ["period_open"],
+      effects: ["journal", "voucher_no", "hook:beforeJournalPost"],
+      tool: { name: "create_goods_receipt", aliases: ["confirm_goods_receipt", "create_ap_invoice_from_po"] },
+      note: "Бараа хүлээн авсан ӨДРИЙН Монголбанкны ханшаар; PO мөрийг түгжиж, түгжээний дараа дахин шалгана (M8).",
+    },
+    {
+      action: "close",
+      from: ["open"],
+      to: "closed",
+      permission: { module: "proc", level: "post" },
+      guards: ["period_open", "ai_post_mode", "ai_post_limit"],
+      effects: ["journal", "voucher_no", "hook:beforeJournalPost"],
+      tool: { name: "close_purchase_order" },
+      note: "poCloseBlockers — зөрүүг автоматаар нөхөхгүй; дутуу хаалтад шалтгаан + зардлын данс ИЛ.",
+    },
+    {
+      action: "reopen",
+      from: ["closed"],
+      to: "open",
+      permission: { module: "proc", level: "post" },
+      guards: ["period_open"],
+      effects: ["journal", "voucher_no"],
+      note: "Вэбээс л (MCP tool алга) — хаалтын журнал буцаагдана.",
+    },
+    {
+      action: "cancel",
+      from: ["draft", "open"],
+      to: "cancelled",
+      permission: { module: "proc", level: "write" },
+      guards: [],
+      tool: { name: "cancel_purchase_order" },
+      note: "Баталгаажсан хүлээн авалт / нэхэмжлэхтэй бол цуцлагдахгүй; ноорог хүлээн авалт хамт устна.",
+    },
+    {
+      action: "delete",
+      from: ["draft"],
+      to: null,
+      permission: { module: "proc", level: "write" },
+      guards: [],
+      note: "Вэбээс л (MCP tool алга).",
+    },
+  ],
+  relations: [
+    { name: "counterparty", targetTable: "counterparties", column: "counterparty_id", kind: "fk", cardinality: "one" },
+    { name: "warehouse", targetTable: "warehouses", column: "warehouse_id", kind: "fk", cardinality: "one" },
+    { name: "closeVoucher", targetTable: "journal_vouchers", column: "close_voucher_id", kind: "fk", cardinality: "one" },
+    { name: "lines", targetTable: "purchase_order_lines", column: "purchase_order_id", kind: "fk", cardinality: "many" },
+    { name: "receipts", targetTable: "goods_receipts", column: "purchase_order_id", kind: "fk", cardinality: "many" },
+    { name: "apBills", targetTable: "ar_ap_documents", column: "purchase_order_id", kind: "fk", cardinality: "many" },
+  ],
+  idempotency: { column: "external_ref" },
+  note: "НЭГ бизнес объект, хоёр түр данс; бүх бичилт businessObjectType «purchase_order» + ID-тай. Сар хаалт хүлээн авалттай нээлттэй PO-той бол хориглогдоно.",
+});

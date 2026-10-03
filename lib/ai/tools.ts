@@ -405,6 +405,7 @@ import {
   executeCustomTool,
   findCustomTool,
 } from "@/lib/custom/loader";
+import { describeOntology, type DescribeOntologyInput } from "@/lib/ontology/describe";
 
 
 export type { AiAction };
@@ -2030,6 +2031,19 @@ export const AI_TOOLS: AiToolDef[] = [
         to: { type: "string", description: "Тулгах огноо YYYY-MM-DD (үлдэгдэл энэ өдрөөр)" },
       },
       required: ["from", "to"],
+    },
+  },
+  {
+    name: "describe_ontology",
+    description:
+      "Entry-ийн бизнес объектын ЗАГВАР (ontology): төлөв, аль төлөвөөс ямар үйлдэл ямар tool-оор хийгдэх, эрх, шалгалт (тайлант үе, хязгаар…), холбоо. Баримтыг засах / батлах / буцаах / устгахын ӨМНӨ «энэ төлөвт юу хийж болох вэ» гэдгийг эндээс шалгана (forState). Объект: journal_voucher, arap_document, cash_document, purchase_order, qpay_intent. ЗӨВХӨН УНШИНА — сервер шалгалтаа дахин хийнэ.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        object: { type: "string", description: "Объектын түлхүүр (хоосон бол бүх объектын жагсаалт)" },
+        forState: { type: "string", description: "Энэ төлөвөөс хийж болох үйлдлүүд (жишээ нь posted)" },
+        format: { type: "string", enum: ["text", "json"], description: "Гаралт (default text)" },
+      },
     },
   },
   {
@@ -13461,6 +13475,10 @@ async function dispatchAiTool(
         return await runReconcileModules(orgId, args);
       case "get_workflow_guide":
         return runWorkflowGuide(args);
+      case "describe_ontology": {
+        const described = describeOntology(args as DescribeOntologyInput);
+        return { resultText: "text" in described ? described.text : `Алдаа: ${described.error}` };
+      }
       case "get_onboarding_guide":
         return await runOnboardingGuide(orgId, args);
       case "create_counterparties_batch":

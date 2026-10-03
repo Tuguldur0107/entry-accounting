@@ -27,6 +27,7 @@
 | [payroll.md](payroll.md) | §7 | Цалин, нэмэгдэл, НДШ, урьдчилгаа/сүүл, цалингийн хуудас |
 | [fixed-assets.md](fixed-assets.md) | §7a | Санхүү + татварын элэгдэл, нээлт |
 | [ai-mcp.md](ai-mcp.md) | §9a–§9b | AI tool давхарга (бүлгийн хүснэгт), MCP, OAuth, анхны туршилт |
+| [ontology.md](ontology.md) | §9g | Ontology registry (`lib/ontology/`): объект, төлөв, шилжилт, холбоо; `describe_ontology`; drift тест; шууд төлвийн бичилтийн ratchet |
 | [fork-custom.md](fork-custom.md) | §9c | Fork, `custom/` өргөтгөл, hook, REST API, лиценз |
 | [notifications.md](notifications.md) | §9d | Мэдэгдлийн систем, суваг, scheduler |
 | [knowledge.md](knowledge.md) | §9e | Мэдлэгийн сан, `knowledge-sync`, skills багц |
