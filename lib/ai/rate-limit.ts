@@ -18,7 +18,7 @@ export const AI_RATE_LIMITS: Record<AiRateKind, number> = {
   write: 20,
 };
 
-const READ_PREFIXES = ["list_", "get_", "lookup_", "read_", "reconcile_"];
+const READ_PREFIXES = ["list_", "get_", "lookup_", "read_", "reconcile_", "describe_"];
 
 /** MCP/REST tool-ийн төрөл — нэрээр (унших tool нь өгөгдөл өөрчилдөггүй). */
 export function aiToolRateKind(toolName: string): Exclude<AiRateKind, "chat"> {

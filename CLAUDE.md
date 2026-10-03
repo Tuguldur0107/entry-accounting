@@ -690,6 +690,21 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
   нийтийн группт ХЭЗЭЭ Ч очихгүй; группаас бичих/модерац ЗӨВХӨН админ
   (админы энгийн мессеж → нийтийн өрөө); бэлэн хариулт `/faq` — `faq.ts`, үнэ `plans.ts`-ээс
 
+### 9g. Ontology registry — P2 (ажиглах) ХЭРЭГЖСЭН
+
+Дэлгэрэнгүй: `docs/dev/ontology.md`; санал `docs/ontology-audit.md` §6. Код: `lib/ontology/`.
+
+- Registry ЦЭВЭР (DB импортгүй): объект, төлөв, шилжилт (эрх, guard, effect, MCP tool),
+  холбоо — ОДОО БАЙГАА зан төлвийг баримтжуулна, шинэ дүрэм ЗОХИОХГҮЙ. Одоо 5 объект:
+  журнал, АР/АП баримт, кассын баримт, PO, QPay intent
+- Эдгээр объектын төлөв/шилжилт/tool/FK-г өөрчилбөл `lib/ontology/objects/*`-ийг ХАМТ
+  шинэчилнэ — `tests/ontology-registry.test.ts` (схем, `lib/status.ts`, QPay TRANSITIONS,
+  код дахь status литерал, бичих tool бүр холбогдсон, «AI: Шууд бичих» шалгалт бодитой)
+- Шууд `.update(<объект>).set({ status })` — `tests/ontology-status-writes.test.ts`-ийн
+  `KNOWN_DIRECT_STATUS_WRITES` (файл бүрийн тоо): өсгөх нь ЗӨВХӨН шилжилтээ бүртгэсэн
+  үед PR-д ил, багасвал жагсаалтыг буулгана (P3 engine-д шилжих бүрд)
+- AI-д `describe_ontology` (зөвхөн унших) — сервер шалгалтаа ДАХИН хийнэ
+
 ### 10. Effective date (татвар/цалины тооцоололд)
 
 Knowledge: `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/effective-date.md`

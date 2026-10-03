@@ -116,7 +116,9 @@ const ACCOUNTING_INSTRUCTIONS =
   "дотор); сар хаах/дахин нээх (close_period, " +
   "reopen_period) зөвхөн 'Шууд бичих' горимд, ноорог үлдсэн бол татгалзана. " +
   "Данс, харилцагч, бараа нэрээ мэдэхгүй бол эхлээд list_* tools-оор " +
-  "шалгана. Олон модуль дамнасан ажилд get_workflow_guide. IFRS, Монголын " +
+  "шалгана. Олон модуль дамнасан ажилд get_workflow_guide. Баримтын төлөвөөс " +
+  "(ноорог / батлагдсан / төлөгдсөн…) юу хийж болох нь эргэлзээтэй бол " +
+  "describe_ontology (object + forState). IFRS, Монголын " +
   "татвар, цалин, ажлын урсгалын ОНОЛЫН асуултад list_knowledge_topics → " +
   "read_knowledge_section (эх сурвалжийн ишлэлтэй мэдлэгийн сан; багцад " +
   "ороогүй бол [FEATURE_NOT_IN_PLAN] — Entry Console-оос нээнэ).";

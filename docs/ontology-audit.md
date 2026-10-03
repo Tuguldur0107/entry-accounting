@@ -791,7 +791,7 @@ V01/V02-оор урьдчилан шалгаж зөрчилтэй бол тух�
 |---|---|---|---|---|
 | **P0 Хэмжилт** | Railway-ийн read-only холболтоор §7.1 trigger шалгалт, V01–V12 ажиллуулна. Нөөцлөлт (DAILY/WEEKLY) идэвхтэй эсэхийг баталгаажуулна. | Байхгүй | Байхгүй | Зөрчлийн тоо (baseline) |
 | **P1 Quick wins** | §8.2-ын засварууд | Байхгүй (код) | Бага: зөвхөн хатууруулна. `delete_*` MCP-ийн зан төлөв өөрчлөгдөнө. | release tag |
-| **P2 Registry (ажиглах)** | `lib/ontology/*`, `describe_ontology`, drift тест, `lib/status.ts`-ийг ontology-оос уншдаг болгох, engine ажиглах горимд | Байхгүй. Зөрчил `audit_events`-д бичигдэнэ. | Байхгүй: блоклохгүй | 2 долоо хоногийн зөрчлийн лог |
+| **P2 Registry (ажиглах)** — 🟡 2026-10-03 эхэлсэн: 5 объект, `describe_ontology`, drift + ratchet тест (`docs/dev/ontology.md`); үлдсэн: бусад объект, `lib/status.ts`, ажиглах engine | `lib/ontology/*`, `describe_ontology`, drift тест, `lib/status.ts`-ийг ontology-оос уншдаг болгох, engine ажиглах горимд | Байхгүй. Зөрчил `audit_events`-д бичигдэнэ. | Байхгүй: блоклохгүй | 2 долоо хоногийн зөрчлийн лог |
 | **P3 Мөрдөх (модулиар)** | GL → АР/АП → Касс → Бараа → FA → Costing → Procurement → POS. Модуль бүрийг `ONTOLOGY_ENFORCE=gl,ar,…` flag-аар асаана. | Байхгүй | Дунд: regression. **Модуль бүр SmartGPS-ийн өгөгдлийн хуулбар (staging) дээр тестлэгдэнэ.** | Модуль бүр тусдаа release |
 | **P4 Өгөгдөл цэвэрлэх** | V01–V12 бүрийг ангиллаар засна. V03-ийг `scripts/backfill-voucher-numbers.mjs`-ээр. V06, V09-ийг баримтаар эсвэл derived утгаар. V01, V02-ийг залруулах журналаар (**нягтлан бодогч шийднэ**). | Мета UPDATE (аудиттай) | Дунд: хүний шийдвэр шаардлагатай | V01–V12 = 0 |
 | **P5 DB constraint** | (a) `CHECK (status IN …) NOT VALID` ontology-оос, `apply-pending-ddl.mjs`-ээр idempotent → `VALIDATE CONSTRAINT` (V04=0 үед). (b) ✅ хийгдсэн — `scripts/apply-ledger-invariants.mjs` (push-ийн ДАРАА; push нь CHECK-ийг устгадаг), V01=V02=0 биш бол **алгасч, чанга лог**. (c) ✅ `/api/health` → `ledger`. | Нэмэх л | Бага: `NOT VALID` нь одоо байгаа мөрийг шалгахгүй | DB түвшний хамгаалалт |
@@ -851,4 +851,4 @@ V01/V02-оор урьдчилан шалгаж зөрчилтэй бол тух�
    - журналын 500-ийн хязгаар (✅ 2026-10-01);
    - мөнгө хөдөлгөдөг tool-уудын `externalRef`;
    - `update_counterparty`-ийн шууд DB бичилт.
-5. **`lib/ontology/` P2-ийг эхлүүлэх.** GL, АР/АП, касс, PO, QPay гэсэн 5 объектын registry, `describe_ontology`, drift тест, `KNOWN_DIRECT_STATUS_WRITES` (зөвхөн багасдаг жагсаалт) нэмнэ. Ингэснээр шинэ код ontology-г тойрохоо болино.
+5. 🟡 (2026-10-03 — `docs/dev/ontology.md`) **`lib/ontology/` P2-ийг эхлүүлэх.** GL, АР/АП, касс, PO, QPay гэсэн 5 объектын registry, `describe_ontology`, drift тест, `KNOWN_DIRECT_STATUS_WRITES` (зөвхөн багасдаг жагсаалт) нэмнэ. Ингэснээр шинэ код ontology-г тойрохоо болино.
