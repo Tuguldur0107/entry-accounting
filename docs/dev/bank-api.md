@@ -139,6 +139,9 @@ MNT данс бий), OPERACCTSTA-ийн нэг хариунд мөрийн дэ
   (2026-10-02)**: түлхүүр Entry-д орохгүй (authenticator), батлах линк (AI ноорог →
   чатад линк → утсаар кодоор), maker/checker, хязгаар, давхар төлбөр. Банкны хариу
   (Хавсралт 3, Q2) ирэх хүртэл Entry-д КОД БИЧИГДЭХГҮЙ.
+  **UAT P0 АМЖИЛТТАЙ (2026-10-02):** 1 000₮ Голомт → Голомт, Google Authenticator-ын
+  кодоор `successCount 1` / `SUCCESS`. Хүсэлтийн бүтэц SPEC 8.3: `initiator {acctName,
+  acctNo, particulars, amount {value, currency}, bank "15"}` + `receives [{…}]`.
   Эхний туршилт ЗӨВХӨН UAT-д, Entry-ээс тусдаа нэг удаагийн скриптээр —
   `npx tsx scripts/golomt-uat-transfer.ts` (≤ 10 000₮, хост UAT, нууц нуугдсан оролтоор,
   «ИЛГЭЭ» баталгаажуулалттай, дахин илгээхгүй). Апп / lib-д гүйлгээний зам
