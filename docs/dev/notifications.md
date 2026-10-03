@@ -102,6 +102,11 @@ tests/notification-{rules,attention,recipients,email}.test.ts
   `pos.qpay_amount_mismatch` (QPay мөнгө орсон ч дүн зөрсөн — `failed` + payment, pos write;
   аудит `webhook_amount_mismatch`-аар шууд ч явна), `pos.qpay_late_payment` (QR хаагдсаны дараа
   төлбөр орсон — аудит `late_paid` → rules.ts, шууд, pos write),
+  `tax.etax_due` / `tax.etax_overdue` / `tax.etax_rejected` (eTax холболттой байгууллагад л —
+  `loadEtaxAttention`: `etaxDuePeriods(today)`-ийн маягт × тайлант үе (сарын маягтад өмнөх сар,
+  улирлынхад сүүлийн дууссан улирал, хугацаа `deadlineOf`) Entry-д submitted/accepted БИШ бол
+  7/3/1/0 шатанд, хоцорсон бол долоо хоног тутам (цонх 20 хоног), ТЕГ буцаасан бол долоо хоног
+  тутам; самбар + daily; ТЕГ рүү амьд дуудлагагүй — `docs/dev/etax.md` §9),
   `bank.unmatched` (импортоос 3 хоног), `fx.reval_due` (сарын сүүлийн 3 хоног),
   `fx.rate_missing` (ажлын өдөр, МБ ханш алга), `stock.negative` (долоо хоног тутам)
 - **Нэмэлт суваг:** tick бүрд `deliverPendingChannels` — суваг × мэдэгдэл нэг л удаа;
