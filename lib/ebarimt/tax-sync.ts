@@ -225,6 +225,13 @@ export async function syncEbarimtTaxReceipts(orgId: string, options: { maxDays?:
   const row = await loadTpiConnectionRow(orgId);
   if (!row) throw new ItcError(ITC_ERRORS.config, "ТЕГ-ийн TPI холболт тохируулаагүй");
   if (!row.isEnabled) throw new ItcError(ITC_ERRORS.config, "ТЕГ-ийн TPI холболт идэвхгүй");
+  // Цонхоос гадуурх ГАР татлага = хүлээгдэх нөхцөл, алдаа БИШ — `lastSyncError`-д
+  // бичихгүй (карт «Алдаатай» болохгүй); action-ийн мессежээр л хэлнэ.
+  if (!isTpiSalesWindowOpen(row.environment === "staging" ? "staging" : "production", ulaanbaatarHour()))
+    throw new ItcError(
+      ITC_ERRORS.config,
+      `ТЕГ-ийн борлуулалтын задаргааны сервис зөвхөн ${TPI_SALES_WINDOW_UB.fromHour}:00–${TPI_SALES_WINDOW_UB.toHour}:00 (УБ) цагт ажилладаг — хуваарьт татлага тэр цагт автоматаар явна`
+    );
   const todayUb = ulaanbaatarToday();
   let syncedThrough = row.syncedThrough;
   let totals = { invoices: 0, payments: 0, receipts: 0, skipped: 0 };
@@ -243,11 +250,6 @@ export async function syncEbarimtTaxReceipts(orgId: string, options: { maxDays?:
         .where(eq(ebarimtTpiConnections.id, row.id));
     }
     const days = taxSyncDays({ syncFrom, syncedThrough, todayUb, maxDays: options.maxDays });
-    if (!isTpiSalesWindowOpen(session.env, ulaanbaatarHour()))
-      throw new ItcError(
-        ITC_ERRORS.config,
-        `ТЕГ-ийн борлуулалтын задаргааны сервис зөвхөн ${TPI_SALES_WINDOW_UB.fromHour}:00–${TPI_SALES_WINDOW_UB.toHour}:00 (УБ) цагт ажилладаг — хуваарьт татлага тэр цагт автоматаар явна`
-      );
     const done: string[] = [];
     for (const day of days) {
       // Цонх хаагдвал явцаа хадгалаад зогсоно (алдаа биш — маргааш үргэлжилнэ).
