@@ -25,6 +25,7 @@ import {
 } from "@/components/dashboard/home-dashboard";
 import { type SetupStep } from "@/components/dashboard/setup-checklist";
 import { computeTaxDeadlines } from "@/lib/tax/calendar";
+import { loadEtaxAttention } from "@/lib/notifications/load-attention";
 import {
   dashboardAlerts,
   type AttentionInput,
@@ -155,6 +156,7 @@ export default async function HomePage() {
     [statementCountRow],
     vatSettingsRow,
     orgRow,
+    etaxAttention,
   ] = await Promise.all([
     db
       .select({ n: sql<number>`count(*)::int` })
@@ -176,6 +178,8 @@ export default async function HomePage() {
       where: eq(organizations.id, orgId),
       columns: { registryNo: true, name: true },
     }),
+    // eTax тушаалтын дохио — scheduler-тэй НЭГ loader (хоцорсон/буцаагдсан тайлан).
+    loadEtaxAttention(orgId, today),
   ]);
 
   // Тулгагдаагүй банкны мөр — ажлын дарааллын тоолуур (зөвхөн count).
@@ -526,6 +530,7 @@ export default async function HomePage() {
     preparedMarkers: vouchers
       .map((voucher) => voucher.externalRef)
       .filter((ref): ref is string => !!ref),
+    etax: etaxAttention,
   };
   const alerts: HomeAlert[] = dashboardAlerts(attentionInput).map((signal) => ({
     tone: signal.tone,

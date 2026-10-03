@@ -10,6 +10,15 @@
 
 import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_SEND_STALE_HOURS } from "@/lib/ebarimt/constants";
 import { EBARIMT_TAX_SYNC_STALE_HOURS } from "@/lib/ebarimt/tax-reconcile";
+import {
+  ETAX_ACTIVE_STATUSES,
+  ETAX_FORM_KEYS,
+  ETAX_FORMS,
+  ETAX_STATUS_LABELS,
+  type EtaxFormKey,
+  type EtaxSubmissionStatus,
+} from "@/lib/itc/etax/constants";
+import { deadlineOf, periodCodeFor, periodRangeOf } from "@/lib/itc/etax/submission";
 import type { TaxDeadline, TaxDeadlineKey } from "@/lib/tax/calendar";
 
 import type { NotificationSeverity, NotificationType } from "./catalog";
@@ -114,6 +123,14 @@ export interface AttentionInput {
     purchaseError?: string | null;
     /** Гаалийн мэдүүлэг (tpiDeclaration) — сүүлийн татлагын алдаа (null = алдаагүй). */
     customsError?: string | null;
+  };
+  /**
+   * eTax (холболт асаалттай + entId татагдсан үед л) — `etaxDuePeriods(today)`-ийн
+   * маягт × тайлант үед Entry-д бүртгэлтэй илгээлтүүд (төлөв бүр; хамгийн сүүлийнх эхэнд).
+   * ТЕГ рүү амьд дуудлага ХИЙХГҮЙ — зөвхөн Entry-ийн өөрийн төлөв.
+   */
+  etax?: {
+    submissions: EtaxAttentionSubmission[];
   };
   /** QPay — `paid` боловч `saleId` null intent-үүд (≥ QPAY_PAID_UNFINALIZED_MINUTES). */
   qpay?: {
@@ -285,6 +302,68 @@ export function overdueTaxDeadlines(
   }
   return out;
 }
+
+export interface EtaxAttentionSubmission {
+  form: EtaxFormKey;
+  periodCode: string;
+  status: EtaxSubmissionStatus;
+  /** ТЕГ буцаасан шалтгаан (rejected). */
+  resultNote?: string | null;
+}
+
+export interface EtaxDuePeriod {
+  form: EtaxFormKey;
+  /** Маягтын тайлант үеийн код (YYYY-MM / YYYY-Qn). */
+  periodCode: string;
+  /** Хуулийн хугацаа (`deadlineOf`). */
+  dueDate: string;
+  /** Өнөөдрөөс хугацаа хүртэл (сөрөг = хэтэрсэн). */
+  daysLeft: number;
+}
+
+/**
+ * eTax: маягт бүрийн ОДОО тушаах ёстой тайлант үе — сарын маягтад өмнөх сар,
+ * улирлынхад сүүлийн ДУУССАН улирал. Хугацаа `lib/itc/etax/submission.ts`-ийн
+ * `deadlineOf` (хуанлитай нэг эх) — өдөр ЗОХИОХГҮЙ. Loader энэ жагсаалтаар л
+ * илгээлт уншина; дохио нь `attentionSignals`-д.
+ */
+export function etaxDuePeriods(today: string): EtaxDuePeriod[] {
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const prevMonth = month === 1 ? `${year - 1}-12` : `${year}-${pad(month - 1)}`;
+  const completedQuarters = Math.floor((month - 1) / 3);
+  const lastQuarterEnd = completedQuarters === 0 ? `${year - 1}-12` : `${year}-${pad(completedQuarters * 3)}`;
+  return ETAX_FORM_KEYS.map((form) => {
+    const kind = ETAX_FORMS[form].periodKind;
+    const periodCode = periodCodeFor(form, kind === "quarter" ? lastQuarterEnd : prevMonth);
+    const dueDate = deadlineOf(form, periodCode);
+    return { form, periodCode, dueDate, daysLeft: daysBetween(today, dueDate) };
+  });
+}
+
+/** Хоёр салаа «тушаагдсан» = submitted | accepted — ТЕГ-д хүрсэн. */
+const ETAX_FILED_STATUSES: readonly EtaxSubmissionStatus[] = ["submitted", "accepted"];
+
+/** Маягт × тайлант үеийн ХҮЧИН ТӨГӨЛДӨР илгээлт: амьд (draft…accepted) байвал тэр, үгүй бол сүүлийн буцаагдсан. */
+export function etaxEffectiveSubmission(
+  rows: EtaxAttentionSubmission[],
+  form: EtaxFormKey,
+  periodCode: string
+): EtaxAttentionSubmission | null {
+  const own = rows.filter((row) => row.form === form && row.periodCode === periodCode);
+  return own.find((row) => ETAX_ACTIVE_STATUSES.includes(row.status)) ?? own.find((row) => row.status === "rejected") ?? null;
+}
+
+const ETAX_STATUS_HINT: Readonly<Record<EtaxSubmissionStatus, string>> = {
+  draft: "Ноорог бэлтгэгдсэн — хянаад «Бэлэн» болгож ТЕГ-д хадгалаад илгээнэ.",
+  ready: "Бэлэн — ТЕГ-д хадгалаад илгээнэ.",
+  saved: "ТЕГ-д хадгалсан, илгээгээгүй — eTax-аас илгээнэ.",
+  submitted: "",
+  accepted: "",
+  rejected: "ТЕГ буцаасан — засаад шинээр бэлтгэнэ.",
+  cancelled: "Хүчингүй болгосон — шинээр бэлтгэнэ.",
+};
 
 // ── Дохионууд ────────────────────────────────────────────────────────────────
 
@@ -816,6 +895,86 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
           dedupeKey: `ebarimt:tax-sync:${input.today}`,
           audience: { kind: "roles", roles: ["owner", "admin"] },
           severity: "warning",
+        },
+      });
+    }
+  }
+
+  // eTax — ТЕГ-д тушаагаагүй тайлан: 7/3/1/0 хоногийн шат, хоцорсон бол долоо хоног
+  // тутам, буцаасан бол долоо хоног тутам. Зөвхөн холболттой байгууллагад (input.etax),
+  // хуанлийн `tax.deadline`-тай ДАВХАР биш: тэр нь тооцооны журнал, энэ нь ТЕГ-д ТУШААЛТ.
+  const etax = input.etax;
+  if (etax) {
+    const taxWrite: NotificationAudience = { kind: "module", moduleKeys: ["tax"], minLevel: "write" };
+    for (const due of etaxDuePeriods(today)) {
+      const month = periodRangeOf(due.form, due.periodCode).to.slice(0, 7);
+      if (!taxPeriodRelevant(due.form, month, input)) continue;
+      const current = etaxEffectiveSubmission(etax.submissions, due.form, due.periodCode);
+      if (current && ETAX_FILED_STATUSES.includes(current.status)) continue;
+      const meta = ETAX_FORMS[due.form];
+      const href = `/tax/etax?form=${due.form}&period=${month}`;
+      const statusText = current ? ETAX_STATUS_LABELS[current.status] : "бэлтгээгүй";
+      const hint = current ? ETAX_STATUS_HINT[current.status] : "Ноорог бэлтгээгүй — eTax-аас «Бэлтгэх» дарна.";
+
+      if (current?.status === "rejected") {
+        signals.push({
+          key: `etax-rejected-${due.form}-${due.periodCode}`,
+          tone: "danger",
+          title: `eTax: ${meta.shortLabel} (${due.periodCode}) тайланг ТЕГ буцаасан`,
+          detail: `${current.resultNote ? `${current.resultNote.slice(0, 200)}. ` : ""}${hint} Хугацаа ${due.dueDate}.`,
+          href,
+          action: "eTax руу",
+          surfaces: ["dashboard", "daily"],
+          notify: {
+            type: "tax.etax_rejected",
+            dedupeKey: `etax:rejected:${due.form}:${due.periodCode}:${week}`,
+            audience: taxWrite,
+            severity: "danger",
+            payload: { form: due.form, period: due.periodCode, dueDate: due.dueDate },
+          },
+        });
+        continue;
+      }
+
+      if (due.daysLeft >= 0) {
+        const bucket = alertBucket(due.daysLeft, TAX_ALERT_BUCKETS);
+        if (bucket === null) continue;
+        const when = due.daysLeft === 0 ? "ӨНӨӨДӨР дуусна" : `${due.daysLeft} хоног үлдлээ`;
+        signals.push({
+          key: `etax-due-${due.form}-${due.periodCode}`,
+          tone: bucket <= 1 ? "danger" : "warning",
+          title: `eTax: ${meta.shortLabel} (${due.periodCode}) ТЕГ-д тушаагаагүй — ${when}`,
+          detail: `${hint} Хугацаа ${due.dueDate}.`,
+          href,
+          action: "eTax руу",
+          surfaces: ["dashboard", "daily"],
+          notify: {
+            type: "tax.etax_due",
+            dedupeKey: `etax:due:${due.form}:${due.periodCode}:${bucket}`,
+            audience: taxWrite,
+            severity: bucket <= 1 ? "danger" : "warning",
+            payload: { form: due.form, period: due.periodCode, dueDate: due.dueDate, daysLeft: due.daysLeft, status: current?.status ?? null },
+          },
+        });
+        continue;
+      }
+
+      const daysOver = -due.daysLeft;
+      if (daysOver > TAX_OVERDUE_WINDOW_DAYS) continue;
+      signals.push({
+        key: `etax-overdue-${due.form}-${due.periodCode}`,
+        tone: "danger",
+        title: `eTax: ${meta.shortLabel} (${due.periodCode}) — тушаалт ${daysOver} хоног хоцорлоо`,
+        detail: `${due.dueDate}-ны хугацаа өнгөрсөн, ТЕГ-д тушаагаагүй (${statusText}). Хоцролтод алданги тооцогдож болзошгүй. ${hint}`,
+        href,
+        action: "eTax руу",
+        surfaces: ["dashboard", "daily"],
+        notify: {
+          type: "tax.etax_overdue",
+          dedupeKey: `etax:overdue:${due.form}:${due.periodCode}:${week}`,
+          audience: { kind: "module", moduleKeys: ["tax"], minLevel: "post" },
+          severity: "danger",
+          payload: { form: due.form, period: due.periodCode, dueDate: due.dueDate, daysOver, status: current?.status ?? null },
         },
       });
     }

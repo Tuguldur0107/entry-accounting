@@ -8,6 +8,8 @@ import {
   attentionSignals,
   dailyNotificationDrafts,
   dashboardAlerts,
+  etaxDuePeriods,
+  etaxEffectiveSubmission,
   isoWeekKey,
   overdueTaxDeadlines,
   type AttentionInput,
@@ -332,5 +334,126 @@ test("SIM2-045: бүртгүүлэхээс өмнөх / НӨАТ, цалинги
   assert.deepEqual(
     overdueKeys({ orgCreatedAt: "2025-01-01", taxActivity: { "2026-08": { vat: true, payroll: false } } }),
     ["tax-overdue-vat-2026-08"]
+  );
+});
+
+// ── eTax: ТЕГ-д тушаагаагүй / хоцорсон / буцаагдсан тайлан ─────────────────
+
+test("eTax: тушаах ёстой тайлант үе — сарын маягтад өмнөх сар, улирлынхад сүүлийн дууссан улирал; хугацаа deadlineOf", () => {
+  assert.deepEqual(
+    etaxDuePeriods("2026-10-07").map((d) => [d.form, d.periodCode, d.dueDate, d.daysLeft]),
+    [
+      ["vat", "2026-09", "2026-10-10", 3],
+      ["pit", "2026-09", "2026-10-10", 3],
+      ["cit", "2026-Q3", "2026-10-20", 13],
+    ]
+  );
+  // Оны эхэнд: өмнөх сар = 12-р сар, сүүлийн дууссан улирал = өмнөх оны Q4.
+  assert.deepEqual(
+    etaxDuePeriods("2027-01-05").map((d) => [d.form, d.periodCode, d.dueDate]),
+    [
+      ["vat", "2026-12", "2027-01-10"],
+      ["pit", "2026-12", "2027-01-10"],
+      ["cit", "2026-Q4", "2027-01-20"],
+    ]
+  );
+});
+
+test("eTax: холболтгүй (input.etax байхгүй) бол дохиогүй; холболттой, илгээлтгүй бол 7/3/1/0 шатанд самбар + daily", () => {
+  const none = attentionSignals(input("2026-10-07"));
+  assert.ok(!none.some((s) => s.key.startsWith("etax-")));
+
+  const signals = attentionSignals(input("2026-10-07", { etax: { submissions: [] } })).filter((s) =>
+    s.key.startsWith("etax-")
+  );
+  // ААНОАТ 13 хоног үлдсэн — шатнаас гадна.
+  assert.deepEqual(
+    signals.map((s) => [s.key, s.tone, s.title]),
+    [
+      ["etax-due-vat-2026-09", "warning", "eTax: НӨАТ (2026-09) ТЕГ-д тушаагаагүй — 3 хоног үлдлээ"],
+      ["etax-due-pit-2026-09", "warning", "eTax: ХАОАТ (2026-09) ТЕГ-д тушаагаагүй — 3 хоног үлдлээ"],
+    ]
+  );
+  const vat = signals[0];
+  assert.ok(vat.surfaces.includes("dashboard") && vat.surfaces.includes("daily"));
+  assert.equal(vat.href, "/tax/etax?form=vat&period=2026-09");
+  assert.equal(vat.notify?.type, "tax.etax_due");
+  assert.equal(vat.notify?.dedupeKey, "etax:due:vat:2026-09:3");
+  assert.deepEqual(vat.notify?.audience, { kind: "module", moduleKeys: ["tax"], minLevel: "write" });
+  assert.ok(vat.detail.includes("бэлтгээгүй"));
+  assert.ok(isNotificationType("tax.etax_due") && isNotificationType("tax.etax_overdue") && isNotificationType("tax.etax_rejected"));
+
+  // Хугацааны өдөр → шат 0, danger; дүн/дугаар зохиогдохгүй.
+  const due = attentionSignals(input("2026-10-10", { etax: { submissions: [] } })).find((s) => s.key === "etax-due-vat-2026-09")!;
+  assert.equal(due.tone, "danger");
+  assert.equal(due.notify?.dedupeKey, "etax:due:vat:2026-09:0");
+  assert.ok(due.title.includes("ӨНӨӨДӨР"));
+});
+
+test("eTax: тушаасан/хүлээн авсан бол чимээгүй; ноорог/бэлэн/хадгалсан төлөв тайлбарт; хоцорсон бол долоо хоног тутам danger", () => {
+  const at = (today: string, submissions: NonNullable<AttentionInput["etax"]>["submissions"]) =>
+    attentionSignals(input(today, { etax: { submissions } })).filter((s) => s.key.startsWith("etax-"));
+
+  // НӨАТ тушаасан, ХАОАТ ТЕГ-д хадгалсан (илгээгээгүй).
+  const mixed = at("2026-10-07", [
+    { form: "vat", periodCode: "2026-09", status: "submitted" },
+    { form: "pit", periodCode: "2026-09", status: "saved" },
+  ]);
+  assert.deepEqual(mixed.map((s) => s.key), ["etax-due-pit-2026-09"]);
+  assert.ok(mixed[0].detail.startsWith("ТЕГ-д хадгалсан, илгээгээгүй"));
+
+  // 2026-10-15: НӨАТ/ХАОАТ 5 хоног хоцорсон (ноорог л байгаа), ААНОАТ 5 хоног үлдсэн (шат 7).
+  const late = at("2026-10-15", [{ form: "vat", periodCode: "2026-09", status: "draft" }]);
+  assert.deepEqual(
+    late.map((s) => [s.key, s.tone, s.notify?.type, s.notify?.dedupeKey]),
+    [
+      ["etax-overdue-vat-2026-09", "danger", "tax.etax_overdue", "etax:overdue:vat:2026-09:2026-W42"],
+      ["etax-overdue-pit-2026-09", "danger", "tax.etax_overdue", "etax:overdue:pit:2026-09:2026-W42"],
+      ["etax-due-cit-2026-Q3", "warning", "tax.etax_due", "etax:due:cit:2026-Q3:7"],
+    ]
+  );
+  assert.equal(late[0].title, "eTax: НӨАТ (2026-09) — тушаалт 5 хоног хоцорлоо");
+  assert.ok(late[0].detail.includes("(Ноорог)"));
+  assert.deepEqual(late[0].notify?.audience, { kind: "module", moduleKeys: ["tax"], minLevel: "post" });
+  assert.equal(late[2].href, "/tax/etax?form=cit&period=2026-09");
+
+  // Цонх 20 хоног: 2026-11-05 → 2026-09-ийн НӨАТ 26 хоног хоцорсон — дохиогүй (одоо 2026-10-ынх
+  // 5 хоног үлдсэн); ААНОАТ Q3 16 хоног хоцорсон → хэвээр.
+  const old = at("2026-11-05", []);
+  assert.deepEqual(old.map((s) => s.key), ["etax-due-vat-2026-10", "etax-due-pit-2026-10", "etax-overdue-cit-2026-Q3"]);
+});
+
+test("eTax: ТЕГ буцаасан (амьд илгээлтгүй) бол danger + шалтгаан; шинэ ноорог үүссэн бол буцаалт давхар дуугарахгүй", () => {
+  const rows: NonNullable<AttentionInput["etax"]>["submissions"] = [
+    { form: "vat", periodCode: "2026-09", status: "rejected", resultNote: "Мэдээний дүн зөрсөн" },
+  ];
+  assert.equal(etaxEffectiveSubmission(rows, "vat", "2026-09")?.status, "rejected");
+  const [rejected] = attentionSignals(input("2026-10-07", { etax: { submissions: rows } })).filter(
+    (s) => s.key === "etax-rejected-vat-2026-09"
+  );
+  assert.equal(rejected.tone, "danger");
+  assert.equal(rejected.title, "eTax: НӨАТ (2026-09) тайланг ТЕГ буцаасан");
+  assert.ok(rejected.detail.startsWith("Мэдээний дүн зөрсөн."));
+  assert.equal(rejected.notify?.type, "tax.etax_rejected");
+  assert.equal(rejected.notify?.dedupeKey, "etax:rejected:vat:2026-09:2026-W41");
+
+  // Буцаагдсаны дараа шинэ ноорог (амьд) үүссэн → хүчин төгөлдөр нь ноорог, due-дохио л.
+  const withDraft = [...rows, { form: "vat" as const, periodCode: "2026-09", status: "draft" as const }];
+  assert.equal(etaxEffectiveSubmission(withDraft, "vat", "2026-09")?.status, "draft");
+  const keys = attentionSignals(input("2026-10-07", { etax: { submissions: withDraft } }))
+    .filter((s) => s.key.startsWith("etax-") && s.key.includes("-vat-"))
+    .map((s) => s.key);
+  assert.deepEqual(keys, ["etax-due-vat-2026-09"]);
+});
+
+test("eTax: SIM2-045 — бүртгүүлэхээс өмнөх / НӨАТ, цалингийн бичилтгүй сард тушаалтын дохио явахгүй", () => {
+  const keys = (overrides: Partial<AttentionInput>) =>
+    attentionSignals(input("2026-10-15", { etax: { submissions: [] }, ...overrides }))
+      .filter((s) => s.key.startsWith("etax-"))
+      .map((s) => s.key);
+  assert.deepEqual(keys({ orgCreatedAt: "2026-10-01" }), []);
+  assert.deepEqual(
+    keys({ orgCreatedAt: "2025-01-01", taxActivity: { "2026-09": { vat: false, payroll: true } } }),
+    ["etax-overdue-pit-2026-09", "etax-due-cit-2026-Q3"]
   );
 });

@@ -28,6 +28,8 @@ import {
   vatSettings,
   warehouses,
   ebarimtTpiConnections,
+  etaxConnections,
+  etaxSubmissions,
 } from "@/lib/db/schema";
 import { countAmountMismatch, countPaidUnfinalized } from "@/lib/qpay/store";
 import { fetchPosApiHealth } from "@/lib/ebarimt/client";
@@ -38,7 +40,9 @@ import { getEntitlements } from "@/lib/billing/load";
 import { periodCodeOf, periodRange, previousPeriodCode, shiftDays } from "@/lib/periods/period";
 import { computeTaxDeadlines } from "@/lib/tax/calendar";
 
-import { TOKEN_ALERT_DAYS, type AttentionInput, type DraftSummary } from "./attention";
+import type { EtaxFormKey, EtaxSubmissionStatus } from "@/lib/itc/etax/constants";
+
+import { TOKEN_ALERT_DAYS, etaxDuePeriods, type AttentionInput, type DraftSummary } from "./attention";
 
 type DatedDraftTable =
   | typeof journalVouchers
@@ -210,6 +214,36 @@ async function loadEbarimtTax(orgId: string): Promise<AttentionInput["ebarimtTax
   };
 }
 
+/**
+ * eTax — холболт асаалттай + entId татагдсан үед л. `etaxDuePeriods(today)`-ийн маягт ×
+ * тайлант үеийн илгээлтүүд (бүх төлөв, сүүлийнх эхэнд). ТЕГ рүү дуудлагагүй — Entry-ийн
+ * өөрийн төлөв. Нүүр (page.tsx) ба scheduler хоёул ЭНЭ loader-оор. Шидэхгүй.
+ */
+export async function loadEtaxAttention(orgId: string, today: string): Promise<AttentionInput["etax"]> {
+  const connection = await db.query.etaxConnections.findFirst({
+    where: and(eq(etaxConnections.organizationId, orgId), eq(etaxConnections.isEnabled, true), isNotNull(etaxConnections.entId)),
+    columns: { id: true },
+  });
+  if (!connection) return undefined;
+  const due = etaxDuePeriods(today);
+  const rows = await db.query.etaxSubmissions.findMany({
+    where: and(
+      eq(etaxSubmissions.organizationId, orgId),
+      or(...due.map((d) => and(eq(etaxSubmissions.form, d.form), eq(etaxSubmissions.periodCode, d.periodCode))))
+    ),
+    columns: { form: true, periodCode: true, status: true, resultNote: true },
+    orderBy: (t, { desc }) => [desc(t.createdAt)],
+  });
+  return {
+    submissions: rows.map((row) => ({
+      form: row.form as EtaxFormKey,
+      periodCode: row.periodCode,
+      status: row.status as EtaxSubmissionStatus,
+      resultNote: row.resultNote,
+    })),
+  };
+}
+
 async function loadQpay(orgId: string): Promise<AttentionInput["qpay"]> {
   const settings = await db.query.posSettings.findFirst({
     where: eq(posSettings.organizationId, orgId),
@@ -302,6 +336,7 @@ export async function loadAttentionInput(
     ebarimt,
     qpay,
     ebarimtTax,
+    etax,
   ] = await Promise.all([
     draftSummary(orgId, journalVouchers, "journal"),
     draftSummary(orgId, arApDocuments, "arap"),
@@ -372,6 +407,7 @@ export async function loadAttentionInput(
     loadEbarimt(orgId, today),
     loadQpay(orgId),
     loadEbarimtTax(orgId),
+    loadEtaxAttention(orgId, today),
   ]);
 
   let arOverdue = 0;
@@ -433,6 +469,7 @@ export async function loadAttentionInput(
     ebarimt,
     qpay,
     ebarimtTax,
+    etax,
     tokens: tokenRows
       .filter((token) => token.expiresAt)
       .map((token) => ({

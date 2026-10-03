@@ -164,7 +164,8 @@ lib/status.ts               ETAX_STATUS_TONES
 
 ## 6. Дараагийн алхам
 
-1. `attention.ts`: хуулийн хугацаа ойртсон тушаагаагүй тайлан (`getLateList`) → «Анхаарах»
+1. ~~`attention.ts`: тушаагаагүй тайлан → «Анхаарах»~~ — ✅ §9 (Entry-ийн төлвөөр); ТЕГ-ийн
+   `getLateList`-ийг өдрийн татлагаар нэмж тулгах нь дараагийн алхам
 2. MCP tool: `get_etax_submissions` (унших), `prepare_etax_vat_return` (ноорог); илгээх tool НЭМЭХГҮЙ
    (`[HUMAN_REQUIRED]` — татварын тайлан = хүний баталгаажуулалт)
 
@@ -212,3 +213,25 @@ lib/status.ts               ETAX_STATUS_TONES
 - ААНОАТ-д хавсралт мэдээ `sales`/`purchases` улирлын (жилийн эхнээс) мужаар; `payroll` сарын маягтад л
 - ХАОАТ-ын улирлын давтамж ТЕГ-д байвал `periodKind` constants-д солино (жагсаалтын `periodName`-аас
   staging-д батална — §5)
+
+## 9. «Анхаарах» дохио — тушаагаагүй / хоцорсон / буцаагдсан тайлан
+
+Эх: `lib/notifications/attention.ts` (НЭГ эх — нүүр + өдөр тутмын scheduler, `docs/dev/notifications.md`);
+оролт `lib/notifications/load-attention.ts` `loadEtaxAttention` (нүүр `page.tsx` ба scheduler хоёул ЭНЭ loader-оор).
+
+- **Зөвхөн холболттой байгууллагад** (`etax_connections.isEnabled` + `entId` татагдсан) — холболтгүй бол
+  `input.etax` undefined, дохиогүй (хуанлийн `tax.deadline` хэвээр)
+- **Тушаах ёстой тайлант үе** `etaxDuePeriods(today)`: сарын маягт (НӨАТ, ХАОАТ) → өмнөх сар; улирлын
+  (ААНОАТ) → сүүлийн ДУУССАН улирал; хугацаа ЗӨВХӨН `deadlineOf` (§8) — өдөр зохиохгүй
+- **Хүчин төгөлдөр илгээлт** `etaxEffectiveSubmission`: амьд (draft…accepted) байвал тэр, үгүй бол сүүлийн
+  `rejected`. `submitted`/`accepted` → чимээгүй
+- Дохио (бүгд самбар + daily, модуль `tax`):
+  - `tax.etax_due` — хугацаа 7/3/1/0 хоногийн шатанд, шат бүрд нэг (`etax:due:<маягт>:<үе>:<шат>`), write;
+    тайлбарт Entry-ийн төлөв (бэлтгээгүй / ноорог / бэлэн / ТЕГ-д хадгалсан) ба дараагийн алхам
+  - `tax.etax_overdue` — хугацаа хэтэрсэн (цонх `TAX_OVERDUE_WINDOW_DAYS` = 20), долоо хоног тутам
+    (`etax:overdue:<маягт>:<үе>:<W>`), post, danger. Алдангийн хувь кодод БАЙХГҮЙ («тооцогдож болзошгүй»)
+  - `tax.etax_rejected` — ТЕГ буцаасан, амьд шинэ илгээлтгүй бол долоо хоног тутам, danger, `resultNote` тайлбарт
+- SIM2-045 шүүлт хэвээр (`taxPeriodRelevant`): бүртгүүлэхээс өмнөх үе, НӨАТ/цалингийн бичилтгүй сар дуугарахгүй;
+  улирлын үед тайлант үеийн сүүлийн сараар
+- ТЕГ рүү амьд дуудлага ХИЙХГҮЙ (самбар хурдан) — ТЕГ-ийн `getLateList`-тэй тулгах нь §6
+- Тест `tests/notification-attention.test.ts` (eTax 5 тест)

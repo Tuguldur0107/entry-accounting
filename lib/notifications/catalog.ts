@@ -142,6 +142,30 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  // eTax (Цахим татварын систем) — ТЕГ-д тушаагаагүй / хоцорсон / буцаагдсан тайлан.
+  // Эх нь Entry-ийн etax_submissions төлөв (lib/notifications/attention.ts, өдөр тутам);
+  // хуанлийн tax.deadline-тай давхар биш — тэр нь тооцооны журнал, энэ нь ТУШААЛТ.
+  "tax.etax_due": {
+    category: "deadlines",
+    severity: "warning",
+    label: "eTax тайлан ТЕГ-д тушаагаагүй — хугацаа ойртлоо",
+    email: "instant",
+    inApp: true,
+  },
+  "tax.etax_overdue": {
+    category: "deadlines",
+    severity: "danger",
+    label: "eTax тайлангийн тушаалт хоцорлоо",
+    email: "instant",
+    inApp: true,
+  },
+  "tax.etax_rejected": {
+    category: "deadlines",
+    severity: "danger",
+    label: "eTax тайланг ТЕГ буцаасан",
+    email: "instant",
+    inApp: true,
+  },
   "arap.overdue": {
     category: "deadlines",
     severity: "warning",
