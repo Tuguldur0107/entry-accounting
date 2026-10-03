@@ -18,6 +18,7 @@ import { ITC_ERRORS, type ItcEnvironment } from "@/lib/itc/constants";
 import { isPeriodCode } from "@/lib/periods/period";
 import { ulaanbaatarToday } from "@/lib/periods/document-date";
 import { stateChangedError } from "@/lib/state-guard";
+import { etaxDuePeriods, etaxEffectiveSubmission, type EtaxAttentionSubmission } from "@/lib/notifications/attention";
 
 import {
   mappingProblems,
@@ -32,6 +33,7 @@ import { etaxClientId, etaxNeKey, type EtaxAuth } from "./client";
 import {
   ETAX_ACTIVE_STATUSES,
   ETAX_ERRORS,
+  ETAX_FORM_KEYS,
   ETAX_FORMS,
   type EtaxFormKey,
   ETAX_STATUS_LABELS,
@@ -55,7 +57,7 @@ import {
   type EtaxTaxpayer,
   type EtaxValidation,
 } from "./submission";
-import type { EtaxConnectionView, EtaxMappingView, EtaxPageData, EtaxSubmissionView } from "./types";
+import type { EtaxConnectionView, EtaxFormOverview, EtaxMappingView, EtaxOverview, EtaxPageData, EtaxSubmissionView } from "./types";
 
 type ConnectionRow = typeof etaxConnections.$inferSelect;
 type SubmissionRow = typeof etaxSubmissions.$inferSelect;
@@ -296,6 +298,70 @@ export async function loadEtaxPageData(orgId: string, monthCode: string, form: E
     live: { amounts: live.snapshot.amounts, deadline: live.snapshot.deadline },
     mapping: mapping ? toEtaxMappingView(mapping) : null,
   };
+}
+
+/**
+ * AI/MCP `get_etax_status` — холболт, маягт бүрийн холболтын бэлэн байдал, ОДОО тушаах ёстой
+ * тайлант үе (`etaxDuePeriods` — «Анхаарах»-тай НЭГ эх) ба түүний хүчин төгөлдөр илгээлт.
+ * ТЕГ рүү дуудлагагүй, нууц утгагүй.
+ */
+export async function loadEtaxOverview(orgId: string, today: string = ulaanbaatarToday()): Promise<EtaxOverview> {
+  const due = etaxDuePeriods(today);
+  const [connection, mappings, rows] = await Promise.all([
+    loadEtaxConnectionRow(orgId),
+    Promise.all(ETAX_FORM_KEYS.map((form) => loadEtaxMappingRow(orgId, form))),
+    db.query.etaxSubmissions.findMany({
+      where: and(
+        eq(etaxSubmissions.organizationId, orgId),
+        inArray(
+          etaxSubmissions.periodCode,
+          due.map((d) => d.periodCode)
+        )
+      ),
+      orderBy: [desc(etaxSubmissions.createdAt)],
+    }),
+  ]);
+  const attentionRows: EtaxAttentionSubmission[] = rows.map((row) => ({
+    form: isEtaxFormKey(row.form) ? row.form : "vat",
+    periodCode: row.periodCode,
+    status: statusOf(row.status),
+    resultNote: row.resultNote,
+  }));
+  const forms: EtaxFormOverview[] = ETAX_FORM_KEYS.map((form, index) => {
+    const mapping = mappings[index] ? toEtaxMappingView(mappings[index]!) : null;
+    const period = due.find((d) => d.form === form)!;
+    const effective = etaxEffectiveSubmission(attentionRows, form, period.periodCode);
+    const row = effective ? rows.find((r) => r.form === form && r.periodCode === period.periodCode && statusOf(r.status) === effective.status) : null;
+    return {
+      form,
+      code: ETAX_FORMS[form].code,
+      label: ETAX_FORMS[form].label,
+      mappingProblems: mapping ? mapping.problems : null,
+      sheetProblems: mapping ? mapping.sheetProblems : null,
+      due: { periodCode: period.periodCode, periodLabel: periodLabelOf(period.periodCode), dueDate: period.dueDate, daysLeft: period.daysLeft },
+      current: row ? toEtaxSubmissionView(row) : null,
+    };
+  });
+  return { today, connection: connection ? toEtaxConnectionView(connection) : null, forms };
+}
+
+/** AI/MCP `list_etax_submissions` — шүүлт DB-д (form / тайлант үе / төлөв), шинэ нь эхэнд. */
+export async function listEtaxSubmissionRows(
+  orgId: string,
+  filter: { form?: EtaxFormKey; periodCode?: string; status?: EtaxSubmissionStatus; limit?: number }
+): Promise<EtaxSubmissionView[]> {
+  const limit = Math.min(Math.max(Math.floor(filter.limit ?? 20), 1), 50);
+  const rows = await db.query.etaxSubmissions.findMany({
+    where: and(
+      eq(etaxSubmissions.organizationId, orgId),
+      filter.form ? eq(etaxSubmissions.form, filter.form) : undefined,
+      filter.periodCode ? eq(etaxSubmissions.periodCode, filter.periodCode) : undefined,
+      filter.status ? eq(etaxSubmissions.status, filter.status) : undefined
+    ),
+    orderBy: [desc(etaxSubmissions.updatedAt)],
+    limit,
+  });
+  return rows.map(toEtaxSubmissionView);
 }
 
 /**

@@ -517,6 +517,9 @@ Exclusive: Авлага = Нийт, Орлого = Нийт/1.1, НӨАТ өгл
 - **«Анхаарах» дохио** (§9): тушаагаагүй (7/3/1/0), хоцорсон, ТЕГ буцаасан тайлан ЗӨВХӨН
   `attention.ts`-д (`etaxDuePeriods`, хугацаа `deadlineOf`), холболттой байгууллагад л, ТЕГ рүү амьд
   дуудлагагүй; алдангийн хувь кодод байхгүй
+- **AI/MCP tool** (§10): `get_etax_status`, `list_etax_submissions` (унших), `prepare_etax_return`
+  (ЗӨВХӨН ноорог), `refresh_etax_submission_status` (ТЕГ-ээс унших) — ТЕГ-д хадгалах/илгээх/төлөв солих
+  tool НЭМЭХГҮЙ `[HUMAN_REQUIRED]` (`tests/etax-tools.test.ts`)
 
 ### 7. Цалин (Payroll) — Gross → Net — ХЭРЭГЖСЭН
 

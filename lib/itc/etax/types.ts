@@ -101,3 +101,23 @@ export interface EtaxPageData {
   /** Маягтын нүдний холболт — null бол тохируулаагүй (API-аар хадгалах боломжгүй). */
   mapping: EtaxMappingView | null;
 }
+
+/** AI/MCP `get_etax_status` — маягт бүрийн бэлэн байдал ба одоо тушаах ёстой тайлант үе. */
+export interface EtaxFormOverview {
+  form: EtaxFormKey;
+  code: string;
+  label: string;
+  /** Нүдний холболтын дутуу — null = холболт огт тохируулаагүй. */
+  mappingProblems: string[] | null;
+  sheetProblems: string[] | null;
+  /** Одоо тушаах ёстой тайлант үе (`etaxDuePeriods`): daysLeft сөрөг = хугацаа хэтэрсэн. */
+  due: { periodCode: string; periodLabel: string; dueDate: string; daysLeft: number };
+  /** Тэр үеийн хүчин төгөлдөр илгээлт (амьд, үгүй бол сүүлийн буцаагдсан) — null = бэлтгээгүй. */
+  current: EtaxSubmissionView | null;
+}
+
+export interface EtaxOverview {
+  today: string;
+  connection: EtaxConnectionView | null;
+  forms: EtaxFormOverview[];
+}

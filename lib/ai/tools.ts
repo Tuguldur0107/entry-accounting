@@ -132,6 +132,10 @@ import type {
 import { computeMonthlyCosting } from "@/lib/actions/costing-period";
 import { closePeriod, listPeriods, reopenPeriod } from "@/lib/actions/periods";
 import { createVatSettlementDraft, getVatReturnData } from "@/lib/actions/vat";
+import { getEtaxOverview, listEtaxSubmissions, prepareEtaxReturn, refreshEtaxSubmissionStatus } from "@/lib/actions/etax";
+import { ETAX_FIELD_LABELS, ETAX_FORMS, ETAX_STATUS_LABELS, isEtaxFormKey, type EtaxFormKey } from "@/lib/itc/etax/constants";
+import { periodCodeFor } from "@/lib/itc/etax/submission";
+import type { EtaxSubmissionView } from "@/lib/itc/etax/types";
 import { getMonthEndChecklist } from "@/lib/actions/month-end";
 import {
   calculatePayrollRun,
@@ -1989,6 +1993,52 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["period"],
+    },
+  },
+  // ── eTax — Цахим татварын систем (docs/dev/etax.md §10) ─────────────────────
+  {
+    name: "get_etax_status",
+    description:
+      "eTax (Цахим татварын систем, ТЕГ) холболтын байдал: нэвтрэлт (нягтлангийн хувийн эрх) тохируулсан/асаалттай эсэх, ТЕГ-ийн байгууллагын дугаар татагдсан эсэх, серверийн NE-KEY бэлэн эсэх; маягт бүрд (НӨАТ ТТ-03А, ХАОАТ ТТ-11, ААНОАТ ТТ-02) нүдний/мэдээний холболтын дутуу, ОДОО тушаах ёстой тайлант үе, хуулийн хугацаа, үлдсэн/хэтэрсэн хоног, Entry-д бэлтгэсэн илгээлтийн төлөв. ЗӨВХӨН унших — ТЕГ рүү дуудлагагүй, нууц буцахгүй. Холболт, нүдний холболт нь ЗӨВХӨН вэбээс (Татвар → eTax тайлан, админ).",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_etax_submissions",
+    description:
+      "eTax илгээлтийн түүх (Entry-д бэлтгэсэн тайлангууд): маягт, тайлант үе, төлөв (draft ноорог / ready бэлэн / saved ТЕГ-д хадгалсан / submitted тушаасан / accepted хүлээн авсан / rejected буцаасан / cancelled), ТЕГ-ийн reportNo ба төлөв, гол дүнгүүд, шалгалтын алдааны тоо. Шүүлт DB-д.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        form: { type: "string", enum: ["vat", "pit", "cit"], description: "Маягт: vat = НӨАТ ТТ-03А, pit = ХАОАТ ТТ-11, cit = ААНОАТ ТТ-02" },
+        period: { type: "string", description: "Тайлант үеийн код — сарын маягтад YYYY-MM, ААНОАТ-д YYYY-Qn" },
+        status: { type: "string", enum: ["draft", "ready", "saved", "submitted", "accepted", "rejected", "cancelled"], description: "Төлвөөр шүүх" },
+        limit: { type: "number", description: "Хамгийн ихдээ (default 20, ≤ 50)" },
+      },
+    },
+  },
+  {
+    name: "prepare_etax_return",
+    description:
+      "Татварын тайланг eTax-д тушаахад БЭЛТГЭНЭ — Entry-ийн бодолтоос НООРОГ илгээлт үүсгэнэ/шинэчилнэ (дүн зохиохгүй: НӨАТ get_vat_return-той ижил тооцоо, ХАОАТ цалингийн бодолтоос, ААНОАТ GL-ийн орлого/зардал + элэгдлийн зөрүү — татварын дүн, хувь Entry-д бодогдохгүй, ТЕГ-ийн маягтад). Уялдааны шалгалтын алдаа/анхааруулгыг буцаана. Аль ч горимд ЗӨВХӨН ноорог: хүн вэбээс (Татвар → eTax тайлан) хянаж «Бэлэн» болгоод ТЕГ-д хадгалж, илгээнэ — ТЕГ-д хадгалах/илгээх tool БАЙХГҮЙ [HUMAN_REQUIRED] (татварын тайлан = хүний гарын үсэг). Тушаасан/хүлээн авсан үеийг дахин бэлтгэхгүй.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        form: { type: "string", enum: ["vat", "pit", "cit"], description: "Маягт: vat = НӨАТ ТТ-03А (сар), pit = ХАОАТ ТТ-11 (сар), cit = ААНОАТ ТТ-02 (улирал, жилийн эхнээс)" },
+        period: { type: "string", description: "Сар YYYY-MM (ААНОАТ-д тэр сарын улирал бэлтгэгдэнэ; YYYY-Qn ч болно)" },
+      },
+      required: ["form", "period"],
+    },
+  },
+  {
+    name: "refresh_etax_submission_status",
+    description:
+      "ТЕГ-д хадгалсан/илгээсэн eTax илгээлтийн ТЕГ-ийн төлвийг татаж шинэчилнэ (getHistory — ЗӨВХӨН унших; урагш л: ТЕГ-д хадгалсан → тушаасан, тушаасан → хүлээн авсан / буцаасан). ТЕГ рүү юу ч илгээхгүй. Холболт + ТЕГ-ийн байгууллагын дугаар шаардана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Илгээлтийн ID (list_etax_submissions / get_etax_status-оос, бүтэн эсвэл 8+ тэмдэгт)" },
+      },
+      required: ["id"],
     },
   },
 
@@ -8444,6 +8494,115 @@ async function runCreateVatSettlement(
   };
 }
 
+// ── eTax гүйцэтгэгчид (docs/dev/etax.md §10) ─────────────────────────────────
+
+const ETAX_TOOL_FORM_LABEL = (form: EtaxFormKey) => `${ETAX_FORMS[form].shortLabel} ${ETAX_FORMS[form].code}`;
+
+function etaxFormOf(value: unknown): EtaxFormKey {
+  if (!isEtaxFormKey(value)) throw codedError("INVALID_INPUT", "form: vat / pit / cit-ийн аль нэг");
+  return value;
+}
+
+/** Илгээлтийн товч мөр — гол дүн маягтын картын талбараар, дүн зохиохгүй. */
+function etaxSubmissionLine(view: EtaxSubmissionView): string {
+  const amounts = ETAX_FORMS[view.form].cardFields
+    .map((field) => `${ETAX_FIELD_LABELS[field] ?? field} ${fmt(view.snapshot.amounts[field] ?? 0)}₮`)
+    .join(", ");
+  const errors = view.validation?.errors.length ?? 0;
+  const warnings = view.validation?.warnings.length ?? 0;
+  const tax = [
+    view.reportNo != null ? `reportNo ${view.reportNo}` : "",
+    view.taxStatusName ? `ТЕГ: ${view.taxStatusName}` : "",
+    view.taxReference && view.reportNo == null ? `ТЕГ №${view.taxReference}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `${view.id.slice(0, 8)} · ${ETAX_TOOL_FORM_LABEL(view.form)} ${view.periodCode} · ${ETAX_STATUS_LABELS[view.status]}${tax ? ` (${tax})` : ""} · хугацаа ${view.snapshot.deadline} · ${amounts}${errors || warnings ? ` · шалгалт: алдаа ${errors}, анхааруулга ${warnings}` : ""}${view.resultNote ? ` · ${view.resultNote.slice(0, 120)}` : ""}`;
+}
+
+async function runGetEtaxStatus(): Promise<AiToolResult> {
+  const overview = unwrapAction(await getEtaxOverview());
+  const c = overview.connection;
+  const lines: string[] = [];
+  if (!c) {
+    lines.push("eTax холболт: ТОХИРУУЛААГҮЙ — вэбээс Татвар → eTax тайлан → Тохиргоо (админ): нягтлангийн eTax нэвтрэх нэр, нууц үг оруулаад «Байгууллага татах».");
+  } else {
+    lines.push(
+      `eTax холболт: ${c.isEnabled ? "АСААЛТТАЙ" : "УНТРААЛТТАЙ"} · орчин ${c.environment} · нэвтрэх нэр ${c.username}${c.lastCheckOkAt ? ` · нэвтрэлт сүүлд амжилттай ${c.lastCheckOkAt.slice(0, 16).replace("T", " ")}` : " · нэвтрэлт шалгагдаагүй"}${c.lastCheckError ? ` · сүүлийн алдаа: ${c.lastCheckError.slice(0, 160)}` : ""}`,
+      c.entId != null
+        ? `ТЕГ-ийн байгууллага: ${c.entName ?? "?"} (ТТД ${c.entTin ?? "?"}, дугаар ${c.entId}${c.branchName ? `, ${c.branchName}` : ""})`
+        : "ТЕГ-ийн байгууллагын дугаар ТАТАГДААГҮЙ — вэбээс «Байгууллага татах» (компанийн регистрээр сонгогдоно); үүнгүйгээр ТЕГ-д хадгалах/илгээх боломжгүй",
+      c.apiReady ? "Серверийн NE-KEY: бэлэн" : "Серверийн NE-KEY: ТОХИРУУЛААГҮЙ — ТЕГ-ийн API дуудлага боломжгүй, Entry багт хандана"
+    );
+  }
+  for (const f of overview.forms) {
+    const mapping =
+      f.mappingProblems === null
+        ? "нүдний холболт тохируулаагүй (вэбээс «Загвар татах» → холбох)"
+        : f.mappingProblems.length
+          ? `нүдний холболт дутуу: ${f.mappingProblems.slice(0, 3).join("; ")}`
+          : `нүдний холболт бэлэн${f.sheetProblems?.length ? `; мэдээний холболт дутуу: ${f.sheetProblems.slice(0, 2).join("; ")}` : ""}`;
+    const when =
+      f.due.daysLeft < 0
+        ? `хугацаа ${f.due.dueDate} — ${-f.due.daysLeft} хоног ХЭТЭРСЭН`
+        : f.due.daysLeft === 0
+          ? `хугацаа ${f.due.dueDate} — ӨНӨӨДӨР`
+          : `хугацаа ${f.due.dueDate} — ${f.due.daysLeft} хоног үлдсэн`;
+    const current = f.current ? etaxSubmissionLine(f.current) : "Entry-д бэлтгээгүй — prepare_etax_return-оор ноорог бэлтгэнэ";
+    lines.push(`${ETAX_TOOL_FORM_LABEL(f.form)} — ${f.label}: ${mapping}
+  Тушаах ёстой үе ${f.due.periodCode} (${f.due.periodLabel}), ${when}
+  ${current}`);
+  }
+  lines.push("ТЕГ-д хадгалах, илгээх нь ЗӨВХӨН вэбээс хүн (Татвар → eTax тайлан) — энэ холболтоор tool байхгүй [HUMAN_REQUIRED].");
+  return { resultText: lines.join("\n") };
+}
+
+async function runListEtaxSubmissions(input: { form?: string; period?: string; status?: string; limit?: number }): Promise<AiToolResult> {
+  const { submissions } = unwrapAction(
+    await listEtaxSubmissions({ form: input.form ?? null, periodCode: input.period ?? null, status: input.status ?? null, limit: input.limit ?? null })
+  );
+  if (submissions.length === 0) return { resultText: "eTax илгээлт олдсонгүй (шүүлтэд таарах мөр алга)" };
+  return { resultText: [`eTax илгээлт ${submissions.length}:`, ...submissions.map((view) => `  ${etaxSubmissionLine(view)}`)].join("\n") };
+}
+
+async function runPrepareEtaxReturn(input: { form: string; period: string }): Promise<AiToolResult> {
+  const form = etaxFormOf(input.form);
+  const raw = String(input.period ?? "").trim();
+  // ААНОАТ-д YYYY-Qn-ийг шууд, бусад тохиолдолд сарын кодоос маягтын тайлант үе рүү (`periodCodeFor` — хугацаа зохиохгүй).
+  const periodCode = /^\d{4}-Q[1-4]$/.test(raw) && ETAX_FORMS[form].periodKind === "quarter" ? raw : periodCodeFor(form, raw);
+  const result = unwrapAction(await prepareEtaxReturn({ form, periodCode }));
+  const view = result.submission;
+  const validation = view.validation;
+  const amounts = ETAX_FORMS[form].fields
+    .map((field) => `  ${ETAX_FIELD_LABELS[field] ?? field}: ${fmt(view.snapshot.amounts[field] ?? 0)}₮`)
+    .join("\n");
+  const lines = [
+    `${ETAX_TOOL_FORM_LABEL(form)} ${view.periodCode} — ${result.created ? "НООРОГ бэлтгэгдлээ" : result.revertedToDraft ? "дүн зөрсөн тул НООРОГ руу буцаж дахин бодогдлоо" : `дахин бодогдлоо (төлөв «${ETAX_STATUS_LABELS[view.status]}» хэвээр)`} (ID: ${view.id.slice(0, 8)})`,
+    `Өгөгдлийн муж ${view.snapshot.range.from} … ${view.snapshot.range.to}; хуулийн хугацаа ${view.snapshot.deadline}`,
+    amounts,
+    validation?.errors.length ? `АЛДАА (засахгүй бол «Бэлэн» болохгүй): ${validation.errors.join("; ")}` : "Уялдааны шалгалт: алдаагүй",
+    validation?.warnings.length ? `Анхааруулга: ${validation.warnings.join("; ")}` : "",
+    "Дараагийн алхам — вэбээс хүн (Татвар → eTax тайлан): хянаад «Бэлэн» → «ТЕГ-д хадгалах» → (мэдээ бичих) → «ТЕГ-д илгээх». Энэ холболтоор ТЕГ-д хадгалах/илгээх tool байхгүй [HUMAN_REQUIRED].",
+  ].filter(Boolean);
+  return { resultText: lines.join("\n") };
+}
+
+async function runRefreshEtaxSubmissionStatus(input: { id: string }): Promise<AiToolResult> {
+  const ref = String(input.id ?? "").trim();
+  // Угтвараар: list-ээс олоод бүтэн ID-гаар дуудна (тодорхойгүй бол алдаа — таахгүй).
+  const { submissions } = unwrapAction(await listEtaxSubmissions({ limit: 50 }));
+  const matches = submissions.filter((view) => view.id === ref || (ref.length >= 8 && view.id.startsWith(ref.toLowerCase())));
+  if (matches.length === 0) throw codedError("NOT_FOUND", `"${ref}" гэсэн ID-тай eTax илгээлт олдсонгүй — list_etax_submissions-оор шалгана уу`);
+  if (matches.length > 1) throw codedError("AMBIGUOUS", `"${ref}" гэхэд ${matches.length} илгээлт таарлаа — бүтэн ID өгнө үү`);
+  const result = unwrapAction(await refreshEtaxSubmissionStatus({ id: matches[0].id }));
+  const view = result.submission;
+  return {
+    resultText: result.found
+      ? `ТЕГ-ийн төлөв шинэчлэгдлээ: ${etaxSubmissionLine(view)}`
+      : `ТЕГ-ийн түүхэд энэ илгээлт олдсонгүй (${ETAX_TOOL_FORM_LABEL(view.form)} ${view.periodCode}, Entry-ийн төлөв «${ETAX_STATUS_LABELS[view.status]}») — ТЕГ-д хадгалаагүй бол вэбээс хадгална`,
+  };
+}
+
 // ── Өртөг гүйцэтгэгчид ──────────────────────────────────────────────────────
 
 async function runMonthlyCosting(
@@ -13459,6 +13618,14 @@ async function dispatchAiTool(
         return await runGetVatReturn(orgId, args);
       case "create_vat_settlement":
         return await runCreateVatSettlement(orgId, args);
+      case "get_etax_status":
+        return await runGetEtaxStatus();
+      case "list_etax_submissions":
+        return await runListEtaxSubmissions(args);
+      case "prepare_etax_return":
+        return await runPrepareEtaxReturn(args);
+      case "refresh_etax_submission_status":
+        return await runRefreshEtaxSubmissionStatus(args);
       case "run_monthly_costing":
         return await runMonthlyCosting(orgId, args);
       case "post_cost_entries":
